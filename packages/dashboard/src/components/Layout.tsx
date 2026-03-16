@@ -3,6 +3,15 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useCurrentReport } from '@/context/CurrentReportContext';
 import { useReports } from '@/hooks/useReports';
 import { useScanContext, formatElapsed } from '@/context/ScanContext';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 
 type Props = { children: ReactNode };
 
@@ -10,7 +19,7 @@ type Props = { children: ReactNode };
 export function Layout({ children }: Props) {
   const { reportId } = useCurrentReport();
   const { reports, refresh: refreshReports } = useReports();
-  const { scanning, scanState, elapsed, abortScan } = useScanContext();
+  const { scanning, scanState, elapsed, abortScan, completedReportId, clearCompletedReport } = useScanContext();
   const [showReports, setShowReports] = useState(false);
   const [progressVisible, setProgressVisible] = useState(false);
   const navigate = useNavigate();
@@ -263,6 +272,27 @@ export function Layout({ children }: Props) {
         </p>
       </footer>
 
+      <Dialog open={!!completedReportId} onOpenChange={open => { if (!open) clearCompletedReport(); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Scan complete</DialogTitle>
+            <DialogDescription>
+              Your accessibility scan has finished. View the report to see violations, page results, and manual audit checklists.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={clearCompletedReport}>Dismiss</Button>
+            <Button
+              onClick={() => {
+                navigate(`/reports/${completedReportId}`);
+                clearCompletedReport();
+              }}
+            >
+              View Report
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
