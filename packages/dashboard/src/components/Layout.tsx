@@ -10,7 +10,7 @@ type Props = { children: ReactNode };
 export function Layout({ children }: Props) {
   const { reportId } = useCurrentReport();
   const { reports, refresh: refreshReports } = useReports();
-  const { scanning, scanState, elapsed, crawlingUrl, abortScan } = useScanContext();
+  const { scanning, scanState, elapsed, abortScan } = useScanContext();
   const [showReports, setShowReports] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 

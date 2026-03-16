@@ -47,7 +47,6 @@ export function Dashboard() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const hasReports = !loading && (reports?.length ?? 0) > 0;
 
   const [showScanForm, setShowScanForm] = useState(false);
 
