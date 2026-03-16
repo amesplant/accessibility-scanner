@@ -21,8 +21,8 @@ export class Reporter {
    * newlines are preserved; description text may contain Markdown and
    * will typically span multiple lines.
    */
-  exportToCsv(report: ScanReport, selectedViolations?: string[], tasklistName?: string): string {
-    const rows = this.buildRows(report, selectedViolations, tasklistName);
+  exportToCsv(report: ScanReport, selectedViolations?: string[], tasklistName?: string, selectedLevels?: string[]): string {
+    const rows = this.buildRows(report, selectedViolations, tasklistName, selectedLevels);
     const manualRows = this.buildManualAuditRows(report);
 
     const allRows = manualRows.length > 0 ? [...rows, ...manualRows] : rows;
@@ -46,11 +46,11 @@ export class Reporter {
    * as the CSV export and leaves all styling up to the caller (no fancy
    * formatting is performed).
    */
-  async exportToExcel(report: ScanReport, selectedViolations?: string[], tasklistName?: string): Promise<Buffer> {
+  async exportToExcel(report: ScanReport, selectedViolations?: string[], tasklistName?: string, selectedLevels?: string[]): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Accessibility');
 
-    const rows = this.buildRows(report, selectedViolations, tasklistName);
+    const rows = this.buildRows(report, selectedViolations, tasklistName, selectedLevels);
     rows.forEach((row: string[]) => {
       sheet.addRow(row);
     });
@@ -77,7 +77,7 @@ export class Reporter {
     return Buffer.from(buf as ArrayBuffer);
   }
 
-  private buildRows(report: ScanReport, selectedViolations?: string[], tasklistName?: string): string[][] {
+  private buildRows(report: ScanReport, selectedViolations?: string[], tasklistName?: string, selectedLevels?: string[]): string[][] {
     const rows: string[][] = [];
 
     // header row matching sample file
@@ -116,7 +116,14 @@ export class Reporter {
 
     report.results.forEach(result => {
       result.violations
-        .filter(v => !selectedViolations || selectedViolations.includes(v.id))
+        .filter(v => {
+            if (selectedViolations && !selectedViolations.includes(v.id)) return false;
+            if (selectedLevels && selectedLevels.length > 0) {
+              const vLevel = v.level ?? 'best-practice';
+              if (!selectedLevels.includes(vLevel)) return false;
+            }
+            return true;
+          })
         .forEach(violation => {
           if (!violationGroups.has(violation.id)) {
             violationGroups.set(violation.id, {
@@ -184,6 +191,149 @@ export class Reporter {
     });
 
     return rows;
+  }
+
+  /**
+   * Export a Jira-compatible CSV.  Each row is one violation type with the
+   * fields Jira's CSV importer expects: Summary, Issue Type, Priority, Labels,
+   * Description (Jira wiki markup).
+   */
+  exportToJiraCsv(report: ScanReport, selectedViolations?: string[], selectedLevels?: string[]): string {
+    const rows: string[][] = [];
+
+    rows.push(['Summary', 'Issue Type', 'Priority', 'Labels', 'Description']);
+
+    const violationGroups = new Map<
+      string,
+      { violation: AxeViolation; pageNodes: Array<{ url: string; html: string }>; count: number }
+    >();
+
+    report.results.forEach(result => {
+      result.violations
+        .filter(v => {
+          if (selectedViolations && !selectedViolations.includes(v.id)) return false;
+          if (selectedLevels && selectedLevels.length > 0) {
+            const vLevel = v.level ?? 'best-practice';
+            if (!selectedLevels.includes(vLevel)) return false;
+          }
+          return true;
+        })
+        .forEach(violation => {
+          if (!violationGroups.has(violation.id)) {
+            violationGroups.set(violation.id, { violation, pageNodes: [], count: 0 });
+          }
+          const group = violationGroups.get(violation.id)!;
+          violation.nodes.forEach(node => {
+            group.pageNodes.push({ url: result.url, html: node.html });
+            group.count++;
+          });
+        });
+    });
+
+    violationGroups.forEach(({ violation, pageNodes, count }) => {
+      const seen = new Set<string>();
+      const uniqueEntries = pageNodes.filter(p => {
+        const key = `${p.url}||${p.html}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      const pagesForDescription = uniqueEntries.length > 100
+        ? [...new Set(uniqueEntries.map(p => p.url))].map(url => ({ url, html: '' }))
+        : uniqueEntries;
+
+      const wcagTags = this.wcagCriteriaTags(violation.tags);
+      const firstCriterion = wcagTags[0]?.replace('WCAG ', '') ?? '';
+      const level = violation.level ?? 'best-practice';
+      const levelLabel = level !== 'best-practice' ? level : 'BP';
+      const summary = firstCriterion
+        ? `${firstCriterion} ${violation.help} | ${levelLabel}`
+        : `${violation.help} | ${levelLabel}`;
+
+      const priority = this.jiraPriority(violation.impact);
+
+      // Labels: space-separated (Jira convention)
+      const labelParts = ['Accessibility', 'Automated'];
+      if (level !== 'best-practice') labelParts.push(`WCAG-${level}`);
+      wcagTags.forEach(t => labelParts.push(t.replace(/\s/g, '-')));
+      const labels = labelParts.join(' ');
+
+      const description = this.buildJiraDescription(violation, pagesForDescription, count, uniqueEntries[0]?.html ?? '');
+
+      rows.push([summary, 'Task', priority, labels, description]);
+    });
+
+    return rows
+      .map(row =>
+        row
+          .map(cell =>
+            cell.includes(',') || cell.includes('"') || cell.includes('\n')
+              ? `"${cell.replace(/"/g, '""')}"`
+              : cell
+          )
+          .join(',')
+      )
+      .join('\n');
+  }
+
+  private jiraPriority(impact: AxeViolation['impact']): string {
+    const map: Record<AxeViolation['impact'], string> = {
+      critical: 'Highest',
+      serious:  'High',
+      moderate: 'Medium',
+      minor:    'Low',
+    };
+    return map[impact] ?? 'Low';
+  }
+
+  private buildJiraDescription(
+    violation: AxeViolation,
+    pages: Array<{ url: string; html: string }>,
+    totalInstances: number,
+    firstSnippet: string = ''
+  ): string {
+    const displayedPages = pages.length > 200 ? pages.slice(0, 200) : pages;
+    const moreNote = pages.length > 200 ? '\nPlease see the dashboard for additional URLs.' : '';
+
+    const pageList = displayedPages.map(p =>
+      p.html
+        ? `* ${p.url}\n{code:html}\n${p.html}\n{code}`
+        : `* ${p.url}`
+    ).join('\n');
+
+    return `h3. Issue Description
+
+${violation.description}
+
+h3. Code Snippet
+
+{code:html}
+${firstSnippet || 'see affected pages below'}
+{code}
+
+h3. Affected Pages (${totalInstances})
+
+${pageList}${moreNote}
+
+h3. Remediation
+
+*${violation.help}*
+
+For more information: ${violation.helpUrl}
+
+_Replace this section with the steps required to fix this issue._
+
+h3. Steps to QA
+
+_Replace this section with steps to validate the issue has been resolved._
+
+h3. Recommended Assignment
+
+* [ ] Content
+* [ ] Design
+* [ ] Engineer
+`;
   }
 
   private collectManualChecks(report: ScanReport): ManualCheckResult[] {

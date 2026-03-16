@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { ScanReport } from '@accessibility-scanner/shared';
+import { Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,151 +11,114 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useExport, EXPORT_FORMAT_LABELS } from '@/hooks/useExport';
 
 interface ExportDataProps {
   report: ScanReport;
 }
 
+const LEVELS = [
+  { value: 'A', label: 'Level A' },
+  { value: 'AA', label: 'Level AA' },
+  { value: 'AAA', label: 'Level AAA' },
+  { value: 'best-practice', label: 'Best Practice' },
+] as const;
+
 export function ExportData({ report }: ExportDataProps) {
+  const id = useId();
+  const formatLabelId = `${id}-format`;
+  const tasklistId = `${id}-tasklist`;
+  const fileNameId = `${id}-filename`;
 
-  const [selectedViolation, setSelectedViolation] = useState<string | null>(null);
-  const [exportFormat, setExportFormat] = useState<'csv' | 'excel'>('excel');
-  const [tasklistName, setTasklistName] = useState('Accessibility Audit');
+  const { format, setFormat, tasklistName, setTasklistName, isExporting, doExport } = useExport(report.id);
+  const [selectedLevels, setSelectedLevels] = useState<string[]>(['A', 'AA', 'AAA', 'best-practice']);
   const [fileName, setFileName] = useState(`accessibility-issues-${report.id}`);
-  const [isExporting, setIsExporting] = useState(false);
 
-  const handleExport = async (types: string[]) => {
-    setIsExporting(true);
-    try {
-      if (exportFormat === 'csv') {
-        const response = await fetch(`/api/reports/${report.id}/export/csv`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            selectedViolations: types,
-            tasklistName: tasklistName.trim() || undefined,
-          }),
-        });
-        const csvData = await response.text();
-        const blob = new Blob([csvData], { type: 'text/csv' });
-        const name = fileName.trim() || `accessibility-issues-${report.id}`;
-        downloadFile(blob, `${name}.csv`);
-      } else {
-        // excel
-        const response = await fetch(`/api/reports/${report.id}/export/excel`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            selectedViolations: types,
-            tasklistName: tasklistName.trim() || undefined,
-          }),
-        });
-        const arrayBuffer = await response.arrayBuffer();
-        const blob = new Blob([arrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-        const name = fileName.trim() || `accessibility-issues-${report.id}`;
-        downloadFile(blob, `${name}.xlsx`);
-      }
-    } catch (error) {
-      console.error('Export failed:', error);
-    } finally {
-      setIsExporting(false);
-    }
-  };
+  function toggleLevel(value: string) {
+    setSelectedLevels(prev =>
+      prev.includes(value) ? prev.filter(l => l !== value) : [...prev, value]
+    );
+  }
 
-  const downloadFile = (blob: Blob, filename: string) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const violationTypes = Object.entries(report.summary.violationsByType).map(
-    ([type, count]) => ({ type, count })
-  );
+  const exportBtnClass =
+    'inline-flex items-center gap-1.5 hover:bg-primary/20 hover:border-primary';
 
   return (
     <div className="max-w-2xl p-6 border rounded-lg bg-background">
       <h2 className="text-lg font-semibold mb-4">Export Accessibility Issues</h2>
       <div className="space-y-4">
-          <div>
-            <Label htmlFor="export-format">Export Format</Label>
-            <Select
-              value={exportFormat}
-              onValueChange={(v: string) => setExportFormat(v as 'csv'|'excel')}
-            >
-              <SelectTrigger id="export-format">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="excel">Teamwork (.xlsx)</SelectItem>
-                <SelectItem value="csv">CSV (.csv)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+        <div>
+          <Label id={formatLabelId}>Export Format</Label>
+          <Select value={format} onValueChange={v => setFormat(v as 'csv' | 'excel')}>
+            <SelectTrigger aria-labelledby={formatLabelId}>
+              <SelectValue>{EXPORT_FORMAT_LABELS[format]}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="excel">{EXPORT_FORMAT_LABELS.excel}</SelectItem>
+              <SelectItem value="csv">{EXPORT_FORMAT_LABELS.csv}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
-          <div>
-            <Label htmlFor="tasklist-name">Tasklist Name</Label>
-            <Input
-              id="tasklist-name"
-              type="text"
-              value={tasklistName}
-              onChange={e => setTasklistName(e.target.value)}
-            />
-          </div>
+        <div>
+          <Label htmlFor={tasklistId}>Tasklist Name</Label>
+          <Input
+            id={tasklistId}
+            type="text"
+            value={tasklistName}
+            onChange={e => setTasklistName(e.target.value)}
+          />
+        </div>
 
-          <div>
-            <Label htmlFor="file-name">File Name</Label>
-            <Input
-              id="file-name"
-              type="text"
-              value={fileName}
-              onChange={e => setFileName(e.target.value)}
-            />
-          </div>
+        <div>
+          <Label htmlFor={fileNameId}>File Name</Label>
+          <Input
+            id={fileNameId}
+            type="text"
+            value={fileName}
+            onChange={e => setFileName(e.target.value)}
+          />
+        </div>
 
-          <fieldset>
-            <legend className="text-sm font-medium mb-2">Select Violations to Export</legend>
-            <div className="border rounded-md p-4 max-h-64 overflow-y-auto space-y-2">
-              {violationTypes.map(({ type, count }) => (
-                <div key={type} className="flex items-center space-x-2">
-                  <input
-                    id={`violation-${type}`}
-                    name="violation"
-                    type="radio"
-                    className="h-4 w-4"
-                    checked={selectedViolation === type}
-                    onChange={() => setSelectedViolation(type)}
-                  />
-                  <Label htmlFor={`violation-${type}`} className="flex-1 cursor-pointer">
-                    {type} ({count} occurrences)
-                  </Label>
-                </div>
-              ))}
-            </div>
-          </fieldset>
+        <fieldset>
+          <legend className="text-sm font-medium mb-2">WCAG Levels to Export</legend>
+          <div className="border rounded-md p-4 space-y-2">
+            {LEVELS.map(({ value, label }) => (
+              <div key={value} className="flex items-center space-x-2">
+                <input
+                  id={`${id}-level-${value}`}
+                  type="checkbox"
+                  className="h-4 w-4 appearance-none rounded border-2 border-muted-foreground bg-transparent transition-colors cursor-pointer checked:border-primary checked:bg-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                  checked={selectedLevels.includes(value)}
+                  onChange={() => toggleLevel(value)}
+                />
+                <Label htmlFor={`${id}-level-${value}`} className="cursor-pointer">
+                  {label}
+                </Label>
+              </div>
+            ))}
+          </div>
+        </fieldset>
       </div>
+
       <div className="flex space-x-4 mt-4">
         <Button
-          onClick={() => handleExport(violationTypes.map(v => v.type))}
+          variant="outline"
+          className={exportBtnClass}
+          onClick={() => doExport(undefined, fileName)}
           disabled={isExporting}
         >
-          {isExporting ? 'Exporting...' : 'Export All Issue Types'}
+          <Download className="h-4 w-4" aria-hidden="true" />
+          {isExporting ? 'Exporting…' : 'Export All Levels'}
         </Button>
         <Button
-          onClick={() => selectedViolation && handleExport([selectedViolation])}
-          disabled={!selectedViolation || isExporting}
+          variant="outline"
+          className={exportBtnClass}
+          onClick={() => doExport(selectedLevels, fileName)}
+          disabled={selectedLevels.length === 0 || isExporting}
         >
-          {isExporting
-            ? 'Exporting...'
-            : selectedViolation
-            ? `Export ${selectedViolation}`
-            : 'Select a violation'}
+          <Download className="h-4 w-4" aria-hidden="true" />
+          {isExporting ? 'Exporting…' : 'Export Selected Levels'}
         </Button>
       </div>
     </div>

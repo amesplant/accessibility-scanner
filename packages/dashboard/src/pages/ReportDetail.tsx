@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { Download } from 'lucide-react';
 import { ExternalLink } from '@/components/ExternalLink';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useCurrentReport } from '@/context/CurrentReportContext';
@@ -20,11 +21,12 @@ import { ViolationsTable } from '@/components/ViolationsTable';
 import { ImpactChart } from '@/components/ImpactChart';
 import { LevelChart } from '@/components/LevelChart';
 import { PagesList } from '@/components/PagesList';
-import { ExportData } from '@/components/ExportData';
+import { ExportModal } from '@/components/ExportModal';
 
 export function ReportDetail() {
   const { id } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [exportOpen, setExportOpen] = useState(false);
 
   const activeTab = searchParams.get('tab') || 'overview';
   const activeImpact = searchParams.get('impact') || '';
@@ -184,12 +186,14 @@ export function ReportDetail() {
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="violations">Violations</TabsTrigger>
           <TabsTrigger value="pages">Pages</TabsTrigger>
-          <TabsTrigger
-            value="export"
-            className="ml-auto rounded-md bg-primary text-primary-foreground shadow hover:bg-primary/90 hover:text-primary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background px-4 py-2 border-b-0"
+          <button
+            type="button"
+            onClick={() => setExportOpen(true)}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-primary/20 hover:border-primary focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
           >
+            <Download className="h-4 w-4" aria-hidden="true" />
             Export
-          </TabsTrigger>
+          </button>
         </TabsList>
         
         <TabsContent value="overview" className="space-y-4">
@@ -289,10 +293,9 @@ export function ReportDetail() {
           <PagesList results={report.results} reportId={report.id} />
         </TabsContent>
 
-        <TabsContent value="export">
-          <ExportData report={report} />
-        </TabsContent>
       </Tabs>
+
+      <ExportModal report={exportOpen ? report : null} onClose={() => setExportOpen(false)} />
     </div>
   );
 }
