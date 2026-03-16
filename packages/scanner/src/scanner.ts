@@ -176,6 +176,7 @@ export class SitemapScanner {
       pageTitle,
       startTime,
       endTime,
+      auditType: this.options.auditType,
       results,
       summary
     };

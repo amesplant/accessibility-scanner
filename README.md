@@ -1,12 +1,13 @@
 # Accessibility Scanner
 
-A comprehensive TypeScript tool for automated and manual accessibility testing using axe-core and Puppeteer. Allows for viewing data via a Vite Dashboard and exporting data as .csv or .xlsx.
+A comprehensive TypeScript tool for automated and manual accessibility testing using axe-core and Puppeteer. Supports three audit tiers — Rapid, Mid-Level, and All-Inclusive — with a React dashboard for viewing results and exporting data as .csv or .xlsx.
 
 ## Features
 
+- 🎯 Three audit types: **Rapid** (up to 5 pages), **Mid-Level** (any number of pages), and **All-Inclusive** (full site via sitemap or crawl)
 - 🔍 Automated website scanning via sitemap URL, XML file upload, or site crawl
 - ♿ Powered by axe-core for WCAG compliance testing
-- 📋 Manual audit checklist covering WCAG A, AA, and AAA criteria that axe-core cannot auto-detect
+- 📋 Manual audit checklist scoped to each audit type — 13 criteria for Rapid (Quick Assess), 20 for Mid-Level, all 52 for All-Inclusive
 - 🗂️ Multiple failure instances per criterion with scope tagging (Global / Common / Page Specific) and evidence capture (code snippet + screenshot)
 - ✅ Audit completion tracking with coverage percentage displayed in the report overview
 - 📊 React dashboard for visualizing results with WCAG criteria and level details
@@ -60,7 +61,23 @@ npm run dev:dashboard # Dashboard on port 5173
 
 ### Starting a Scan
 
-The dashboard supports three scan input modes:
+#### Choosing an Audit Type
+
+Select the audit tier that best fits your engagement before starting a scan:
+
+| Audit Type | Pages | Input Method | Manual Checklist |
+|------------|-------|-------------|-----------------|
+| **Rapid Audit** | Up to 5 | Manual URL list | 13 key Quick Assess criteria |
+| **Mid-Level** | Any number | Manual URL list | 20 WCAG 2.2 AA criteria |
+| **All-Inclusive** | Full site | Sitemap URL, XML upload, or crawl | All 52 criteria |
+
+**Rapid Audit** — A focused evaluation targeting the most critical accessibility issues: color contrast, heading structure, alt text, and keyboard accessibility. Ideal for a fast assessment of core pages (~15 hours).
+
+**Mid-Level** — A thorough assessment across a representative set of pages covering both major and minor issues using automated, manual, and screen reader testing.
+
+**All-Inclusive** — A comprehensive evaluation of every page on your site against the highest accessibility standards using automated scanning.
+
+#### All-Inclusive scan input modes
 
 | Mode | Description |
 |------|-------------|
@@ -108,11 +125,17 @@ Individual violation cards show:
 
 ### Manual Audit
 
-The manual audit tab on each page detail covers WCAG criteria that axe-core cannot fully verify automatically.
+The manual audit tab on each page detail covers WCAG criteria that axe-core cannot fully verify automatically. The checklist is scoped to the audit type selected at scan time:
+
+| Audit Type | Criteria shown | Scope |
+|------------|---------------|-------|
+| Rapid Audit | 13 | Quick Assess criteria (keyboard, focus, links, images, headings, contrast, reflow, bypass blocks) |
+| Mid-Level | 20 | Core WCAG 2.2 AA criteria including color, landmarks, forms, tables, audio/video, and keyboard |
+| All-Inclusive | 52 | Full predefined checklist covering WCAG A, AA, and AAA |
 
 #### Checklist
 
-- Predefined checks for **WCAG A**, **AA**, and **AAA** criteria, each with a description and "How to test" guidance questions
+- Each check includes a description and "How to test" guidance questions
 - Checks are grouped and can be viewed by **WCAG Level**, **Category**, **Priority**, or **Status**
 - Level and category filter controls let you focus on a subset of checks
 - Each group shows a collapsed summary of pass/fail/n/a/not-tested counts
@@ -202,7 +225,7 @@ curl -X POST http://localhost:3003/api/reports/{reportId}/export/excel \
 | `GET` | `/api/reports` | List all reports |
 | `GET` | `/api/reports/:id` | Get a single report |
 | `DELETE` | `/api/reports/:id` | Delete a report |
-| `POST` | `/api/scan` | Start a new scan job |
+| `POST` | `/api/scan` | Start a new scan job (body: `auditType`, plus one of `urls[]`, `sitemap`, `xmlContent`, or `crawlUrl`) |
 | `GET` | `/api/scan/:jobId/events` | SSE stream for scan progress |
 | `DELETE` | `/api/scan/:jobId` | Abort a running scan |
 | `POST` | `/api/reports/:id/export/csv` | Export report as CSV |

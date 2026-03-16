@@ -9,7 +9,7 @@ import { DatabaseService } from './database.js';
 import { Reporter } from './exporter.js';
 import { SitemapScanner } from './scanner.js';
 import { crawlSite } from './crawler.js';
-import { createDefaultChecks, ManualAudit, ManualAuditStatus, ManualCheckResult, ManualFailureInstance } from '@accessibility-scanner/shared';
+import { AuditType, createDefaultChecks, ManualAudit, ManualAuditStatus, ManualCheckResult, ManualFailureInstance } from '@accessibility-scanner/shared';
 
 const app = express();
 const db = new DatabaseService();
@@ -118,10 +118,10 @@ app.post('/api/reports/:id/export/excel', async (req, res) => {
 // Manual Audit
 // ---------------------------------------------------------------------------
 
-function initManualAudit(): ManualAudit {
+function initManualAudit(auditType?: AuditType): ManualAudit {
   return {
     lastUpdated: new Date().toISOString(),
-    checks: createDefaultChecks(),
+    checks: createDefaultChecks(auditType),
   };
 }
 
@@ -134,7 +134,7 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId', a
     const page = report.results.find(r => r.id === req.params.pageId);
     if (!page) return res.status(404).json({ error: 'Page not found' });
 
-    if (!page.manualAudit) page.manualAudit = initManualAudit();
+    if (!page.manualAudit) page.manualAudit = initManualAudit(report.auditType);
 
     const { status, notes, codeSnippet, screenshotDataUrl } = req.body as {
       status: ManualAuditStatus;
@@ -169,7 +169,7 @@ app.post('/api/reports/:reportId/pages/:pageId/manual-audit/checks', async (req,
     const page = report.results.find(r => r.id === req.params.pageId);
     if (!page) return res.status(404).json({ error: 'Page not found' });
 
-    if (!page.manualAudit) page.manualAudit = initManualAudit();
+    if (!page.manualAudit) page.manualAudit = initManualAudit(report.auditType);
 
     const { title, description, impact, status, notes } = req.body as Partial<ManualCheckResult>;
     if (!title) return res.status(400).json({ error: 'title is required' });
@@ -228,7 +228,7 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/complete', async (r
     const page = report.results.find(r => r.id === req.params.pageId);
     if (!page) return res.status(404).json({ error: 'Page not found' });
 
-    if (!page.manualAudit) page.manualAudit = initManualAudit();
+    if (!page.manualAudit) page.manualAudit = initManualAudit(report.auditType);
 
     const { completed } = req.body as { completed: boolean };
     page.manualAudit.completed = completed;
@@ -252,7 +252,7 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit', async (req, res) 
     const page = report.results.find(r => r.id === req.params.pageId);
     if (!page) return res.status(404).json({ error: 'Page not found' });
 
-    if (!page.manualAudit) page.manualAudit = initManualAudit();
+    if (!page.manualAudit) page.manualAudit = initManualAudit(report.auditType);
 
     const { auditorNotes } = req.body as { auditorNotes?: string };
     page.manualAudit.auditorNotes = auditorNotes;
@@ -275,7 +275,7 @@ app.post('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fail
     const page = report.results.find(r => r.id === req.params.pageId);
     if (!page) return res.status(404).json({ error: 'Page not found' });
 
-    if (!page.manualAudit) page.manualAudit = initManualAudit();
+    if (!page.manualAudit) page.manualAudit = initManualAudit(report.auditType);
 
     const check = page.manualAudit.checks.find(c => c.id === req.params.checkId);
     if (!check) return res.status(404).json({ error: 'Check not found' });
@@ -363,10 +363,23 @@ app.delete('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fa
 // ---------------------------------------------------------------------------
 
 app.post('/api/scan', (req, res) => {
-  const { sitemap, xmlContent, filename, crawlUrl, maxPages = 200, concurrent = 5 } = req.body;
+  const { sitemap, xmlContent, filename, crawlUrl, maxPages = 200, concurrent = 5, auditType = 'all-inclusive', urls } = req.body;
 
-  if (!sitemap && !xmlContent && !crawlUrl) {
-    return res.status(400).json({ error: 'A sitemap URL, uploaded file, or crawl URL is required' });
+  const hasUrls = Array.isArray(urls) && urls.length > 0;
+
+  if (!sitemap && !xmlContent && !crawlUrl && !hasUrls) {
+    return res.status(400).json({ error: 'A sitemap URL, uploaded file, crawl URL, or URL list is required' });
+  }
+
+  if (hasUrls) {
+    if (auditType === 'rapid' && urls.length > 5) {
+      return res.status(400).json({ error: 'Rapid Audit supports a maximum of 5 URLs' });
+    }
+    for (const u of urls) {
+      try { new URL(u); } catch {
+        return res.status(400).json({ error: `Invalid URL: ${u}` });
+      }
+    }
   }
 
   if (crawlUrl) {
@@ -392,6 +405,7 @@ app.post('/api/scan', (req, res) => {
       let scannerOptions: Record<string, unknown> = {
         concurrent: String(concurrent),
         headless: true,
+        auditType: auditType as AuditType,
         signal: abortController.signal,
         onProgress: (scanned: number, total: number, url: string) => {
           job.scanned = scanned;
@@ -400,11 +414,14 @@ app.post('/api/scan', (req, res) => {
         },
       };
 
-      if (crawlUrl) {
+      if (hasUrls) {
+        job.total = urls.length;
+        scannerOptions = { ...scannerOptions, urls, label: urls[0] };
+      } else if (crawlUrl) {
         job.status = 'crawling';
         emitter.emit('crawling', {});
 
-        const urls = await crawlSite(crawlUrl.trim(), {
+        const crawledUrls = await crawlSite(crawlUrl.trim(), {
           maxPages: Number(maxPages),
           onProgress: (url, count) => emitter.emit('crawl-progress', { url, count }),
           signal: abortController.signal,
@@ -416,15 +433,15 @@ app.post('/api/scan', (req, res) => {
           return;
         }
 
-        if (urls.length === 0) {
+        if (crawledUrls.length === 0) {
           job.status = 'error';
           job.error = 'No pages found when crawling that URL';
           emitter.emit('error', { message: job.error });
           return;
         }
 
-        job.total = urls.length;
-        scannerOptions = { ...scannerOptions, urls, label: crawlUrl.trim() };
+        job.total = crawledUrls.length;
+        scannerOptions = { ...scannerOptions, urls: crawledUrls, label: crawlUrl.trim() };
       } else if (xmlContent) {
         const safeName = (filename || 'sitemap').replace(/[^a-z0-9._-]/gi, '_');
         tempFile = join(tmpdir(), `${randomUUID()}-${safeName}`);

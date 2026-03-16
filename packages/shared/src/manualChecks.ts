@@ -1,4 +1,4 @@
-import { ManualCheckResult } from './types';
+import { AuditType, ManualCheckResult } from './types';
 
 export type CheckCategory =
   | 'Keyboard & Focus'
@@ -61,6 +61,31 @@ export const PREDEFINED_CHECKS: PredefinedCheck[] = [
     ],
   },
   {
+    id: '1.3.1', criterion: '1.3.1', level: 'A',
+    title: 'Info and Relationships',
+    description: 'Information, structure, and relationships conveyed through presentation can be programmatically determined or are available in text.',
+    category: 'Content & Structure',
+    priority: 'high',
+    questions: [
+      'Do headings use proper heading elements (h1–h6) rather than styled text?',
+      'Are landmarks (main, nav, header, footer) used to identify page regions?',
+      'Do tables use proper <th> elements with scope attributes for headers?',
+      'Are lists coded as <ul>, <ol>, or <dl> rather than visual styling alone?',
+    ],
+  },
+  {
+    id: '1.3.2', criterion: '1.3.2', level: 'A',
+    title: 'Meaningful Sequence',
+    description: 'When the sequence in which content is presented affects its meaning, a correct reading sequence can be programmatically determined.',
+    category: 'Content & Structure',
+    priority: 'medium',
+    questions: [
+      'When CSS is disabled or linearized, does the content still read in a logical order?',
+      'In multi-column layouts, does the reading order follow the visual left-to-right, top-to-bottom flow?',
+      'Do tables used for layout preserve meaningful reading order when linearized row by row?',
+    ],
+  },
+  {
     id: '1.3.3', criterion: '1.3.3', level: 'A',
     title: 'Sensory Characteristics',
     description: 'Instructions do not rely solely on sensory characteristics such as shape, color, size, visual location, or sound.',
@@ -108,6 +133,41 @@ export const PREDEFINED_CHECKS: PredefinedCheck[] = [
     ],
   },
   {
+    id: '2.3.1', criterion: '2.3.1', level: 'A',
+    title: 'Three Flashes or Below Threshold',
+    description: 'Web pages do not contain anything that flashes more than three times in any one-second period.',
+    category: 'Color & Visual',
+    priority: 'high',
+    questions: [
+      'Does any content on the page flash, blink, or strobe rapidly (more than 3 times per second)?',
+      'Are any animations, GIFs, or videos free of rapidly flashing elements that could trigger photosensitive seizures?',
+    ],
+  },
+  {
+    id: '2.4.1', criterion: '2.4.1', level: 'A',
+    title: 'Bypass Blocks',
+    description: 'A mechanism is available to bypass blocks of content that are repeated on multiple web pages.',
+    category: 'Links & Navigation',
+    priority: 'high',
+    questions: [
+      'Is there a "skip to main content" link or similar mechanism at the top of the page?',
+      'Does the skip link become visible when focused and successfully move focus past repeated navigation?',
+      'Are ARIA landmark regions (main, nav) present so screen reader users can skip to key areas?',
+    ],
+  },
+  {
+    id: '2.4.2', criterion: '2.4.2', level: 'A',
+    title: 'Page Titled',
+    description: 'Web pages have titles that describe topic or purpose.',
+    category: 'Links & Navigation',
+    priority: 'high',
+    questions: [
+      'Does the <title> element accurately describe the current page\'s topic or purpose?',
+      'Is the title unique across the site so users can distinguish pages in browser tabs or history?',
+      'For dynamically updated pages, does the title update to reflect the current content or state?',
+    ],
+  },
+  {
     id: '2.4.3', criterion: '2.4.3', level: 'A',
     title: 'Focus Order',
     description: 'If a web page can be navigated sequentially, focusable components receive focus in an order that preserves meaning and operability.',
@@ -129,6 +189,17 @@ export const PREDEFINED_CHECKS: PredefinedCheck[] = [
       'Read every link\'s text in isolation — does it clearly describe where it goes or what it does?',
       'Are there any "click here", "read more", "learn more", or "download" links that don\'t differentiate between targets?',
       'For links that share the same text but go to different places, is each one distinguishable?',
+    ],
+  },
+  {
+    id: '3.1.1', criterion: '3.1.1', level: 'A',
+    title: 'Language of Page',
+    description: 'The default human language of each web page can be programmatically determined.',
+    category: 'Content & Structure',
+    priority: 'medium',
+    questions: [
+      'Does the <html> element have a lang attribute that correctly identifies the page\'s primary language (e.g. lang="en")?',
+      'For multilingual sites, is the lang attribute updated when the user switches language?',
     ],
   },
   {
@@ -201,6 +272,18 @@ export const PREDEFINED_CHECKS: PredefinedCheck[] = [
     ],
   },
   {
+    id: '1.4.3', criterion: '1.4.3', level: 'AA',
+    title: 'Contrast (Minimum)',
+    description: 'Text and images of text have a contrast ratio of at least 4.5:1; large text requires at least 3:1.',
+    category: 'Color & Visual',
+    priority: 'high',
+    questions: [
+      'Does all normal-sized body text meet a 4.5:1 contrast ratio against its background?',
+      'Does all large text (18pt+ regular or 14pt+ bold) meet at least 3:1 contrast?',
+      'Do placeholder texts, disabled labels, and decorative text that conveys information meet the minimum threshold?',
+    ],
+  },
+  {
     id: '1.4.4', criterion: '1.4.4', level: 'AA',
     title: 'Resize Text',
     description: 'Text can be resized without assistive technology up to 200% without loss of content or functionality.',
@@ -248,6 +331,18 @@ export const PREDEFINED_CHECKS: PredefinedCheck[] = [
     ],
   },
   {
+    id: '2.4.6', criterion: '2.4.6', level: 'AA',
+    title: 'Headings and Labels',
+    description: 'Headings and labels describe topic or purpose.',
+    category: 'Content & Structure',
+    priority: 'high',
+    questions: [
+      'Do all headings accurately describe the content of the section that follows them?',
+      'Are heading levels used consistently so that lower-level headings are visually less prominent than higher-level ones?',
+      'Are all form labels descriptive enough that users can understand what input is expected?',
+    ],
+  },
+  {
     id: '2.4.7', criterion: '2.4.7', level: 'AA',
     title: 'Focus Visible',
     description: 'Any keyboard operable user interface has a mode of operation where the keyboard focus indicator is visible.',
@@ -257,6 +352,18 @@ export const PREDEFINED_CHECKS: PredefinedCheck[] = [
       'Tab through every interactive element — is there always a clearly visible focus indicator (outline, ring, or highlight)?',
       'Has outline: none or outline: 0 been applied to any element without a replacement focus style?',
       'Is the focus indicator visible against both light and dark backgrounds it may appear on?',
+    ],
+  },
+  {
+    id: '2.5.3', criterion: '2.5.3', level: 'AA',
+    title: 'Label in Name',
+    description: 'For user interface components with labels that include text or images of text, the accessible name contains the visible text.',
+    category: 'Forms & Input',
+    priority: 'high',
+    questions: [
+      'Does each button\'s or input\'s accessible name (aria-label or aria-labelledby) include the visible text label?',
+      'Are there any components where the accessible name is completely different from the visible label?',
+      'Do icon buttons with visible text have an accessible name that starts with or matches that text?',
     ],
   },
   {
@@ -452,9 +559,57 @@ export const CATEGORY_DESCRIPTIONS: Record<CheckCategory, string> = {
   'Video & Audio':       'Check for captions, transcripts, or audio descriptions on any media present on this page.',
 };
 
-export function createDefaultChecks(): ManualCheckResult[] {
+/** WCAG criteria included in the Rapid Audit (Quick Assess) — 13 criteria */
+export const RAPID_AUDIT_CHECK_IDS: string[] = [
+  '2.1.1',  // Keyboard
+  '2.4.7',  // Focus Visible
+  '2.1.2',  // No Keyboard Trap
+  '3.2.1',  // On Focus
+  '2.4.4',  // Link Purpose (In Context)
+  '1.1.1',  // Non-text Content / Image Function
+  '2.4.3',  // Focus Order
+  '1.4.3',  // Contrast (Minimum)
+  '1.3.1',  // Info and Relationships — Headings / Landmarks
+  '2.4.6',  // Headings and Labels
+  '2.4.1',  // Bypass Blocks
+  '2.5.3',  // Label in Name
+  '1.4.10', // Reflow
+];
+
+/** WCAG criteria included in the Mid-Level Audit (Assessment) — 20 criteria */
+export const MID_LEVEL_AUDIT_CHECK_IDS: string[] = [
+  '1.1.1',  // Non-text Content
+  '1.2.1',  // Audio-only and Video-only
+  '1.3.1',  // Info and Relationships
+  '1.3.2',  // Meaningful Sequence
+  '1.3.3',  // Sensory Characteristics
+  '1.4.1',  // Use of Color
+  '1.4.3',  // Contrast (Minimum)
+  '1.4.4',  // Resize Text
+  '2.1.2',  // No Keyboard Trap
+  '2.3.1',  // Three Flashes or Below Threshold
+  '2.4.1',  // Bypass Blocks
+  '2.4.2',  // Page Titled
+  '2.4.4',  // Link Purpose (In Context)
+  '2.4.6',  // Headings and Labels
+  '2.4.7',  // Focus Visible
+  '3.1.1',  // Language of Page
+  '3.2.1',  // On Focus
+  '3.2.2',  // On Input
+  '3.3.1',  // Error Identification
+  '3.3.2',  // Labels or Instructions
+];
+
+export function createDefaultChecks(auditType?: AuditType): ManualCheckResult[] {
   const now = new Date().toISOString();
-  return PREDEFINED_CHECKS.map(c => ({
+  const ids =
+    auditType === 'rapid'     ? RAPID_AUDIT_CHECK_IDS :
+    auditType === 'mid-level' ? MID_LEVEL_AUDIT_CHECK_IDS :
+    null;
+  const source = ids
+    ? PREDEFINED_CHECKS.filter(c => ids.includes(c.id))
+    : PREDEFINED_CHECKS;
+  return source.map(c => ({
     id: c.id,
     type: 'wcag' as const,
     wcagCriterion: c.criterion,
