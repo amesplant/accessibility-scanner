@@ -1,3 +1,5 @@
+export type AuditType = 'rapid' | 'mid-level' | 'all-inclusive';
+
 export type ManualAuditStatus = 'pass' | 'fail' | 'na' | 'not-tested';
 
 export type FailureScope = 'global' | 'common' | 'page-specific';
@@ -75,6 +77,7 @@ export interface ScanReport {
   pageTitle?: string;
   startTime: Date;
   endTime: Date;
+  auditType?: AuditType;
   results: ScanResult[];
   summary: {
     totalPages: number;

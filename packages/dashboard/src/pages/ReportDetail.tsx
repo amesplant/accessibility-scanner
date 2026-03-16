@@ -45,7 +45,7 @@ export function ReportDetail() {
     if (report) {
       const label = report.pageTitle || report.sitemap;
       document.title = `${label} — Accessibility Report`;
-      setCurrentReport(report.id, label);
+      setCurrentReport(report.id, label, report.auditType);
     }
     return () => { document.title = 'Accessibility Scanner'; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -97,9 +97,16 @@ export function ReportDetail() {
               </ExternalLink>
             </p>
           )}
-          <p className="text-sm text-muted-foreground">
-            Scanned on {new Date(report.startTime).toLocaleString()}
-          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            {report.auditType && (
+              <span className="inline-block text-xs font-medium rounded-full px-2 py-0.5 bg-indigo-100 text-indigo-800 border border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-700">
+                {report.auditType === 'rapid' ? 'Rapid Audit (Quick Assess)' : report.auditType === 'mid-level' ? 'Mid-Level' : 'Full Site'}
+              </span>
+            )}
+            <p className="text-sm text-muted-foreground">
+              Scanned on {new Date(report.startTime).toLocaleString()}
+            </p>
+          </div>
         </div>
       </div>
 

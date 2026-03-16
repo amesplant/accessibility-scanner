@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useReports } from '@/hooks/useReports';
 import { useScanContext } from '@/context/ScanContext';
+import { AuditType } from '@accessibility-scanner/shared';
 import {
   Card,
   CardContent,
@@ -24,7 +25,19 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
-type InputMode = 'url' | 'file' | 'crawl';
+type InputMode = 'url' | 'file' | 'crawl' | 'urllist';
+
+const AUDIT_TYPE_LABELS: Record<AuditType, string> = {
+  'rapid':         'Rapid Audit',
+  'mid-level':     'Mid-Level',
+  'all-inclusive': 'Full Site',
+};
+
+const AUDIT_TYPE_DESCRIPTIONS: Record<AuditType, string> = {
+  'rapid':         'A focused evaluation of up to 5 pages targeting critical issues — color contrast, heading structure, alt text, and keyboard accessibility.',
+  'mid-level':     'A thorough assessment across a representative set of pages covering both major and minor issues using automated, manual, and screen reader testing.',
+  'all-inclusive': 'A comprehensive evaluation of every page on your site against the highest accessibility standards using automated scanning.',
+};
 
 interface ScanState {
   phase: 'crawling' | 'scanning' | null;
@@ -48,11 +61,15 @@ export function Dashboard() {
 
   const [showScanForm, setShowScanForm] = useState(false);
 
+  const [auditType, setAuditType] = useState<AuditType>('all-inclusive');
   const [mode, setMode] = useState<InputMode>('url');
   const [sitemap, setSitemap] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [crawlUrl, setCrawlUrl] = useState('');
   const [maxPages, setMaxPages] = useState('200');
+  const [urlList, setUrlList] = useState<string[]>([]);
+  const [urlInputValue, setUrlInputValue] = useState('');
+  const [urlInputError, setUrlInputError] = useState<string | null>(null);
 
   const { scanning, setScanning } = useScanContext();
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -90,13 +107,56 @@ export function Dashboard() {
   }, []);
 
   function resetForm() {
+    setAuditType('all-inclusive');
     setMode('url');
     setSitemap('');
     setFile(null);
     setCrawlUrl('');
     setMaxPages('200');
+    setUrlList([]);
+    setUrlInputValue('');
+    setUrlInputError(null);
     setScanError(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
+  function handleAuditTypeChange(type: AuditType) {
+    setAuditType(type);
+    setUrlList([]);
+    setUrlInputValue('');
+    setUrlInputError(null);
+    setScanError(null);
+    if (type === 'rapid' || type === 'mid-level') {
+      setMode('urllist');
+    } else {
+      setMode('url');
+    }
+  }
+
+  function handleAddUrl() {
+    const trimmed = urlInputValue.trim();
+    try {
+      new URL(trimmed);
+    } catch {
+      setUrlInputError('Please enter a valid URL (including https://)');
+      return;
+    }
+    if (urlList.includes(trimmed)) {
+      setUrlInputError('This URL has already been added');
+      return;
+    }
+    if (auditType === 'rapid' && urlList.length >= 5) {
+      setUrlInputError('Rapid Audit supports a maximum of 5 URLs');
+      return;
+    }
+    setUrlList(prev => [...prev, trimmed]);
+    setUrlInputValue('');
+    setUrlInputError(null);
+  }
+
+  function handleRemoveUrl(index: number) {
+    setUrlList(prev => prev.filter((_, i) => i !== index));
+    setUrlInputError(null);
   }
 
   function startTimer() {
@@ -173,8 +233,9 @@ export function Dashboard() {
   }
 
   const canSubmit = !scanning && (
-    mode === 'url'  ? sitemap.trim() !== '' :
-    mode === 'file' ? file !== null :
+    mode === 'urllist' ? urlList.length > 0 :
+    mode === 'url'     ? sitemap.trim() !== '' :
+    mode === 'file'    ? file !== null :
     crawlUrl.trim() !== ''
   );
 
@@ -186,12 +247,14 @@ export function Dashboard() {
 
     try {
       let body: Record<string, unknown>;
-      if (mode === 'file' && file) {
-        body = { xmlContent: await file.text(), filename: file.name };
+      if (mode === 'urllist') {
+        body = { urls: urlList, auditType };
+      } else if (mode === 'file' && file) {
+        body = { xmlContent: await file.text(), filename: file.name, auditType };
       } else if (mode === 'crawl') {
-        body = { crawlUrl, maxPages: Number(maxPages) || 200 };
+        body = { crawlUrl, maxPages: Number(maxPages) || 200, auditType };
       } else {
-        body = { sitemap };
+        body = { sitemap, auditType };
       }
 
       const res = await fetch('/api/scan', {
@@ -231,20 +294,112 @@ export function Dashboard() {
 
   const scanForm = (
     <form onSubmit={handleScan} className="flex flex-col gap-4">
-      {/* Mode toggle */}
-      <div className="flex gap-2">
-        {(['url', 'file', 'crawl'] as InputMode[]).map(m => (
-          <Button
-            key={m}
-            type="button"
-            variant={mode === m ? 'default' : 'outline'}
-            onClick={() => switchMode(m)}
-            disabled={scanning}
-          >
-            {m === 'url' ? 'Sitemap URL' : m === 'file' ? 'Upload XML' : 'Crawl Site'}
-          </Button>
-        ))}
+      {/* Audit type selector */}
+      <div>
+        <Label className="text-sm font-medium mb-2 block">Audit Type</Label>
+        <div className="grid grid-cols-3 gap-3">
+          {(['rapid', 'mid-level', 'all-inclusive'] as AuditType[]).map(type => (
+            <button
+              key={type}
+              type="button"
+              disabled={scanning}
+              onClick={() => handleAuditTypeChange(type)}
+              className={[
+                'flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors',
+                auditType === type
+                  ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                  : 'border-border hover:border-primary/50 hover:bg-muted/50',
+                scanning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
+              ].join(' ')}
+            >
+              <span className="text-sm font-semibold">{AUDIT_TYPE_LABELS[type]}</span>
+              <span className="text-xs text-muted-foreground">{AUDIT_TYPE_DESCRIPTIONS[type]}</span>
+            </button>
+          ))}
+        </div>
       </div>
+
+      {/* Mode toggle — only shown for All-Inclusive */}
+      {mode !== 'urllist' && (
+        <div className="flex gap-2">
+          {(['url', 'file', 'crawl'] as InputMode[]).map(m => (
+            <Button
+              key={m}
+              type="button"
+              variant={mode === m ? 'default' : 'outline'}
+              onClick={() => switchMode(m)}
+              disabled={scanning}
+            >
+              {m === 'url' ? 'Sitemap URL' : m === 'file' ? 'Upload XML' : 'Crawl Site'}
+            </Button>
+          ))}
+        </div>
+      )}
+
+      {/* URL list input — shown for Rapid and Mid-Level */}
+      {mode === 'urllist' && (
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="url-list-input">
+              Add page URLs to audit
+              {auditType === 'rapid' && (
+                <span className={[
+                  'ml-2 text-xs font-normal',
+                  urlList.length >= 5 ? 'text-destructive' : 'text-muted-foreground',
+                ].join(' ')}>
+                  {urlList.length} / 5 URLs
+                </span>
+              )}
+            </Label>
+            <div className="flex gap-2">
+              <Input
+                id="url-list-input"
+                type="url"
+                value={urlInputValue}
+                onChange={e => { setUrlInputValue(e.target.value); setUrlInputError(null); }}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddUrl(); } }}
+                disabled={scanning || (auditType === 'rapid' && urlList.length >= 5)}
+                className="flex-1"
+                aria-describedby={urlInputError ? 'url-input-error' : undefined}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleAddUrl}
+                disabled={scanning || !urlInputValue.trim() || (auditType === 'rapid' && urlList.length >= 5)}
+              >
+                Add URL
+              </Button>
+            </div>
+            {urlInputError && (
+              <p id="url-input-error" role="alert" className="text-sm text-destructive">{urlInputError}</p>
+            )}
+          </div>
+
+          {urlList.length > 0 && (
+            <ul className="flex flex-col gap-1" aria-label="URLs to audit">
+              {urlList.map((url, i) => (
+                <li key={url} className="flex items-center justify-between rounded-md border border-border bg-muted/30 px-3 py-2">
+                  <span className="text-sm font-mono truncate flex-1 mr-2">{url}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveUrl(i)}
+                    disabled={scanning}
+                    aria-label={`Remove ${url}`}
+                    className="text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <Button type="submit" disabled={!canSubmit} className="self-start">
+            {scanning ? 'Scanning…' : `Start ${AUDIT_TYPE_LABELS[auditType]}`}
+          </Button>
+        </div>
+      )}
 
       {mode === 'url' && (
         <div className="flex flex-col gap-1.5">
@@ -427,9 +582,16 @@ export function Dashboard() {
                     {report.sitemap}
                   </ExternalLink>
                 )}
-                <p className="text-sm text-muted-foreground mt-1">
-                  Scanned on {new Date(report.startTime).toLocaleString()}
-                </p>
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  {report.auditType && (
+                    <span className="inline-block text-xs font-medium rounded-full px-2 py-0.5 bg-indigo-100 text-indigo-800 border border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-700">
+                      {AUDIT_TYPE_LABELS[report.auditType]}
+                    </span>
+                  )}
+                  <p className="text-sm text-muted-foreground">
+                    Scanned on {new Date(report.startTime).toLocaleString()}
+                  </p>
+                </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <Link

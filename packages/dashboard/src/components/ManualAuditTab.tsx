@@ -8,8 +8,11 @@ import {
   PREDEFINED_CHECKS,
   CATEGORY_ORDER,
   CATEGORY_DESCRIPTIONS,
+  RAPID_AUDIT_CHECK_IDS,
+  MID_LEVEL_AUDIT_CHECK_IDS,
 } from '@accessibility-scanner/shared';
 import { cn } from '@/lib/utils';
+import { useCurrentReport } from '@/context/CurrentReportContext';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -973,6 +976,7 @@ export function ManualAuditTab({
   onUpdateFailure,
   onDeleteFailure,
 }: ManualAuditTabProps) {
+  const { auditType } = useCurrentReport();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('wcag');
   const [levelFilter, setLevelFilter] = useState<LevelFilter>('all');
@@ -1015,8 +1019,20 @@ export function ManualAuditTab({
 
   const isCompleted = audit.completed === true;
 
+  const auditTypeNote = auditType === 'rapid'
+    ? `Showing ${RAPID_AUDIT_CHECK_IDS.length} of ${PREDEFINED_CHECKS.length} criteria (Quick Assess)`
+    : auditType === 'mid-level'
+    ? `Showing ${MID_LEVEL_AUDIT_CHECK_IDS.length} of ${PREDEFINED_CHECKS.length} criteria (Mid-Level)`
+    : null;
+
   return (
     <div className="space-y-6">
+      {/* Audit type info note */}
+      {auditTypeNote && (
+        <p className="text-xs text-muted-foreground border border-border rounded px-3 py-2 bg-muted/30">
+          {auditTypeNote}
+        </p>
+      )}
       {/* Completion banner */}
       {isCompleted && (
         <div className="flex items-center justify-between gap-3 rounded border border-green-600/40 bg-green-600/10 px-4 py-3">
