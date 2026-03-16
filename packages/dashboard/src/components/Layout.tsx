@@ -185,14 +185,15 @@ export function Layout({ children }: Props) {
           </div>
 
           {/* New Scan */}
-          <button
-            ref={triggerRef}
-            onClick={() => navigate('/', { state: { newScan: true, projectId: currentProjectId } })}
-            disabled={scanning}
-            className="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground text-sm font-medium px-4 py-1.5 hover:bg-primary/90 hover:text-primary-foreground focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            New Scan
-          </button>
+          {!scanning && (
+            <button
+              ref={triggerRef}
+              onClick={() => navigate('/', { state: { newScan: true, projectId: currentProjectId } })}
+              className="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground text-sm font-medium px-4 py-1.5 hover:bg-primary/90 hover:text-primary-foreground focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring transition-colors"
+            >
+              New Scan
+            </button>
+          )}
         </nav>
       </header>
 
