@@ -1,4 +1,4 @@
-import { ReactNode, useState, useRef, useEffect, useCallback } from 'react';
+import { ReactNode, useState, useRef, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useCurrentReport } from '@/context/CurrentReportContext';
 import { useReports } from '@/hooks/useReports';
@@ -12,18 +12,21 @@ export function Layout({ children }: Props) {
   const { reports, refresh: refreshReports } = useReports();
   const { scanning, scanState, elapsed, abortScan } = useScanContext();
   const [showReports, setShowReports] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
-
-  const handleScroll = useCallback(() => {
-    setScrolled(window.scrollY > 64);
-  }, []);
-
-  useEffect(() => {
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [handleScroll]);
+  const [progressVisible, setProgressVisible] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+
+  useEffect(() => {
+    if (!scanning) { setProgressVisible(false); return; }
+    const el = document.getElementById('scan-progress');
+    if (!el) { setProgressVisible(false); return; }
+    const observer = new IntersectionObserver(
+      ([entry]) => setProgressVisible(entry.isIntersecting),
+      { threshold: 0.1 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [scanning, location.pathname]);
 
   const triggerRef = useRef<HTMLButtonElement>(null);
   const reportsButtonRef = useRef<HTMLButtonElement>(null);
@@ -34,6 +37,8 @@ export function Layout({ children }: Props) {
   const activeReportId = reportPageMatch?.[1] ?? reportId;
   const onDashboard = location.pathname === '/';
   const onProjects = location.pathname.startsWith('/projects');
+  const projectPageMatch = location.pathname.match(/^\/projects\/([^/]+)$/);
+  const currentProjectId = projectPageMatch?.[1] ?? null;
 
   const navLink = (active: boolean) =>
     active
@@ -183,7 +188,7 @@ export function Layout({ children }: Props) {
           {!scanning && (
             <button
               ref={triggerRef}
-              onClick={() => navigate('/', { state: { newScan: true } })}
+              onClick={() => navigate('/', { state: { newScan: true, projectId: currentProjectId } })}
               className="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground text-sm font-medium px-4 py-1.5 hover:bg-primary/90 hover:text-primary-foreground focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring transition-colors"
             >
               New Scan
@@ -199,36 +204,49 @@ export function Layout({ children }: Props) {
           aria-atomic="true"
           className={[
             'fixed top-4 left-1/2 -translate-x-1/2 z-50',
-            'flex items-center gap-3 px-4 py-2.5 rounded-full',
+            'flex items-center gap-1 rounded-full',
             'bg-background/60 backdrop-blur-md border border-primary/30 shadow-lg shadow-black/10',
             'transition-all duration-300 ease-out',
-            scanning && (scrolled || !onDashboard)
+            scanning && !progressVisible
               ? 'opacity-100 translate-y-0'
               : 'opacity-0 -translate-y-2 pointer-events-none',
           ].join(' ')}
         >
-          <div className="h-2 w-2 rounded-full bg-primary animate-pulse shrink-0" aria-hidden="true" />
-          <span className="text-sm text-foreground whitespace-nowrap">
-            {scanState.phase === 'crawling' && 'Discovering pages…'}
-            {scanState.phase === 'scanning' && scanState.total > 0 && (
-              `Scanning ${scanState.scanned} / ${scanState.total}`
-            )}
-            {scanState.phase === 'scanning' && scanState.total === 0 && 'Scanning…'}
-            {!scanState.phase && 'Starting scan…'}
-          </span>
-          <span className="text-xs text-muted-foreground font-mono shrink-0">
-            {formatElapsed(elapsed)}
-          </span>
-          <div className="w-px h-4 bg-border shrink-0" aria-hidden="true" />
+          <button
+            type="button"
+            onClick={() => {
+              if (onDashboard) {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              } else {
+                navigate('/');
+              }
+            }}
+            aria-label="View scan progress details"
+            className="flex items-center gap-3 px-4 py-2.5 rounded-full hover:bg-primary/10 transition-colors"
+          >
+            <div className="h-2 w-2 rounded-full bg-primary animate-pulse shrink-0" aria-hidden="true" />
+            <span className="text-sm text-foreground whitespace-nowrap">
+              {scanState.phase === 'crawling' && 'Discovering pages…'}
+              {scanState.phase === 'scanning' && scanState.total > 0 && (
+                `Scanning ${scanState.scanned} / ${scanState.total}`
+              )}
+              {scanState.phase === 'scanning' && scanState.total === 0 && 'Scanning…'}
+              {!scanState.phase && 'Starting scan…'}
+            </span>
+            <span className="text-xs text-muted-foreground font-mono shrink-0">
+              {formatElapsed(elapsed)}
+            </span>
+          </button>
           {!onDashboard && (
             <Link to="/" className="text-xs text-link hover:underline shrink-0">
               View
             </Link>
           )}
+          {!onDashboard && <div className="w-px h-4 bg-border shrink-0" aria-hidden="true" />}
           <button
             type="button"
             onClick={() => abortScan()}
-            className="text-xs text-muted-foreground hover:text-destructive transition-colors shrink-0"
+            className="text-xs text-muted-foreground hover:text-destructive transition-colors shrink-0 pr-4 py-2.5"
           >
             Abort
           </button>

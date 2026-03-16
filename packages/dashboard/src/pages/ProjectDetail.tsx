@@ -6,6 +6,14 @@ import { ExportModal } from '@/components/ExportModal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ExternalLink } from '@/components/ExternalLink';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface ProjectWithReports {
   id: string;
@@ -28,6 +36,7 @@ export function ProjectDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exportReport, setExportReport] = useState<ScanReport | null>(null);
+  const [removeConfirmReport, setRemoveConfirmReport] = useState<ScanReport | null>(null);
 
   // Inline edit state
   const [editingName, setEditingName] = useState(false);
@@ -84,6 +93,7 @@ export function ProjectDetail() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectId: null }),
     });
+    setRemoveConfirmReport(null);
     await load();
   }
 
@@ -243,7 +253,7 @@ export function ProjectDetail() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => removeFromProject(report.id)}
+                    onClick={() => setRemoveConfirmReport(report)}
                     aria-label={`Remove ${report.pageTitle || report.sitemap} from this project`}
                     className="inline-flex items-center justify-center rounded-md p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                     title="Remove from project"
@@ -258,6 +268,26 @@ export function ProjectDetail() {
       )}
 
       <ExportModal report={exportReport} onClose={() => setExportReport(null)} />
+
+      <Dialog open={!!removeConfirmReport} onOpenChange={open => { if (!open) setRemoveConfirmReport(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove from project</DialogTitle>
+            <DialogDescription>
+              This will remove <strong>{removeConfirmReport?.pageTitle || removeConfirmReport?.sitemap}</strong> from this project. The report itself will not be deleted and can still be found in your dashboard.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRemoveConfirmReport(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => removeConfirmReport && removeFromProject(removeConfirmReport.id)}
+            >
+              Remove from project
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
