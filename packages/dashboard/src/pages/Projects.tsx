@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { FolderOpen, Plus, Trash2 } from 'lucide-react';
+import { FolderOpen, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useProjects } from '@/hooks/useProjects';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,15 +14,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { EditProjectDialog } from '@/components/EditProjectDialog';
+import type { ProjectWithCount } from '@/hooks/useProjects';
 
 export function Projects() {
-  const { projects, loading, error, createProject, deleteProject } = useProjects();
+  const { projects, loading, error, createProject, deleteProject, updateProject } = useProjects();
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [editingProject, setEditingProject] = useState<ProjectWithCount | null>(null);
 
   useEffect(() => { document.title = 'Fueled Access — Projects'; }, []);
 
@@ -90,14 +93,24 @@ export function Projects() {
                 >
                   {project.name}
                 </Link>
-                <button
-                  type="button"
-                  onClick={() => setPendingDeleteId(project.id)}
-                  aria-label={`Delete project ${project.name}`}
-                  className="shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                >
-                  <Trash2 className="h-4 w-4" aria-hidden="true" />
-                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setEditingProject(project)}
+                    aria-label={`Edit project ${project.name}`}
+                    className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  >
+                    <Pencil className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPendingDeleteId(project.id)}
+                    aria-label={`Delete project ${project.name}`}
+                    className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </div>
               </div>
               {project.description && (
                 <p className="text-sm text-muted-foreground mb-3">{project.description}</p>
@@ -160,6 +173,13 @@ export function Projects() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <EditProjectDialog
+        open={!!editingProject}
+        project={editingProject}
+        onClose={() => setEditingProject(null)}
+        onSave={updateProject}
+      />
 
       {/* Delete confirmation dialog */}
       <Dialog open={!!pendingDeleteId} onOpenChange={open => { if (!open) setPendingDeleteId(null); }}>

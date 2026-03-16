@@ -15,7 +15,7 @@ import {
   Progress,
 } from '@/components/ui';
 import { ExternalLink } from '@/components/ExternalLink';
-import { TriangleAlert, Trash2, Download, FolderOpen } from 'lucide-react';
+import { TriangleAlert, Trash2, Download, FolderOpen, Pencil } from 'lucide-react';
 import {
   Dialog,
   DialogClose,
@@ -26,6 +26,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { ExportModal } from '@/components/ExportModal';
+import { EditProjectDialog } from '@/components/EditProjectDialog';
+import type { ProjectWithCount } from '@/hooks/useProjects';
 
 type InputMode = 'url' | 'file' | 'crawl' | 'urllist';
 
@@ -43,7 +45,7 @@ const AUDIT_TYPE_DESCRIPTIONS: Record<AuditType, string> = {
 
 export function Dashboard() {
   const { reports, loading, error, refresh } = useReports();
-  const { projects, createProject, refresh: refreshProjects } = useProjects();
+  const { projects, createProject, deleteProject, updateProject, refresh: refreshProjects } = useProjects();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -69,6 +71,8 @@ export function Dashboard() {
   const [showNewProjectInput, setShowNewProjectInput] = useState(false);
   const [assignReport, setAssignReport] = useState<ScanReport | null>(null);
   const [assignProjectId, setAssignProjectId] = useState<string>('');
+  const [editingProject, setEditingProject] = useState<ProjectWithCount | null>(null);
+  const [pendingDeleteProjectId, setPendingDeleteProjectId] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -78,12 +82,16 @@ export function Dashboard() {
 
   // Show form when "New Scan" is triggered from another page
   useEffect(() => {
-    if ((location.state as { newScan?: boolean } | null)?.newScan) {
-      resetForm();
-      setShowScanForm(true);
+    const state = location.state as { newScan?: boolean; projectId?: string } | null;
+    if (state?.newScan) {
+      if (!scanning) {
+        resetForm();
+        if (state.projectId) setScanProjectId(state.projectId);
+        setShowScanForm(true);
+      }
       navigate('/', { replace: true, state: {} });
     }
-  }, [location.state, navigate]);
+  }, [location.state, navigate, scanning]);
 
   function resetForm() {
     setAuditType('all-inclusive');
@@ -531,19 +539,36 @@ export function Dashboard() {
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {projects.map(project => (
-              <Link
+              <div
                 key={project.id}
-                to={`/projects/${project.id}`}
-                className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm hover:border-primary hover:bg-primary/5 transition-colors"
+                className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm transition-colors hover:border-primary hover:bg-primary/5"
               >
                 <FolderOpen className="h-5 w-5 text-muted-foreground shrink-0" aria-hidden="true" />
-                <div className="min-w-0">
+                <Link to={`/projects/${project.id}`} className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate">{project.name}</p>
                   <p className="text-xs text-muted-foreground">
                     {project.reportCount} {project.reportCount === 1 ? 'report' : 'reports'}
                   </p>
+                </Link>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setEditingProject(project)}
+                    aria-label={`Edit project ${project.name}`}
+                    className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  >
+                    <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPendingDeleteProjectId(project.id)}
+                    aria-label={`Delete project ${project.name}`}
+                    className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
                 </div>
-              </Link>
+              </div>
             ))}
           </div>
         </div>
@@ -734,6 +759,47 @@ export function Dashboard() {
       </Dialog>
 
       <ExportModal report={exportReport} onClose={() => setExportReport(null)} />
+
+      <EditProjectDialog
+        open={!!editingProject}
+        project={editingProject}
+        onClose={() => setEditingProject(null)}
+        onSave={updateProject}
+      />
+
+      {/* Delete project confirmation */}
+      {(() => {
+        const proj = projects.find(p => p.id === pendingDeleteProjectId);
+        return (
+          <Dialog open={!!pendingDeleteProjectId} onOpenChange={open => { if (!open) setPendingDeleteProjectId(null); }}>
+            <DialogContent className="text-foreground">
+              <DialogHeader>
+                <DialogTitle>Delete Project</DialogTitle>
+                <DialogDescription>
+                  Delete <strong>{proj?.name}</strong>? Scans in this project will not be deleted — they will just be unassigned.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="gap-2 mt-4">
+                <DialogClose asChild>
+                  <Button type="button" variant="outline">Cancel</Button>
+                </DialogClose>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={async () => {
+                    if (!pendingDeleteProjectId) return;
+                    await deleteProject(pendingDeleteProjectId);
+                    setPendingDeleteProjectId(null);
+                    refreshProjects();
+                  }}
+                >
+                  Delete Project
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
 
       {/* Assign to project dialog */}
       <Dialog open={!!assignReport} onOpenChange={open => { if (!open) setAssignReport(null); }}>
