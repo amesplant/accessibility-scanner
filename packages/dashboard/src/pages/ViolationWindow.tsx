@@ -25,7 +25,7 @@ export function ViolationWindow() {
     if (violation) {
       document.title = `${violation.help} — Violation Detail`;
     }
-    return () => { document.title = 'Accessibility Scanner'; };
+    return () => { document.title = 'Fueled Access'; };
   }, [violation]);
 
   if (loading) return <div className="p-6">Loading…</div>;

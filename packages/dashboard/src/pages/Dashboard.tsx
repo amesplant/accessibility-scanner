@@ -86,7 +86,7 @@ export function Dashboard() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    document.title = 'Accessibility Scanner — Reports';
+    document.title = 'Fueled Access — Reports';
   }, []);
 
   // Show form when "New Scan" is triggered from another page
