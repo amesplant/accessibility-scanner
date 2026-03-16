@@ -1,6 +1,8 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Dashboard } from './pages/Dashboard';
 import { ReportDetail } from './pages/ReportDetail';
+import { Projects } from './pages/Projects';
+import { ProjectDetail } from './pages/ProjectDetail';
 import { ViolationDetail } from './pages/ViolationDetail';
 import { PageDetail } from './pages/PageDetail';
 import { ViolationWindow } from './pages/ViolationWindow';
@@ -17,6 +19,8 @@ function App() {
       <Layout>
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/projects" element={<Projects />} />
+          <Route path="/projects/:id" element={<ProjectDetail />} />
           <Route path="/reports/:id" element={<ReportDetail />} />
           <Route path="/reports/:id/violation/:violationId" element={<ViolationWindow />} />
           <Route path="/reports/:id/page/:pageId" element={<PageWindow />} />

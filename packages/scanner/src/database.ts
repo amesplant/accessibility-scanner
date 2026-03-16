@@ -1,21 +1,14 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { ScanReport } from '@accessibility-scanner/shared';
+import { ScanReport, Project } from '@accessibility-scanner/shared';
 
-// Resolve data directory relative to this source file so the path is stable
-// regardless of where the process is started from (repo root vs package dir).
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_DATA_PATH = path.join(__dirname, '..', 'data', 'reports.json');
 
-// This service used to wrap lowdb, but we no longer need a real
-// database.  Reports are stored in a single JSON file on disk; the
-// class provides a tiny layer to read/update it and to clear the
-// contents.  The React dashboard reads the same file via the API.
-
-
 interface Schema {
   reports: ScanReport[];
+  projects: Project[];
 }
 
 export class DatabaseService {
@@ -32,19 +25,23 @@ export class DatabaseService {
     try {
       await fs.access(this.file);
     } catch {
-      await fs.writeFile(this.file, JSON.stringify({ reports: [] }, null, 2));
+      await fs.writeFile(this.file, JSON.stringify({ reports: [], projects: [] }, null, 2));
     }
   }
 
   private async read(): Promise<Schema> {
     await this.ensureFile();
     const raw = await fs.readFile(this.file, 'utf-8');
-    return JSON.parse(raw) as Schema;
+    const data = JSON.parse(raw) as Partial<Schema>;
+    // Migrate existing files that don't have a projects array
+    return { reports: data.reports ?? [], projects: data.projects ?? [] };
   }
 
   private async write(data: Schema): Promise<void> {
     await fs.writeFile(this.file, JSON.stringify(data, null, 2));
   }
+
+  // ── Reports ──────────────────────────────────────────────────────────────
 
   async saveReport(report: ScanReport): Promise<void> {
     const data = await this.read();
@@ -80,11 +77,48 @@ export class DatabaseService {
     return true;
   }
 
-  /**
-   * Removes all stored reports. Useful when you only need a
-   * single snapshot and want to start fresh between runs.
-   */
   async clearReports(): Promise<void> {
-    await this.write({ reports: [] });
+    const data = await this.read();
+    await this.write({ ...data, reports: [] });
+  }
+
+  // ── Projects ─────────────────────────────────────────────────────────────
+
+  async saveProject(project: Project): Promise<void> {
+    const data = await this.read();
+    data.projects.push(project);
+    await this.write(data);
+  }
+
+  async getProjects(): Promise<Project[]> {
+    const data = await this.read();
+    return data.projects;
+  }
+
+  async getProject(id: string): Promise<Project | undefined> {
+    const data = await this.read();
+    return data.projects.find(p => p.id === id);
+  }
+
+  async updateProject(project: Project): Promise<boolean> {
+    const data = await this.read();
+    const idx = data.projects.findIndex(p => p.id === project.id);
+    if (idx === -1) return false;
+    data.projects[idx] = project;
+    await this.write(data);
+    return true;
+  }
+
+  async deleteProject(id: string): Promise<boolean> {
+    const data = await this.read();
+    const before = data.projects.length;
+    data.projects = data.projects.filter(p => p.id !== id);
+    if (data.projects.length === before) return false;
+    // Unassign all reports from this project
+    data.reports = data.reports.map(r =>
+      r.projectId === id ? { ...r, projectId: undefined } : r
+    );
+    await this.write(data);
+    return true;
   }
 }

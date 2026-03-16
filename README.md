@@ -80,6 +80,10 @@ npm run dev:dashboard # Dashboard on port 5173
 
 **All-Inclusive** — Comprehensive evaluation of every page against the highest accessibility standards using full automated scanning.
 
+### Assigning a Project
+
+The **Project** field appears directly below the audit type selector. Select an existing project to assign the scan to it immediately, or click **+ New** to create a project inline without leaving the form. You can also assign or reassign any report to a project from the dashboard report card after the scan completes.
+
 ### All-Inclusive Input Modes
 
 | Mode | Description |
@@ -105,13 +109,30 @@ Scans run on the server and continue even when you navigate away from the dashbo
 
 ---
 
+## Projects
+
+<!-- Screenshot: dashboard with project folder cards -->
+<!-- ![Projects on Dashboard](docs/screenshots/dashboard-projects.png) -->
+
+Projects let you group related scans together — useful for tracking an entire site audit across multiple runs or organizing work by client or team.
+
+- **Create a project** from the scan form (select **+ New** in the Project field) or from the **Projects** page (`/projects`).
+- **Assign a scan** to a project at scan time using the Project field, or after the fact using the **Project** button on a report card.
+- **Dashboard** shows project folder cards above unassigned reports. Reports assigned to a project are hidden from the main list.
+- **Project detail** (`/projects/:id`) lists all reports in the project with View, Export, and Remove-from-project actions. The project name and description are editable inline.
+- **Unassigning** a report from a project returns it to the main reports list; it is not deleted.
+- Deleting a project unassigns all its reports — no reports are deleted.
+
+---
+
 ## Managing Reports
 
 <!-- Screenshot: report card with View / Export / Remove actions -->
 <!-- ![Report Card](docs/screenshots/report-card.png) -->
 
 - Reports are listed on the dashboard home page with the site's **page title** as the heading and URL as a subtitle.
-- Each card shows **View**, **Export**, and **Remove** actions.
+- Reports assigned to a project are shown on that project's detail page and hidden from the main dashboard list.
+- Each card shows **View**, **Project**, **Export**, and **Remove** actions.
 - The **Reports** nav dropdown also displays page titles for quick identification.
 - When a scan is running, the **New Scan** button is disabled until it completes or is aborted.
 
@@ -276,6 +297,28 @@ curl -X POST http://localhost:3003/api/reports/{reportId}/export/jira \
 ```
 
 `selectedLevels` is optional — omit to export all levels. `tasklistName` applies to Teamwork formats only.
+
+### Projects
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/projects` | List all projects (includes `reportCount`) |
+| `POST` | `/api/projects` | Create a project (body: `name`, `description?`) |
+| `GET` | `/api/projects/:id` | Get a project and its reports |
+| `PATCH` | `/api/projects/:id` | Update project name or description |
+| `DELETE` | `/api/projects/:id` | Delete a project (reports are unassigned, not deleted) |
+| `PATCH` | `/api/reports/:id/project` | Assign or unassign a report (body: `projectId` or `null`) |
+
+**Scan with project assignment:**
+
+```json
+POST /api/scan
+{
+  "auditType": "all-inclusive",
+  "sitemap": "https://example.com/sitemap.xml",
+  "projectId": "proj_abc123"
+}
+```
 
 ### Manual Audit
 
