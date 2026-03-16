@@ -19,7 +19,7 @@ export function PageWindow() {
 
   const page = report?.results.find(r => r.id === pageId) ?? null;
 
-  const { audit, updateCheck, updateNotes, updateEvidence, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure } =
+  const { audit, updateCheck, updateNotes, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure } =
     useManualAudit(id ?? '', pageId ?? '', page?.manualAudit);
 
   const [activeTab, setActiveTab] = useState(initialTab);

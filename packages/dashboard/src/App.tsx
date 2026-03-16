@@ -11,7 +11,7 @@ import { ScanProvider } from './context/ScanContext';
 
 function App() {
   return (
-    <Router>
+    <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <CurrentReportProvider>
       <ScanProvider>
       <Layout>
