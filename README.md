@@ -13,7 +13,7 @@ A comprehensive TypeScript tool for automated and manual accessibility testing u
 - **Manual audit checklists** scoped per audit type — 13 criteria for Rapid, 20 for Mid-Level, all 52 for All-Inclusive
 - **Failure instances** with scope tagging (Global / Common / Page Specific), code snippets, and screenshot capture
 - **Audit coverage tracking** — progress bar in report overview shows how many pages have been manually audited
-- **Background scanning** — scans continue running while you navigate to view other reports; a floating progress pill appears when you scroll away from the dashboard
+- **Background scanning** — scans continue running while you navigate to view other reports; a floating progress pill appears whenever the progress details scroll out of view or you leave the dashboard; clicking the pill scrolls back to the details or returns you to the dashboard
 - **Export to Teamwork (.xlsx), Teamwork (.csv), or Jira (.csv)** — filtered by WCAG level (A, AA, AAA, Best Practice)
 - **Consistent export modal** across the dashboard and report detail pages
 - **Concurrent page scanning** for performance
@@ -102,7 +102,7 @@ The **Project** field appears directly below the audit type selector. Select an 
 
 ### Background Scanning
 
-Scans run on the server and continue even when you navigate away from the dashboard. A **floating progress pill** appears at the top of every page once you scroll down or leave the dashboard, showing the current phase, page count, and elapsed time. You can abort the scan or return to the dashboard from the pill at any time.
+Scans run on the server and continue even when you navigate away from the dashboard. A **floating progress pill** appears at the top of the viewport whenever the progress details section scrolls out of view or you leave the dashboard — it hides automatically when the details are visible again. Clicking the pill scrolls back to the progress details (on the dashboard) or navigates you back to the dashboard (from any other page). A **View** link in the pill also takes you directly to the dashboard. You can abort the scan from the pill at any time.
 
 <!-- Screenshot: floating scan progress pill -->
 <!-- ![Scan Progress Pill](docs/screenshots/scan-pill.png) -->
@@ -119,8 +119,9 @@ Projects let you group related scans together — useful for tracking an entire 
 - **Create a project** from the scan form (select **+ New** in the Project field) or from the **Projects** page (`/projects`).
 - **Assign a scan** to a project at scan time using the Project field, or after the fact using the **Project** button on a report card.
 - **Dashboard** shows project folder cards above unassigned reports. Reports assigned to a project are hidden from the main list.
-- **Project detail** (`/projects/:id`) lists all reports in the project with View, Export, and Remove-from-project actions. The project name and description are editable inline.
+- **Project detail** (`/projects/:id`) lists all reports in the project with View, Export, and Remove-from-project actions. The project name and description are editable inline. Removing a report from a project shows a confirmation dialog making clear the report itself is not deleted.
 - **Unassigning** a report from a project returns it to the main reports list; it is not deleted.
+- **New Scan from a project** — clicking New Scan while viewing a project detail page automatically pre-selects that project in the scan form.
 - Deleting a project unassigns all its reports — no reports are deleted.
 
 ---

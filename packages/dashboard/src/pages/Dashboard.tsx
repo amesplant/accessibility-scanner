@@ -78,8 +78,10 @@ export function Dashboard() {
 
   // Show form when "New Scan" is triggered from another page
   useEffect(() => {
-    if ((location.state as { newScan?: boolean } | null)?.newScan) {
+    const state = location.state as { newScan?: boolean; projectId?: string | null } | null;
+    if (state?.newScan) {
       resetForm();
+      if (state.projectId) setScanProjectId(state.projectId);
       setShowScanForm(true);
       navigate('/', { replace: true, state: {} });
     }
@@ -433,6 +435,7 @@ export function Dashboard() {
 
       {/* Progress UI */}
       <div
+        id="scan-progress"
         role="status"
         aria-live="polite"
         aria-atomic="true"
@@ -510,7 +513,7 @@ export function Dashboard() {
     <div className="container mx-auto p-6">
       <h1 className="text-3xl font-bold mb-6">Accessibility Reports</h1>
 
-      {(!hasAnything || showScanForm) && !loading && (
+      {(!hasAnything || showScanForm || scanning) && !loading && (
         <Card className="mb-8">
           <CardHeader>
             <CardTitle>New Scan</CardTitle>
