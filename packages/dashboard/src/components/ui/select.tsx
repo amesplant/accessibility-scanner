@@ -104,12 +104,12 @@ SelectTrigger.displayName = "SelectTrigger"
 // -----------------------------------------------------------------------------
 // value
 // -----------------------------------------------------------------------------
-export function SelectValue({ placeholder }: { placeholder?: string }) {
+export function SelectValue({ placeholder, children }: { placeholder?: string; children?: React.ReactNode }) {
   const ctx = React.useContext(SelectContext)
   if (!ctx) {
     throw new Error("SelectValue must be used within a Select")
   }
-  return <span>{ctx.value || placeholder}</span>
+  return <span>{children ?? ctx.value ?? placeholder}</span>
 }
 
 // -----------------------------------------------------------------------------

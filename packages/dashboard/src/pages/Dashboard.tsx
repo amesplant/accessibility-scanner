@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useReports } from '@/hooks/useReports';
-import { useScanContext } from '@/context/ScanContext';
-import { AuditType } from '@accessibility-scanner/shared';
+import { useScanContext, formatElapsed } from '@/context/ScanContext';
+import { AuditType, ScanReport } from '@accessibility-scanner/shared';
 import {
   Card,
   CardContent,
@@ -14,7 +14,7 @@ import {
   Progress,
 } from '@/components/ui';
 import { ExternalLink } from '@/components/ExternalLink';
-import { TriangleAlert, Trash2 } from 'lucide-react';
+import { TriangleAlert, Trash2, Download } from 'lucide-react';
 import {
   Dialog,
   DialogClose,
@@ -24,6 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { ExportModal } from '@/components/ExportModal';
 
 type InputMode = 'url' | 'file' | 'crawl' | 'urllist';
 
@@ -38,19 +39,6 @@ const AUDIT_TYPE_DESCRIPTIONS: Record<AuditType, string> = {
   'mid-level':     'A thorough assessment across a representative set of pages covering both major and minor issues using automated, manual, and screen reader testing.',
   'all-inclusive': 'A comprehensive evaluation of every page on your site against the highest accessibility standards using automated scanning.',
 };
-
-interface ScanState {
-  phase: 'crawling' | 'scanning' | null;
-  scanned: number;
-  total: number;
-}
-
-function formatElapsed(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}m ${s}s`;
-}
 
 export function Dashboard() {
   const { reports, loading, error, refresh } = useReports();
@@ -71,19 +59,12 @@ export function Dashboard() {
   const [urlInputValue, setUrlInputValue] = useState('');
   const [urlInputError, setUrlInputError] = useState<string | null>(null);
 
-  const { scanning, setScanning } = useScanContext();
-  const [activeJobId, setActiveJobId] = useState<string | null>(null);
-  const [scanState, setScanState] = useState<ScanState>({ phase: null, scanned: 0, total: 0 });
-  const [crawlingUrl, setCrawlingUrl] = useState<string | null>(null);
-  const [scanningUrl, setScanningUrl] = useState<string | null>(null);
-  const [elapsed, setElapsed] = useState(0);
-  const [scanError, setScanError] = useState<string | null>(null);
+  const { scanning, scanState, elapsed, crawlingUrl, scanningUrl, scanError, startScan, abortScan, setScanError } = useScanContext();
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
   const removeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [exportReport, setExportReport] = useState<ScanReport | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const esRef = useRef<EventSource | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     document.title = 'Fueled Access — Reports';
@@ -97,14 +78,6 @@ export function Dashboard() {
       navigate('/', { replace: true, state: {} });
     }
   }, [location.state, navigate]);
-
-  // Clean up SSE + timer on unmount
-  useEffect(() => {
-    return () => {
-      esRef.current?.close();
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, []);
 
   function resetForm() {
     setAuditType('all-inclusive');
@@ -159,79 +132,6 @@ export function Dashboard() {
     setUrlInputError(null);
   }
 
-  function startTimer() {
-    setElapsed(0);
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
-  }
-
-  function stopTimer() {
-    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-  }
-
-  function connectToJob(jobId: string) {
-    const es = new EventSource(`/api/scan/${jobId}/events`);
-    esRef.current = es;
-
-    es.addEventListener('crawling', () => {
-      setScanState({ phase: 'crawling', scanned: 0, total: 0 });
-      setCrawlingUrl(null);
-    });
-
-    es.addEventListener('crawl-progress', (e) => {
-      const data = JSON.parse(e.data);
-      setCrawlingUrl(data.url);
-    });
-
-    es.addEventListener('scanning', (e) => {
-      const data = JSON.parse(e.data);
-      setScanState({ phase: 'scanning', scanned: 0, total: data.total ?? 0 });
-      setCrawlingUrl(null);
-    });
-
-    es.addEventListener('progress', (e) => {
-      const data = JSON.parse(e.data);
-      setScanState({ phase: 'scanning', scanned: data.scanned, total: data.total });
-      setScanningUrl(data.url ?? null);
-    });
-
-    es.addEventListener('complete', () => {
-      es.close();
-      stopTimer();
-      setScanning(false);
-      setActiveJobId(null);
-      setScanState({ phase: null, scanned: 0, total: 0 });
-      setScanningUrl(null);
-      resetForm();
-      setShowScanForm(false);
-      refresh();
-    });
-
-    es.addEventListener('aborted', () => {
-      es.close();
-      stopTimer();
-      setScanning(false);
-      setActiveJobId(null);
-      setScanState({ phase: null, scanned: 0, total: 0 });
-      setScanningUrl(null);
-      setCrawlingUrl(null);
-    });
-
-    es.addEventListener('error', (e) => {
-      es.close();
-      stopTimer();
-      setScanning(false);
-      setActiveJobId(null);
-      setScanState({ phase: null, scanned: 0, total: 0 });
-      try {
-        const data = JSON.parse((e as MessageEvent).data);
-        setScanError(data.message || 'Scan failed');
-      } catch {
-        setScanError('Scan failed');
-      }
-    });
-  }
-
   const canSubmit = !scanning && (
     mode === 'urllist' ? urlList.length > 0 :
     mode === 'url'     ? sitemap.trim() !== '' :
@@ -242,8 +142,6 @@ export function Dashboard() {
   async function handleScan(e: React.FormEvent) {
     e.preventDefault();
     setScanError(null);
-    setScanning(true);
-    startTimer();
 
     try {
       let body: Record<string, unknown>;
@@ -269,18 +167,16 @@ export function Dashboard() {
       }
 
       const { jobId } = await res.json();
-      setActiveJobId(jobId);
-      connectToJob(jobId);
+      startScan(jobId, {
+        onComplete: () => { resetForm(); setShowScanForm(false); refresh(); },
+      });
     } catch (err) {
-      stopTimer();
-      setScanning(false);
       setScanError(err instanceof Error ? err.message : 'Scan failed');
     }
   }
 
   async function handleAbort() {
-    if (!activeJobId) return;
-    await fetch(`/api/scan/${activeJobId}`, { method: 'DELETE' });
+    await abortScan();
   }
 
   function switchMode(next: InputMode) {
@@ -572,7 +468,7 @@ export function Dashboard() {
       <div className="grid gap-6">
         {reports?.map(report => (
           <Card key={report.id}>
-            <CardHeader className="flex flex-row items-start justify-between gap-4">
+            <CardHeader className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
               <div>
                 <CardTitle>
                   {report.pageTitle || report.sitemap}
@@ -593,13 +489,22 @@ export function Dashboard() {
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex flex-row items-center gap-2 lg:shrink-0">
                 <Link
                   to={`/reports/${report.id}`}
-                  className="inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors"
+                  className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors"
                 >
                   View Report
                 </Link>
+                <button
+                  type="button"
+                  onClick={() => setExportReport(report)}
+                  aria-label={`Export report for ${report.sitemap}`}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-primary/20 hover:border-primary"
+                >
+                  <Download className="h-4 w-4" aria-hidden="true" />
+                  Export
+                </button>
                 <button
                   type="button"
                   onClick={e => {
@@ -607,7 +512,7 @@ export function Dashboard() {
                     setPendingRemoveId(report.id);
                   }}
                   aria-label={`Remove scan for ${report.sitemap}`}
-                  className="rounded-md p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                  className="inline-flex items-center justify-center rounded-md p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                 >
                   <Trash2 className="h-4 w-4" aria-hidden="true" />
                 </button>
@@ -717,6 +622,8 @@ export function Dashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ExportModal report={exportReport} onClose={() => setExportReport(null)} />
     </div>
   );
 
@@ -725,4 +632,5 @@ export function Dashboard() {
     setPendingRemoveId(null);
     refresh();
   }
+
 }

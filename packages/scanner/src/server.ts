@@ -86,9 +86,9 @@ app.post('/api/reports/:id/export/csv', async (req, res) => {
   try {
     const report = await db.getReport(req.params.id);
     if (!report) return res.status(404).json({ error: 'Report not found' });
-    const { selectedViolations, tasklistName } = req.body;
+    const { selectedViolations, tasklistName, selectedLevels } = req.body;
     const exporter = new Reporter();
-    const csvData = exporter.exportToCsv(report, selectedViolations, tasklistName);
+    const csvData = exporter.exportToCsv(report, selectedViolations, tasklistName, selectedLevels);
     res.header('Content-Type', 'text/csv');
     res.header('Content-Disposition', `attachment; filename="accessibility-export-${req.params.id}.csv"`);
     return res.send(csvData);
@@ -102,15 +102,31 @@ app.post('/api/reports/:id/export/excel', async (req, res) => {
   try {
     const report = await db.getReport(req.params.id);
     if (!report) return res.status(404).json({ error: 'Report not found' });
-    const { selectedViolations, tasklistName } = req.body;
+    const { selectedViolations, tasklistName, selectedLevels } = req.body;
     const exporter = new Reporter();
-    const buffer = await exporter.exportToExcel(report, selectedViolations, tasklistName);
+    const buffer = await exporter.exportToExcel(report, selectedViolations, tasklistName, selectedLevels);
     res.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.header('Content-Disposition', `attachment; filename="accessibility-export-${req.params.id}.xlsx"`);
     return res.send(buffer);
   } catch (error) {
     console.error('Excel export error:', error);
     return res.status(500).json({ error: 'Excel export failed' });
+  }
+});
+
+app.post('/api/reports/:id/export/jira', async (req, res) => {
+  try {
+    const report = await db.getReport(req.params.id);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const { selectedViolations, selectedLevels } = req.body;
+    const exporter = new Reporter();
+    const csvData = exporter.exportToJiraCsv(report, selectedViolations, selectedLevels);
+    res.header('Content-Type', 'text/csv');
+    res.header('Content-Disposition', `attachment; filename="jira-export-${req.params.id}.csv"`);
+    return res.send(csvData);
+  } catch (error) {
+    console.error('Jira export error:', error);
+    return res.status(500).json({ error: 'Jira export failed' });
   }
 });
 

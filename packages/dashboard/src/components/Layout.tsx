@@ -1,8 +1,8 @@
-import { ReactNode, useState, useRef, useEffect } from 'react';
+import { ReactNode, useState, useRef, useEffect, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useCurrentReport } from '@/context/CurrentReportContext';
 import { useReports } from '@/hooks/useReports';
-import { useScanContext } from '@/context/ScanContext';
+import { useScanContext, formatElapsed } from '@/context/ScanContext';
 
 type Props = { children: ReactNode };
 
@@ -10,8 +10,18 @@ type Props = { children: ReactNode };
 export function Layout({ children }: Props) {
   const { reportId } = useCurrentReport();
   const { reports, refresh: refreshReports } = useReports();
-  const { scanning } = useScanContext();
+  const { scanning, scanState, elapsed, crawlingUrl, abortScan } = useScanContext();
   const [showReports, setShowReports] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+
+  const handleScroll = useCallback(() => {
+    setScrolled(window.scrollY > 64);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [handleScroll]);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -170,6 +180,49 @@ export function Layout({ children }: Props) {
           </button>
         </nav>
       </header>
+
+      {scanning && (
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className={[
+            'fixed top-4 left-1/2 -translate-x-1/2 z-50',
+            'flex items-center gap-3 px-4 py-2.5 rounded-full',
+            'bg-background/60 backdrop-blur-md border border-primary/30 shadow-lg shadow-black/10',
+            'transition-all duration-300 ease-out',
+            scanning && (scrolled || !onDashboard)
+              ? 'opacity-100 translate-y-0'
+              : 'opacity-0 -translate-y-2 pointer-events-none',
+          ].join(' ')}
+        >
+          <div className="h-2 w-2 rounded-full bg-primary animate-pulse shrink-0" aria-hidden="true" />
+          <span className="text-sm text-foreground whitespace-nowrap">
+            {scanState.phase === 'crawling' && 'Discovering pages…'}
+            {scanState.phase === 'scanning' && scanState.total > 0 && (
+              `Scanning ${scanState.scanned} / ${scanState.total}`
+            )}
+            {scanState.phase === 'scanning' && scanState.total === 0 && 'Scanning…'}
+            {!scanState.phase && 'Starting scan…'}
+          </span>
+          <span className="text-xs text-muted-foreground font-mono shrink-0">
+            {formatElapsed(elapsed)}
+          </span>
+          <div className="w-px h-4 bg-border shrink-0" aria-hidden="true" />
+          {!onDashboard && (
+            <Link to="/" className="text-xs text-link hover:underline shrink-0">
+              View
+            </Link>
+          )}
+          <button
+            type="button"
+            onClick={() => abortScan()}
+            className="text-xs text-muted-foreground hover:text-destructive transition-colors shrink-0"
+          >
+            Abort
+          </button>
+        </div>
+      )}
 
       <main id="main-content" className="flex-1 p-4" tabIndex={-1}>
         {children}
