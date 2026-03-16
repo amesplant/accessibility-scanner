@@ -33,6 +33,7 @@ export function Layout({ children }: Props) {
   const onReportPage = Boolean(reportPageMatch);
   const activeReportId = reportPageMatch?.[1] ?? reportId;
   const onDashboard = location.pathname === '/';
+  const onProjects = location.pathname.startsWith('/projects');
 
   const navLink = (active: boolean) =>
     active
@@ -110,6 +111,15 @@ export function Layout({ children }: Props) {
             className={`font-semibold ${navLink(onDashboard)}`}
           >
             Fueled Access
+          </Link>
+
+          {/* Projects link */}
+          <Link
+            to="/projects"
+            aria-current={onProjects ? 'page' : undefined}
+            className={navLink(onProjects)}
+          >
+            Projects
           </Link>
 
           {/* Reports dropdown */}

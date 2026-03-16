@@ -9,7 +9,7 @@ import { DatabaseService } from './database.js';
 import { Reporter } from './exporter.js';
 import { SitemapScanner } from './scanner.js';
 import { crawlSite } from './crawler.js';
-import { AuditType, createDefaultChecks, ManualAudit, ManualAuditStatus, ManualCheckResult, ManualFailureInstance } from '@accessibility-scanner/shared';
+import { AuditType, createDefaultChecks, ManualAudit, ManualAuditStatus, ManualCheckResult, ManualFailureInstance, Project } from '@accessibility-scanner/shared';
 
 const app = express();
 const db = new DatabaseService();
@@ -375,11 +375,105 @@ app.delete('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fa
 });
 
 // ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+app.get('/api/projects', async (_req, res) => {
+  try {
+    const projects = await db.getProjects();
+    const reports = await db.getReports();
+    const countMap = reports.reduce<Record<string, number>>((acc, r) => {
+      if (r.projectId) acc[r.projectId] = (acc[r.projectId] ?? 0) + 1;
+      return acc;
+    }, {});
+    return res.json(projects.map(p => ({ ...p, reportCount: countMap[p.id] ?? 0 })));
+  } catch (err) {
+    console.error('List projects error:', err);
+    return res.status(500).json({ error: 'Failed to list projects' });
+  }
+});
+
+app.post('/api/projects', async (req, res) => {
+  try {
+    const { name, description } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'Project name is required' });
+    const project: Project = {
+      id: randomUUID(),
+      name: name.trim(),
+      description: description?.trim() || undefined,
+      createdAt: new Date().toISOString(),
+    };
+    await db.saveProject(project);
+    return res.status(201).json(project);
+  } catch (err) {
+    console.error('Create project error:', err);
+    return res.status(500).json({ error: 'Failed to create project' });
+  }
+});
+
+app.get('/api/projects/:id', async (req, res) => {
+  try {
+    const project = await db.getProject(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const reports = await db.getReports();
+    const projectReports = reports.filter(r => r.projectId === req.params.id);
+    return res.json({ ...project, reports: projectReports });
+  } catch (err) {
+    console.error('Get project error:', err);
+    return res.status(500).json({ error: 'Failed to get project' });
+  }
+});
+
+app.patch('/api/projects/:id', async (req, res) => {
+  try {
+    const project = await db.getProject(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const { name, description } = req.body;
+    if (name !== undefined) project.name = name.trim() || project.name;
+    if (description !== undefined) project.description = description?.trim() || undefined;
+    await db.updateProject(project);
+    return res.json(project);
+  } catch (err) {
+    console.error('Update project error:', err);
+    return res.status(500).json({ error: 'Failed to update project' });
+  }
+});
+
+app.delete('/api/projects/:id', async (req, res) => {
+  try {
+    const deleted = await db.deleteProject(req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'Project not found' });
+    return res.sendStatus(204);
+  } catch (err) {
+    console.error('Delete project error:', err);
+    return res.status(500).json({ error: 'Failed to delete project' });
+  }
+});
+
+app.patch('/api/reports/:id/project', async (req, res) => {
+  try {
+    const report = await db.getReport(req.params.id);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const { projectId } = req.body;
+    if (projectId !== null && projectId !== undefined) {
+      const project = await db.getProject(projectId);
+      if (!project) return res.status(404).json({ error: 'Project not found' });
+    }
+    report.projectId = projectId ?? undefined;
+    await db.updateReport(report);
+    return res.json(report);
+  } catch (err) {
+    console.error('Assign project error:', err);
+    return res.status(500).json({ error: 'Failed to assign project' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Scan — start a job and return its ID immediately
 // ---------------------------------------------------------------------------
 
 app.post('/api/scan', (req, res) => {
-  const { sitemap, xmlContent, filename, crawlUrl, maxPages = 200, concurrent = 5, auditType = 'all-inclusive', urls } = req.body;
+  const { sitemap, xmlContent, filename, crawlUrl, maxPages = 200, concurrent = 5, auditType = 'all-inclusive', urls, projectId } = req.body;
 
   const hasUrls = Array.isArray(urls) && urls.length > 0;
 
@@ -479,6 +573,7 @@ app.post('/api/scan', (req, res) => {
         return;
       }
 
+      if (projectId) report.projectId = projectId;
       await db.saveReport(report);
       job.status = 'complete';
       job.reportId = report.id;

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useReports } from '@/hooks/useReports';
+import { useProjects } from '@/hooks/useProjects';
 import { useScanContext, formatElapsed } from '@/context/ScanContext';
 import { AuditType, ScanReport } from '@accessibility-scanner/shared';
 import {
@@ -14,7 +15,7 @@ import {
   Progress,
 } from '@/components/ui';
 import { ExternalLink } from '@/components/ExternalLink';
-import { TriangleAlert, Trash2, Download } from 'lucide-react';
+import { TriangleAlert, Trash2, Download, FolderOpen } from 'lucide-react';
 import {
   Dialog,
   DialogClose,
@@ -42,6 +43,7 @@ const AUDIT_TYPE_DESCRIPTIONS: Record<AuditType, string> = {
 
 export function Dashboard() {
   const { reports, loading, error, refresh } = useReports();
+  const { projects, createProject, refresh: refreshProjects } = useProjects();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -63,6 +65,11 @@ export function Dashboard() {
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
   const removeButtonRef = useRef<HTMLButtonElement | null>(null);
   const [exportReport, setExportReport] = useState<ScanReport | null>(null);
+  const [scanProjectId, setScanProjectId] = useState<string>('');
+  const [newProjectName, setNewProjectName] = useState('');
+  const [showNewProjectInput, setShowNewProjectInput] = useState(false);
+  const [assignReport, setAssignReport] = useState<ScanReport | null>(null);
+  const [assignProjectId, setAssignProjectId] = useState<string>('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -90,6 +97,9 @@ export function Dashboard() {
     setUrlInputValue('');
     setUrlInputError(null);
     setScanError(null);
+    setScanProjectId('');
+    setNewProjectName('');
+    setShowNewProjectInput(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
@@ -144,6 +154,13 @@ export function Dashboard() {
     setScanError(null);
 
     try {
+      // Handle "new project" inline creation
+      let resolvedProjectId = scanProjectId;
+      if (showNewProjectInput && newProjectName.trim()) {
+        const created = await createProject(newProjectName.trim());
+        resolvedProjectId = created.id;
+      }
+
       let body: Record<string, unknown>;
       if (mode === 'urllist') {
         body = { urls: urlList, auditType };
@@ -154,6 +171,7 @@ export function Dashboard() {
       } else {
         body = { sitemap, auditType };
       }
+      if (resolvedProjectId) body.projectId = resolvedProjectId;
 
       const res = await fetch('/api/scan', {
         method: 'POST',
@@ -213,6 +231,42 @@ export function Dashboard() {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Project assignment */}
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="scan-project">Project <span className="text-muted-foreground font-normal">(optional)</span></Label>
+        {showNewProjectInput ? (
+          <div className="flex gap-2">
+            <Input
+              id="scan-project"
+              value={newProjectName}
+              onChange={e => setNewProjectName(e.target.value)}
+              disabled={scanning}
+            />
+            <Button type="button" variant="outline" size="sm" onClick={() => { setShowNewProjectInput(false); setNewProjectName(''); }} disabled={scanning}>
+              Cancel
+            </Button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <select
+              id="scan-project"
+              value={scanProjectId}
+              onChange={e => setScanProjectId(e.target.value)}
+              disabled={scanning}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <option value="">No project</option>
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowNewProjectInput(true)} disabled={scanning}>
+              + New
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Mode toggle — only shown for All-Inclusive */}
@@ -449,11 +503,15 @@ export function Dashboard() {
     </form>
   );
 
+  const unassignedReports = reports?.filter(r => !r.projectId) ?? [];
+  const hasUnassigned = unassignedReports.length > 0;
+  const hasAnything = !loading && ((reports?.length ?? 0) > 0 || projects.length > 0);
+
   return (
     <div className="container mx-auto p-6">
       <h1 className="text-3xl font-bold mb-6">Accessibility Reports</h1>
 
-      {(!hasReports || showScanForm) && !loading && (
+      {(!hasAnything || showScanForm) && !loading && (
         <Card className="mb-8">
           <CardHeader>
             <CardTitle>New Scan</CardTitle>
@@ -465,8 +523,40 @@ export function Dashboard() {
       {loading && <div>Loading…</div>}
       {error && <div>Error: {error}</div>}
 
+      {/* Projects section */}
+      {projects.length > 0 && (
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold">Projects</h2>
+            <Link to="/projects" className="text-sm text-link hover:underline">View all</Link>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {projects.map(project => (
+              <Link
+                key={project.id}
+                to={`/projects/${project.id}`}
+                className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm hover:border-primary hover:bg-primary/5 transition-colors"
+              >
+                <FolderOpen className="h-5 w-5 text-muted-foreground shrink-0" aria-hidden="true" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{project.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {project.reportCount} {project.reportCount === 1 ? 'report' : 'reports'}
+                  </p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Unassigned reports */}
+      {hasUnassigned && (
+        <h2 className="text-lg font-semibold mb-3">Reports</h2>
+      )}
+
       <div className="grid gap-6">
-        {reports?.map(report => (
+        {unassignedReports.map(report => (
           <Card key={report.id}>
             <CardHeader className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
               <div>
@@ -484,6 +574,18 @@ export function Dashboard() {
                       {AUDIT_TYPE_LABELS[report.auditType]}
                     </span>
                   )}
+                  {report.projectId && (() => {
+                    const proj = projects.find(p => p.id === report.projectId);
+                    return proj ? (
+                      <Link
+                        to={`/projects/${proj.id}`}
+                        className="inline-flex items-center gap-1 text-xs font-medium rounded-full px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700 hover:underline"
+                      >
+                        <FolderOpen className="h-3 w-3" aria-hidden="true" />
+                        {proj.name}
+                      </Link>
+                    ) : null;
+                  })()}
                   <p className="text-sm text-muted-foreground">
                     Scanned on {new Date(report.startTime).toLocaleString()}
                   </p>
@@ -496,6 +598,15 @@ export function Dashboard() {
                 >
                   View Report
                 </Link>
+                <button
+                  type="button"
+                  onClick={() => { setAssignReport(report); setAssignProjectId(report.projectId ?? ''); }}
+                  aria-label={`Assign ${report.pageTitle || report.sitemap} to a project`}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-primary/20 hover:border-primary"
+                >
+                  <FolderOpen className="h-4 w-4" aria-hidden="true" />
+                  Project
+                </button>
                 <button
                   type="button"
                   onClick={() => setExportReport(report)}
@@ -624,6 +735,53 @@ export function Dashboard() {
       </Dialog>
 
       <ExportModal report={exportReport} onClose={() => setExportReport(null)} />
+
+      {/* Assign to project dialog */}
+      <Dialog open={!!assignReport} onOpenChange={open => { if (!open) setAssignReport(null); }}>
+        <DialogContent className="text-foreground">
+          <DialogHeader>
+            <DialogTitle>Assign to Project</DialogTitle>
+            <DialogDescription>
+              {assignReport?.pageTitle || assignReport?.sitemap}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <Label htmlFor="assign-project-select">Project</Label>
+            <select
+              id="assign-project-select"
+              value={assignProjectId}
+              onChange={e => setAssignProjectId(e.target.value)}
+              className="mt-1.5 flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              <option value="">No project</option>
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <DialogFooter className="gap-2">
+            <DialogClose asChild>
+              <Button type="button" variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button
+              type="button"
+              onClick={async () => {
+                if (!assignReport) return;
+                await fetch(`/api/reports/${assignReport.id}/project`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ projectId: assignProjectId || null }),
+                });
+                setAssignReport(null);
+                refresh();
+                refreshProjects();
+              }}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 
