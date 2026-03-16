@@ -26,7 +26,7 @@ A comprehensive TypeScript tool for automated and manual accessibility testing u
 
 ### Prerequisites
 
-- Node.js >= 20.19+ or 22.12+
+- Node.js >= 22.12+
 - npm >= 10
 
 ### Installation
@@ -118,8 +118,9 @@ Projects let you group related scans together — useful for tracking an entire 
 
 - **Create a project** from the scan form (select **+ New** in the Project field) or from the **Projects** page (`/projects`).
 - **Assign a scan** to a project at scan time using the Project field, or after the fact using the **Project** button on a report card.
-- **Dashboard** shows project folder cards above unassigned reports. Reports assigned to a project are hidden from the main list.
-- **Project detail** (`/projects/:id`) lists all reports in the project with View, Export, and Remove-from-project actions. The project name and description are editable inline.
+- **Dashboard** shows project folder cards above unassigned reports. Each card has edit (pencil) and delete (trash) icon buttons. Reports assigned to a project are hidden from the main list.
+- **Projects page** (`/projects`) lists all projects with edit and delete actions on each card.
+- **Project detail** (`/projects/:id`) lists all reports in the project with View, Export, and Remove-from-project actions. The project name and description are editable inline. The **Start a new scan** link opens the scan form on the dashboard with this project pre-selected.
 - **Unassigning** a report from a project returns it to the main reports list; it is not deleted.
 - Deleting a project unassigns all its reports — no reports are deleted.
 
@@ -134,7 +135,7 @@ Projects let you group related scans together — useful for tracking an entire 
 - Reports assigned to a project are shown on that project's detail page and hidden from the main dashboard list.
 - Each card shows **View**, **Project**, **Export**, and **Remove** actions.
 - The **Reports** nav dropdown also displays page titles for quick identification.
-- When a scan is running, the **New Scan** button is disabled until it completes or is aborted.
+- When a scan is running, the **New Scan** nav button is hidden until the scan completes or is aborted.
 
 ---
 

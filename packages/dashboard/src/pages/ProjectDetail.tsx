@@ -188,7 +188,14 @@ export function ProjectDetail() {
         <div className="text-center py-16 text-muted-foreground">
           <p className="text-sm">No reports in this project yet.</p>
           <p className="text-sm mt-1">
-            <Link to="/" className="text-link hover:underline">Start a new scan</Link> and assign it to this project.
+            <button
+              type="button"
+              onClick={() => navigate('/', { state: { newScan: true, projectId: project.id } })}
+              className="text-link hover:underline"
+            >
+              Start a new scan
+            </button>
+            {' '}and assign it to this project.
           </p>
         </div>
       ) : (
