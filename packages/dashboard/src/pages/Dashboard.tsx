@@ -193,7 +193,7 @@ export function Dashboard() {
 
       const { jobId } = await res.json();
       startScan(jobId, {
-        onComplete: () => { resetForm(); setShowScanForm(false); refresh(); },
+        onComplete: () => { resetForm(); setShowScanForm(false); refresh(); refreshProjects(); },
       });
     } catch (err) {
       setScanError(err instanceof Error ? err.message : 'Scan failed');

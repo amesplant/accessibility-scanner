@@ -21,6 +21,8 @@ interface ScanContextValue {
   crawlingUrl: string | null;
   scanningUrl: string | null;
   scanError: string | null;
+  completedReportId: string | null;
+  clearCompletedReport: () => void;
   startScan: (jobId: string, callbacks?: { onComplete?: () => void }) => void;
   abortScan: () => Promise<void>;
   setScanError: (msg: string | null) => void;
@@ -34,6 +36,8 @@ const ScanContext = createContext<ScanContextValue>({
   crawlingUrl: null,
   scanningUrl: null,
   scanError: null,
+  completedReportId: null,
+  clearCompletedReport: () => {},
   startScan: () => {},
   abortScan: async () => {},
   setScanError: () => {},
@@ -49,6 +53,7 @@ export function ScanProvider({ children }: { children: ReactNode }) {
   const [crawlingUrl, setCrawlingUrl] = useState<string | null>(null);
   const [scanningUrl, setScanningUrl] = useState<string | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [completedReportId, setCompletedReportId] = useState<string | null>(null);
 
   const esRef = useRef<EventSource | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -103,9 +108,13 @@ export function ScanProvider({ children }: { children: ReactNode }) {
       setScanningUrl(data.url ?? null);
     });
 
-    es.addEventListener('complete', () => {
+    es.addEventListener('complete', (e) => {
       es.close();
       resetScanState();
+      try {
+        const data = JSON.parse((e as MessageEvent).data);
+        if (data.reportId) setCompletedReportId(data.reportId);
+      } catch { /* no data */ }
       callbackRef.current.onComplete?.();
       callbackRef.current = {};
     });
@@ -163,6 +172,10 @@ export function ScanProvider({ children }: { children: ReactNode }) {
     await fetch(`/api/scan/${jobId}`, { method: 'DELETE' });
   }
 
+  function clearCompletedReport() {
+    setCompletedReportId(null);
+  }
+
   return (
     <ScanContext.Provider value={{
       scanning,
@@ -172,6 +185,8 @@ export function ScanProvider({ children }: { children: ReactNode }) {
       crawlingUrl,
       scanningUrl,
       scanError,
+      completedReportId,
+      clearCompletedReport,
       startScan,
       abortScan,
       setScanError,
