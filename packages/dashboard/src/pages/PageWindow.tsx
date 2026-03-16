@@ -44,7 +44,7 @@ export function PageWindow() {
         document.title = `${page.url} — Page Detail`;
       }
     }
-    return () => { document.title = 'Accessibility Scanner'; };
+    return () => { document.title = 'Fueled Access'; };
   }, [page]);
 
   if (loading) return <div className="p-6">Loading…</div>;

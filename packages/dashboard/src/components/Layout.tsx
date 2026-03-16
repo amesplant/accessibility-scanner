@@ -99,7 +99,7 @@ export function Layout({ children }: Props) {
             aria-current={onDashboard ? 'page' : undefined}
             className={`font-semibold ${navLink(onDashboard)}`}
           >
-            Accessibility Scanner
+            Fueled Access
           </Link>
 
           {/* Reports dropdown */}
@@ -177,7 +177,7 @@ export function Layout({ children }: Props) {
 
       <footer className="border-t border-border py-4">
         <p className="container mx-auto px-6 text-xs text-muted-foreground">
-          Accessibility Scanner — powered by axe-core
+          Fueled Access — powered by axe-core
         </p>
       </footer>
 
