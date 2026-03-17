@@ -44,6 +44,43 @@ export interface ManualAudit {
   completedAt?: string;
 }
 
+export type DetectedElementType =
+  | 'img'
+  | 'input-image'
+  | 'svg'
+  | 'canvas'
+  | 'video'
+  | 'button-icon'
+  | 'role-img'
+  | 'area'
+  | 'object';
+
+export interface DetectedElement {
+  id: string;
+  elementType: DetectedElementType;
+  /** Truncated outerHTML (≤ 500 chars) */
+  html: string;
+  /** CSS selector path to the element */
+  selector: string;
+  /** Resolved text alternative (aria-labelledby > aria-label > alt > title), or null if missing */
+  textAlternative: string | null;
+  /** True when the element has empty alt="" or role="presentation/none" */
+  isDecorative: boolean;
+  auditStatus: 'pass' | 'fail' | 'not-reviewed';
+  auditComment?: string;
+  /** Base64 data URL screenshot of the element (cropped to element bounds) */
+  screenshotDataUrl?: string;
+  /** Base64 data URL of the viewport with the element highlighted in red */
+  contextScreenshotDataUrl?: string;
+  /** What a screen reader would announce for this element (computed accessible name) */
+  screenReaderText?: string;
+}
+
+/** Keyed by WCAG criterion ID, e.g. "1.1.1" */
+export interface DetectedCriteriaElements {
+  [criterionId: string]: DetectedElement[];
+}
+
 export interface ScanResult {
   id: string;
   url: string;
@@ -54,6 +91,7 @@ export interface ScanResult {
   incomplete: number;
   inapplicable: number;
   manualAudit?: ManualAudit;
+  detectedElements?: DetectedCriteriaElements;
 }
 
 export interface AxeViolation {

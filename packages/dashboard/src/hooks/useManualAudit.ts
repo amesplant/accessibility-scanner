@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   ManualAudit,
   ManualAuditStatus,
   ManualFailureInstance,
+  DetectedCriteriaElements,
   createDefaultChecks,
 } from '@accessibility-scanner/shared';
 
@@ -18,8 +19,26 @@ export function useManualAudit(
   reportId: string,
   pageId: string,
   initialAudit: ManualAudit | undefined,
+  initialDetectedElements: DetectedCriteriaElements | undefined,
 ) {
   const [audit, setAudit] = useState<ManualAudit>(() => buildInitialAudit(initialAudit));
+  const [detectedElements, setDetectedElements] = useState<DetectedCriteriaElements | undefined>(
+    initialDetectedElements,
+  );
+
+  // Hydrate audit state once when server data arrives (initialAudit starts undefined while loading)
+  const auditHydrated = useRef(false);
+  useEffect(() => {
+    if (!auditHydrated.current && initialAudit) {
+      auditHydrated.current = true;
+      setAudit(buildInitialAudit(initialAudit));
+    }
+  }, [initialAudit]);
+
+  // Sync detectedElements whenever the page changes or data loads asynchronously
+  useEffect(() => {
+    setDetectedElements(initialDetectedElements);
+  }, [initialDetectedElements]);
 
   const updateCheck = useCallback(
     async (checkId: string, status: ManualAuditStatus, notes?: string) => {
@@ -238,5 +257,39 @@ export function useManualAudit(
     [reportId, pageId],
   );
 
-  return { audit, updateCheck, updateNotes, updateEvidence, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure };
+  const updateDetectedElement = useCallback(
+    async (
+      criterionId: string,
+      elementId: string,
+      auditStatus: 'pass' | 'fail' | 'not-reviewed',
+      auditComment?: string,
+    ) => {
+      // Optimistic update
+      setDetectedElements(prev => {
+        if (!prev?.[criterionId]) return prev;
+        return {
+          ...prev,
+          [criterionId]: prev[criterionId].map(el =>
+            el.id === elementId ? { ...el, auditStatus, auditComment } : el,
+          ),
+        };
+      });
+
+      try {
+        await fetch(
+          `/api/reports/${reportId}/pages/${pageId}/elements/${criterionId}/${elementId}`,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ auditStatus, auditComment }),
+          },
+        );
+      } catch (err) {
+        console.error('Failed to update element:', err);
+      }
+    },
+    [reportId, pageId],
+  );
+
+  return { audit, detectedElements, updateCheck, updateNotes, updateEvidence, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement };
 }

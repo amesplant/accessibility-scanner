@@ -1,4 +1,4 @@
-import { ScanReport, AxeViolation, ManualCheckResult } from '@accessibility-scanner/shared';
+import { ScanReport, AxeViolation, ManualCheckResult, DetectedElement } from '@accessibility-scanner/shared';
 import ExcelJS from 'exceljs';
 
 /**
@@ -55,17 +55,20 @@ export class Reporter {
       sheet.addRow(row);
     });
 
-    const manualChecks = this.collectManualChecks(report);
-    if (manualChecks.length > 0) {
+    const manualEntries = this.collectManualChecks(report);
+    if (manualEntries.length > 0) {
       const manualSheet = workbook.addWorksheet('Manual Audit');
       manualSheet.addRow(['Criterion', 'Level', 'Title', 'Status', 'Notes', 'Impact', 'Last Updated']);
-      manualChecks.forEach(c => {
+      manualEntries.forEach(({ check: c, failedElements }) => {
+        const extraNotes = failedElements.length > 0
+          ? `${c.notes ?? ''}\n\nFailed elements (${failedElements.length}):\n${failedElements.map(e => `- ${e.html}${e.auditComment ? ` — ${e.auditComment}` : ''}`).join('\n')}`.trim()
+          : (c.notes ?? '');
         manualSheet.addRow([
           c.wcagCriterion ?? '',
           c.level ?? '',
           c.title,
           c.status,
-          c.notes ?? '',
+          extraNotes,
           c.impact ?? '',
           c.updatedAt,
         ]);
@@ -336,35 +339,41 @@ h3. Recommended Assignment
 `;
   }
 
-  private collectManualChecks(report: ScanReport): ManualCheckResult[] {
-    const checks: ManualCheckResult[] = [];
-    for (const result of report.results) {
-      if (result.manualAudit) {
-        for (const check of result.manualAudit.checks) {
+  private collectManualChecks(report: ScanReport): Array<{ check: ManualCheckResult; failedElements: DetectedElement[] }> {
+    const result: Array<{ check: ManualCheckResult; failedElements: DetectedElement[] }> = [];
+    for (const page of report.results) {
+      if (page.manualAudit) {
+        for (const check of page.manualAudit.checks) {
           if (check.status !== 'not-tested') {
-            checks.push(check);
+            const failedElements = check.wcagCriterion
+              ? (page.detectedElements?.[check.wcagCriterion] ?? []).filter(e => e.auditStatus === 'fail')
+              : [];
+            result.push({ check, failedElements });
           }
         }
       }
     }
-    return checks;
+    return result;
   }
 
   private buildManualAuditRows(report: ScanReport): string[][] {
-    const checks = this.collectManualChecks(report);
-    if (checks.length === 0) return [];
+    const entries = this.collectManualChecks(report);
+    if (entries.length === 0) return [];
 
     const rows: string[][] = [];
     rows.push(['--- MANUAL AUDIT ---']);
     rows.push(['Criterion', 'Level', 'Title', 'Status', 'Notes', 'Impact']);
-    for (const c of checks) {
+    for (const { check, failedElements } of entries) {
+      const extraNotes = failedElements.length > 0
+        ? `${check.notes ?? ''}\n\nFailed elements (${failedElements.length}):\n${failedElements.map(e => `- ${e.html}${e.auditComment ? ` — ${e.auditComment}` : ''}`).join('\n')}`.trim()
+        : (check.notes ?? '');
       rows.push([
-        c.wcagCriterion ?? '',
-        c.level ?? '',
-        c.title,
-        c.status,
-        c.notes ?? '',
-        c.impact ?? '',
+        check.wcagCriterion ?? '',
+        check.level ?? '',
+        check.title,
+        check.status,
+        extraNotes,
+        check.impact ?? '',
       ]);
     }
     return rows;

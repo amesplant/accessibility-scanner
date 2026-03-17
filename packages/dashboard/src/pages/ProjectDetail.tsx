@@ -37,6 +37,7 @@ export function ProjectDetail() {
   const [error, setError] = useState<string | null>(null);
   const [exportReport, setExportReport] = useState<ScanReport | null>(null);
   const [removeConfirmReport, setRemoveConfirmReport] = useState<ScanReport | null>(null);
+  const [deleteConfirmReport, setDeleteConfirmReport] = useState<ScanReport | null>(null);
 
   // Inline edit state
   const [editingName, setEditingName] = useState(false);
@@ -94,6 +95,12 @@ export function ProjectDetail() {
       body: JSON.stringify({ projectId: null }),
     });
     setRemoveConfirmReport(null);
+    await load();
+  }
+
+  async function deleteReport(reportId: string) {
+    await fetch(`/api/reports/${reportId}`, { method: 'DELETE' });
+    setDeleteConfirmReport(null);
     await load();
   }
 
@@ -260,6 +267,15 @@ export function ProjectDetail() {
                   >
                     <X className="h-4 w-4" aria-hidden="true" />
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeleteConfirmReport(report)}
+                    aria-label={`Delete report ${report.pageTitle || report.sitemap}`}
+                    className="inline-flex items-center justify-center rounded-md p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                    title="Delete report"
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  </button>
                 </div>
               </div>
             </div>
@@ -268,6 +284,26 @@ export function ProjectDetail() {
       )}
 
       <ExportModal report={exportReport} onClose={() => setExportReport(null)} />
+
+      <Dialog open={!!deleteConfirmReport} onOpenChange={open => { if (!open) setDeleteConfirmReport(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete report</DialogTitle>
+            <DialogDescription>
+              This will permanently delete <strong>{deleteConfirmReport?.pageTitle || deleteConfirmReport?.sitemap}</strong> and all its data. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmReport(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteConfirmReport && deleteReport(deleteConfirmReport.id)}
+            >
+              Delete report
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!removeConfirmReport} onOpenChange={open => { if (!open) setRemoveConfirmReport(null); }}>
         <DialogContent>

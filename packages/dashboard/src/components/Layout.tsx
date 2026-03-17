@@ -19,7 +19,7 @@ type Props = { children: ReactNode };
 export function Layout({ children }: Props) {
   const { reportId } = useCurrentReport();
   const { reports, refresh: refreshReports } = useReports();
-  const { scanning, scanState, elapsed, abortScan, completedReportId, clearCompletedReport } = useScanContext();
+  const { scanning, aborting, scanState, elapsed, abortScan, completedReportId, clearCompletedReport } = useScanContext();
   const [showReports, setShowReports] = useState(false);
   const [progressVisible, setProgressVisible] = useState(false);
   const navigate = useNavigate();
@@ -206,6 +206,11 @@ export function Layout({ children }: Props) {
         </nav>
       </header>
 
+      {/* Assertive region: announces abort immediately regardless of AT speech queue */}
+      <span className="sr-only" role="alert" aria-live="assertive" aria-atomic="true">
+        {aborting ? 'Aborting scan…' : ''}
+      </span>
+
       {scanning && (
         <div
           role="status"
@@ -235,12 +240,16 @@ export function Layout({ children }: Props) {
           >
             <div className="h-2 w-2 rounded-full bg-primary animate-pulse shrink-0" aria-hidden="true" />
             <span className="text-sm text-foreground whitespace-nowrap">
-              {scanState.phase === 'crawling' && 'Discovering pages…'}
-              {scanState.phase === 'scanning' && scanState.total > 0 && (
-                `Scanning ${scanState.scanned} / ${scanState.total}`
+              {aborting ? 'Aborting…' : (
+                <>
+                  {scanState.phase === 'crawling' && 'Discovering pages…'}
+                  {scanState.phase === 'scanning' && scanState.total > 0 && (
+                    `Scanning ${scanState.scanned} / ${scanState.total}`
+                  )}
+                  {scanState.phase === 'scanning' && scanState.total === 0 && 'Scanning…'}
+                  {!scanState.phase && 'Starting scan…'}
+                </>
               )}
-              {scanState.phase === 'scanning' && scanState.total === 0 && 'Scanning…'}
-              {!scanState.phase && 'Starting scan…'}
             </span>
             <span className="text-xs text-muted-foreground font-mono shrink-0">
               {formatElapsed(elapsed)}
@@ -252,13 +261,16 @@ export function Layout({ children }: Props) {
             </Link>
           )}
           {!onDashboard && <div className="w-px h-4 bg-border shrink-0" aria-hidden="true" />}
-          <button
-            type="button"
-            onClick={() => abortScan()}
-            className="text-xs text-muted-foreground hover:text-destructive transition-colors shrink-0 pr-4 py-2.5"
-          >
-            Abort
-          </button>
+          {!aborting && (
+            <button
+              type="button"
+              onClick={() => abortScan()}
+              aria-label="Abort current scan"
+              className="text-xs text-muted-foreground hover:text-destructive transition-colors shrink-0 pr-4 py-2.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
+            >
+              Abort
+            </button>
+          )}
         </div>
       )}
 
