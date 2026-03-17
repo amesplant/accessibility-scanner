@@ -375,6 +375,37 @@ app.delete('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fa
 });
 
 // ---------------------------------------------------------------------------
+// Detected Elements (WCAG criterion-level element audit)
+// ---------------------------------------------------------------------------
+
+// PATCH /api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId
+app.patch('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId', async (req, res) => {
+  try {
+    const report = await db.getReport(req.params.reportId);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+
+    const page = report.results.find(r => r.id === req.params.pageId);
+    if (!page) return res.status(404).json({ error: 'Page not found' });
+
+    const elements = page.detectedElements?.[req.params.criterionId];
+    if (!elements) return res.status(404).json({ error: 'No detected elements for this criterion' });
+
+    const element = elements.find(e => e.id === req.params.elementId);
+    if (!element) return res.status(404).json({ error: 'Element not found' });
+
+    const { auditStatus, auditComment } = req.body as { auditStatus?: 'pass' | 'fail' | 'not-reviewed'; auditComment?: string };
+    if (auditStatus) element.auditStatus = auditStatus;
+    if (auditComment !== undefined) element.auditComment = auditComment || undefined;
+
+    await db.updateReport(report);
+    return res.json({ detectedElements: page.detectedElements });
+  } catch (err) {
+    console.error('Element update error:', err);
+    return res.status(500).json({ error: 'Failed to update element' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Projects
 // ---------------------------------------------------------------------------
 

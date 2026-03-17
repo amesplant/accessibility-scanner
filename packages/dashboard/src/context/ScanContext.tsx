@@ -15,6 +15,7 @@ export function formatElapsed(seconds: number): string {
 
 interface ScanContextValue {
   scanning: boolean;
+  aborting: boolean;
   activeJobId: string | null;
   scanState: ScanState;
   elapsed: number;
@@ -30,6 +31,7 @@ interface ScanContextValue {
 
 const ScanContext = createContext<ScanContextValue>({
   scanning: false,
+  aborting: false,
   activeJobId: null,
   scanState: { phase: null, scanned: 0, total: 0 },
   elapsed: 0,
@@ -47,6 +49,7 @@ const SESSION_KEY = 'fueled-access-active-job';
 
 export function ScanProvider({ children }: { children: ReactNode }) {
   const [scanning, setScanning] = useState(false);
+  const [aborting, setAborting] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [scanState, setScanState] = useState<ScanState>({ phase: null, scanned: 0, total: 0 });
   const [elapsed, setElapsed] = useState(0);
@@ -72,6 +75,7 @@ export function ScanProvider({ children }: { children: ReactNode }) {
 
   function resetScanState() {
     setScanning(false);
+    setAborting(false);
     setActiveJobId(null);
     activeJobIdRef.current = null;
     setScanState({ phase: null, scanned: 0, total: 0 });
@@ -169,6 +173,7 @@ export function ScanProvider({ children }: { children: ReactNode }) {
   async function abortScan() {
     const jobId = activeJobIdRef.current;
     if (!jobId) return;
+    setAborting(true);
     await fetch(`/api/scan/${jobId}`, { method: 'DELETE' });
   }
 
@@ -179,6 +184,7 @@ export function ScanProvider({ children }: { children: ReactNode }) {
   return (
     <ScanContext.Provider value={{
       scanning,
+      aborting,
       activeJobId,
       scanState,
       elapsed,
