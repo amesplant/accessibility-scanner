@@ -95,11 +95,12 @@ export class SitemapScanner {
     try {
       await page.goto(url, { waitUntil: 'load', timeout: 30000 });
       const axe = new AxePuppeteer(page);
-      const [results, pageTitle, rawElements, rawMedia] = await Promise.all([
+      const [results, pageTitle, rawElements, rawMedia, rawCaptions] = await Promise.all([
         axe.analyze(),
         page.title(),
         this.extractNonTextElements(page),
         this.extractMediaElements(page),
+        this.extractCaptionsElements(page),
       ]);
 
       const processElements = (raw: Omit<DetectedElement, 'id'>[]): DetectedElement[] =>
@@ -116,6 +117,14 @@ export class SitemapScanner {
 
       const detectedElements = processElements(rawElements);
       const detectedMedia = processElements(rawMedia);
+      const detectedCaptions: DetectedElement[] = rawCaptions.map(el => ({
+        ...el,
+        id: uuidv4(),
+        auditStatus: el.textAlternative !== null ? 'pass' as const : 'fail' as const,
+        auditComment: el.textAlternative !== null
+          ? 'Captions track detected.'
+          : 'No captions track detected — videos with speech or meaningful audio require synchronized captions.',
+      }));
 
       // Add highlight + label styles once for all context screenshots
       await page.addStyleTag({
@@ -304,11 +313,85 @@ export class SitemapScanner {
         }
       }
 
+      // Screenshots for 1.2.2 captions elements
+      const captionsTypeLabels: Record<string, string> = { 'video': 'Video' };
+      for (let i = 0; i < Math.min(detectedCaptions.length, 30); i++) {
+        const el = detectedCaptions[i];
+        const scanAttr = `a11y-captions-${i}`;
+        try {
+          const visible = await page.evaluate((idx: string) => {
+            const node = document.querySelector(`[data-a11y-captions-scan-id="${idx}"]`) as HTMLElement | null;
+            if (!node) return false;
+            node.scrollIntoView({ behavior: 'instant', block: 'center' });
+            const r = node.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+          }, scanAttr);
+
+          if (!visible) continue;
+
+          const handle = await page.$(`[data-a11y-captions-scan-id="${scanAttr}"]`);
+          if (!handle) continue;
+
+          const box = await handle.boundingBox();
+          if (!box || box.width === 0 || box.height === 0) { await handle.dispose(); continue; }
+
+          const pad = 8;
+          const clip = {
+            x: Math.max(0, box.x - pad),
+            y: Math.max(0, box.y - pad),
+            width: Math.min(box.width + pad * 2, viewportWidth),
+            height: Math.min(box.height + pad * 2, viewportHeight),
+          };
+
+          const elBuf = await page.screenshot({ clip, type: 'jpeg', quality: 80 });
+          el.screenshotDataUrl = `data:image/jpeg;base64,${Buffer.from(elBuf as Uint8Array).toString('base64')}`;
+
+          await handle.evaluate(
+            (node: Element, labelText: string) => {
+              node.setAttribute('data-a11y-highlight', 'true');
+              const rect = node.getBoundingClientRect();
+              const vw = window.innerWidth;
+              const vh = window.innerHeight;
+              const label = document.createElement('div');
+              label.setAttribute('data-a11y-label', 'true');
+              label.textContent = labelText;
+              document.body.appendChild(label);
+              const approxLabelH = 36;
+              const top = rect.top > approxLabelH + 8
+                ? rect.top - approxLabelH - 6
+                : Math.min(rect.bottom + 6, vh - approxLabelH - 4);
+              label.style.top = `${Math.max(4, top)}px`;
+              label.style.left = `${Math.max(4, Math.min(rect.left, vw - 324))}px`;
+            },
+            (() => {
+              const label = captionsTypeLabels[el.elementType] ?? el.elementType;
+              return el.textAlternative
+                ? `${label}: \u201c${el.textAlternative}\u201d`
+                : `${label}: No captions track`;
+            })(),
+          );
+
+          const ctxBuf = await page.screenshot({ type: 'jpeg', quality: 75 });
+          el.contextScreenshotDataUrl = `data:image/jpeg;base64,${Buffer.from(ctxBuf as Uint8Array).toString('base64')}`;
+
+          await handle.evaluate((node: Element) => {
+            node.removeAttribute('data-a11y-highlight');
+            document.querySelector('[data-a11y-label]')?.remove();
+          });
+          await handle.dispose();
+        } catch {
+          // skip — element hidden, detached, or viewport issue
+        }
+      }
+
       const detectedElementsMap: NonNullable<ScanResult['detectedElements']> = {
         '1.1.1': detectedElements,
       };
       if (detectedMedia.length > 0) {
         detectedElementsMap['1.2.1'] = detectedMedia;
+      }
+      if (detectedCaptions.length > 0) {
+        detectedElementsMap['1.2.2'] = detectedCaptions;
       }
 
       // Build violations array before return so we can mutate nodes for screenshots
@@ -670,6 +753,68 @@ export class SitemapScanner {
         else if (ariaLabel) textAlt = ariaLabel;
         tag(el, {
           elementType: 'video-only',
+          html: truncHtml(el.outerHTML),
+          selector: getSelector(el),
+          textAlternative: textAlt,
+          isDecorative: false,
+          auditStatus: 'not-reviewed',
+        });
+      });
+
+      return elements;
+    }) as Promise<Omit<DetectedElement, 'id'>[]>;
+  }
+
+  private async extractCaptionsElements(page: any): Promise<Omit<DetectedElement, 'id'>[]> {
+    return page.evaluate(() => {
+      function truncHtml(html: string): string {
+        return html.length > 500 ? html.slice(0, 500) + '…' : html;
+      }
+
+      function getSelector(el: Element): string {
+        if ((el as HTMLElement).id) return `#${CSS.escape((el as HTMLElement).id)}`;
+        const parts: string[] = [];
+        let cur: Element | null = el;
+        while (cur && cur !== document.body && cur !== document.documentElement) {
+          let seg = cur.tagName.toLowerCase();
+          if ((cur as HTMLElement).id) {
+            seg = `#${CSS.escape((cur as HTMLElement).id)}`;
+            parts.unshift(seg);
+            break;
+          }
+          const parent = cur.parentElement;
+          if (parent) {
+            const sameTag = Array.from(parent.children).filter(c => c.tagName === cur!.tagName);
+            if (sameTag.length > 1) seg += `:nth-of-type(${sameTag.indexOf(cur as HTMLElement) + 1})`;
+          }
+          parts.unshift(seg);
+          cur = cur.parentElement;
+        }
+        return parts.join(' > ');
+      }
+
+      const elements: any[] = [];
+
+      function tag(el: Element, data: any) {
+        const scanId = `a11y-captions-${elements.length}`;
+        el.setAttribute('data-a11y-captions-scan-id', scanId);
+        elements.push(data);
+      }
+
+      // Non-muted <video> elements — likely have audio/speech, need synchronized captions (WCAG 1.2.2)
+      document.querySelectorAll('video').forEach(el => {
+        const isMuted = (el as HTMLVideoElement).muted || el.hasAttribute('muted');
+        if (isMuted) return; // muted videos are video-only, covered by 1.2.1
+
+        const hasCaptionsTrack  = el.querySelector('track[kind="captions"]')  !== null;
+        const hasSubtitlesTrack = el.querySelector('track[kind="subtitles"]') !== null;
+
+        let textAlt: string | null = null;
+        if (hasCaptionsTrack)        textAlt = 'Has captions track';
+        else if (hasSubtitlesTrack)  textAlt = 'Has subtitles track';
+
+        tag(el, {
+          elementType: 'video',
           html: truncHtml(el.outerHTML),
           selector: getSelector(el),
           textAlternative: textAlt,
