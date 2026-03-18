@@ -4,121 +4,215 @@ import { fileURLToPath } from 'url';
 import { ScanReport, Project } from '@accessibility-scanner/shared';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DEFAULT_DATA_PATH = path.join(__dirname, '..', 'data', 'reports.json');
+const DEFAULT_DATA_DIR = path.join(__dirname, '..', 'data');
 
-interface Schema {
-  reports: ScanReport[];
+export type ReportSummary = Omit<ScanReport, 'results'>;
+
+interface Meta {
   projects: Project[];
+  summaries: ReportSummary[];
 }
 
 export class DatabaseService {
-  private file: string;
+  private dataDir: string;
+  private reportsDir: string;
+  private metaFile: string;
+  /** Path to the legacy monolithic file, used only for one-time migration */
+  private legacyFile: string;
 
-  constructor(filePath?: string) {
-    this.file = filePath || DEFAULT_DATA_PATH;
+  constructor(dataDir?: string) {
+    this.dataDir = dataDir ?? DEFAULT_DATA_DIR;
+    this.reportsDir = path.join(this.dataDir, 'reports');
+    this.metaFile = path.join(this.dataDir, 'meta.json');
+    this.legacyFile = path.join(this.dataDir, 'reports.json');
   }
 
-  private async ensureFile(): Promise<void> {
-    const dir = path.dirname(this.file);
-    await fs.mkdir(dir, { recursive: true });
+  // ── Initialisation / migration ────────────────────────────────────────────
 
-    try {
-      await fs.access(this.file);
-    } catch {
-      await fs.writeFile(this.file, JSON.stringify({ reports: [], projects: [] }, null, 2));
+  private async ensureDirs(): Promise<void> {
+    await fs.mkdir(this.reportsDir, { recursive: true });
+  }
+
+  /**
+   * One-time migration: if the legacy monolithic reports.json exists and
+   * meta.json does not, split every report into its own file and write meta.json.
+   * The legacy file is renamed to reports.json.bak when done.
+   */
+  async migrate(): Promise<void> {
+    await this.ensureDirs();
+
+    const metaExists = await fs.access(this.metaFile).then(() => true).catch(() => false);
+    if (metaExists) return;
+
+    const legacyExists = await fs.access(this.legacyFile).then(() => true).catch(() => false);
+
+    if (legacyExists) {
+      console.log('[db] Migrating monolithic reports.json to per-report files…');
+      const raw = await fs.readFile(this.legacyFile, 'utf-8');
+      const legacy = JSON.parse(raw) as { reports?: ScanReport[]; projects?: Project[] };
+      const reports: ScanReport[] = legacy.reports ?? [];
+      const projects: Project[] = legacy.projects ?? [];
+
+      // Write individual report files
+      await Promise.all(reports.map(r =>
+        fs.writeFile(path.join(this.reportsDir, `${r.id}.json`), JSON.stringify(r))
+      ));
+
+      // Write meta with summaries (strip results from each report)
+      const summaries: ReportSummary[] = reports.map(({ results: _r, ...s }) => s);
+      await this.writeMeta({ projects, summaries });
+
+      // Rename legacy file so we don't re-migrate on next start
+      await fs.rename(this.legacyFile, `${this.legacyFile}.bak`);
+      console.log(`[db] Migration complete. ${reports.length} reports migrated.`);
+    } else {
+      // Fresh install — just write an empty meta.json
+      await this.writeMeta({ projects: [], summaries: [] });
     }
   }
 
-  private async read(): Promise<Schema> {
-    await this.ensureFile();
-    const raw = await fs.readFile(this.file, 'utf-8');
-    const data = JSON.parse(raw) as Partial<Schema>;
-    // Migrate existing files that don't have a projects array
-    return { reports: data.reports ?? [], projects: data.projects ?? [] };
+  // ── Meta helpers ─────────────────────────────────────────────────────────
+
+  private async readMeta(): Promise<Meta> {
+    await this.ensureDirs();
+    try {
+      const raw = await fs.readFile(this.metaFile, 'utf-8');
+      const data = JSON.parse(raw) as Partial<Meta>;
+      return { projects: data.projects ?? [], summaries: data.summaries ?? [] };
+    } catch {
+      return { projects: [], summaries: [] };
+    }
   }
 
-  private async write(data: Schema): Promise<void> {
-    await fs.writeFile(this.file, JSON.stringify(data, null, 2));
+  private async writeMeta(meta: Meta): Promise<void> {
+    await fs.writeFile(this.metaFile, JSON.stringify(meta));
+  }
+
+  private summaryOf(report: ScanReport): ReportSummary {
+    const { results: _r, ...summary } = report;
+    return summary;
   }
 
   // ── Reports ──────────────────────────────────────────────────────────────
 
   async saveReport(report: ScanReport): Promise<void> {
-    const data = await this.read();
-    data.reports.push(report);
-    await this.write(data);
+    await fs.writeFile(
+      path.join(this.reportsDir, `${report.id}.json`),
+      JSON.stringify(report)
+    );
+    const meta = await this.readMeta();
+    meta.summaries.push(this.summaryOf(report));
+    await this.writeMeta(meta);
   }
 
-  async getReports(): Promise<ScanReport[]> {
-    const data = await this.read();
-    return data.reports;
+  /** Returns lightweight summaries (no results array) — use for list views. */
+  async getReportSummaries(): Promise<ReportSummary[]> {
+    const meta = await this.readMeta();
+    return meta.summaries;
   }
 
   async getReport(id: string): Promise<ScanReport | undefined> {
-    const data = await this.read();
-    return data.reports.find((r) => r.id === id);
+    try {
+      const raw = await fs.readFile(path.join(this.reportsDir, `${id}.json`), 'utf-8');
+      return JSON.parse(raw) as ScanReport;
+    } catch {
+      return undefined;
+    }
   }
 
   async deleteReport(id: string): Promise<boolean> {
-    const data = await this.read();
-    const before = data.reports.length;
-    data.reports = data.reports.filter((r) => r.id !== id);
-    if (data.reports.length === before) return false;
-    await this.write(data);
+    try {
+      await fs.unlink(path.join(this.reportsDir, `${id}.json`));
+    } catch {
+      return false;
+    }
+    const meta = await this.readMeta();
+    const before = meta.summaries.length;
+    meta.summaries = meta.summaries.filter(s => s.id !== id);
+    if (meta.summaries.length === before) return false;
+    await this.writeMeta(meta);
     return true;
   }
 
   async updateReport(report: ScanReport): Promise<boolean> {
-    const data = await this.read();
-    const idx = data.reports.findIndex(r => r.id === report.id);
-    if (idx === -1) return false;
-    data.reports[idx] = report;
-    await this.write(data);
+    const filePath = path.join(this.reportsDir, `${report.id}.json`);
+    try {
+      await fs.access(filePath);
+    } catch {
+      return false;
+    }
+    await fs.writeFile(filePath, JSON.stringify(report));
+    const meta = await this.readMeta();
+    const idx = meta.summaries.findIndex(s => s.id === report.id);
+    if (idx !== -1) {
+      meta.summaries[idx] = this.summaryOf(report);
+      await this.writeMeta(meta);
+    }
     return true;
   }
 
   async clearReports(): Promise<void> {
-    const data = await this.read();
-    await this.write({ ...data, reports: [] });
+    const meta = await this.readMeta();
+    await Promise.all(
+      meta.summaries.map(s =>
+        fs.unlink(path.join(this.reportsDir, `${s.id}.json`)).catch(() => { /* ignore */ })
+      )
+    );
+    await this.writeMeta({ ...meta, summaries: [] });
   }
 
   // ── Projects ─────────────────────────────────────────────────────────────
 
   async saveProject(project: Project): Promise<void> {
-    const data = await this.read();
-    data.projects.push(project);
-    await this.write(data);
+    const meta = await this.readMeta();
+    meta.projects.push(project);
+    await this.writeMeta(meta);
   }
 
   async getProjects(): Promise<Project[]> {
-    const data = await this.read();
-    return data.projects;
+    const meta = await this.readMeta();
+    return meta.projects;
   }
 
   async getProject(id: string): Promise<Project | undefined> {
-    const data = await this.read();
-    return data.projects.find(p => p.id === id);
+    const meta = await this.readMeta();
+    return meta.projects.find(p => p.id === id);
   }
 
   async updateProject(project: Project): Promise<boolean> {
-    const data = await this.read();
-    const idx = data.projects.findIndex(p => p.id === project.id);
+    const meta = await this.readMeta();
+    const idx = meta.projects.findIndex(p => p.id === project.id);
     if (idx === -1) return false;
-    data.projects[idx] = project;
-    await this.write(data);
+    meta.projects[idx] = project;
+    await this.writeMeta(meta);
     return true;
   }
 
   async deleteProject(id: string): Promise<boolean> {
-    const data = await this.read();
-    const before = data.projects.length;
-    data.projects = data.projects.filter(p => p.id !== id);
-    if (data.projects.length === before) return false;
-    // Unassign all reports from this project
-    data.reports = data.reports.map(r =>
-      r.projectId === id ? { ...r, projectId: undefined } : r
+    const meta = await this.readMeta();
+    const before = meta.projects.length;
+    meta.projects = meta.projects.filter(p => p.id !== id);
+    if (meta.projects.length === before) return false;
+
+    // Unassign all reports belonging to this project
+    const affected = meta.summaries.filter(s => s.projectId === id);
+    meta.summaries = meta.summaries.map(s =>
+      s.projectId === id ? { ...s, projectId: undefined } : s
     );
-    await this.write(data);
+    await this.writeMeta(meta);
+
+    // Also update the individual report files
+    await Promise.all(affected.map(async s => {
+      const report = await this.getReport(s.id);
+      if (report) {
+        report.projectId = undefined;
+        await fs.writeFile(
+          path.join(this.reportsDir, `${report.id}.json`),
+          JSON.stringify(report)
+        );
+      }
+    }));
+
     return true;
   }
 }

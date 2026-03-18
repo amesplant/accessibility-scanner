@@ -6,7 +6,7 @@
     "build": "tsc",
     "start": "npm run build && node dist/index.js",
     "dev": "npm run build && node dist/index.js",
-    "server": "npm run build && node dist/server.js"
+    "server": "npm run build && node --max-old-space-size=4096 dist/server.js"
   },
   "dependencies": {
     "@axe-core/puppeteer": "^4.11.1",
