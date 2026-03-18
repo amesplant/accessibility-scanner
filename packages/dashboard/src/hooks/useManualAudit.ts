@@ -192,14 +192,17 @@ export function useManualAudit(
   );
 
   const updateFailure = useCallback(
-    async (checkId: string, failureId: string, data: Partial<Pick<ManualFailureInstance, 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl'>>) => {
+    async (checkId: string, failureId: string, data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl'>>) => {
       setAudit(prev => ({
         ...prev,
-        checks: prev.checks.map(c =>
-          c.id === checkId
-            ? { ...c, failures: (c.failures ?? []).map(f => f.id === failureId ? { ...f, ...data } : f) }
-            : c,
-        ),
+        checks: prev.checks.map(c => {
+          if (c.id !== checkId) return c;
+          const failures = (c.failures ?? []).map(f => f.id === failureId ? { ...f, ...data } : f);
+          const derivedStatus = failures.length > 0
+            ? failures.every(f => f.status === 'pass') ? 'pass' : 'fail'
+            : c.status;
+          return { ...c, failures, status: derivedStatus };
+        }),
       }));
       try {
         await fetch(

@@ -13,6 +13,7 @@ export type FailureScope = 'global' | 'common' | 'page-specific';
 
 export interface ManualFailureInstance {
   id: string;
+  status?: 'pass' | 'fail';
   scope?: FailureScope;
   notes?: string;
   codeSnippet?: string;
@@ -110,12 +111,16 @@ export interface AxeViolation {
    */
   level?: 'A' | 'AA' | 'AAA' | 'best-practice';
   nodes: ViolationNode[];
+  overrideStatus?: 'pass' | 'na';
+  overrideNotes?: string;
 }
 
 export interface ViolationNode {
   html: string;
   target: string[];
   failureSummary: string;
+  screenshotDataUrl?: string;
+  overrideStatus?: 'pass' | 'fail';
 }
 
 export interface ScanReport {

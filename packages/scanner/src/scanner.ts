@@ -311,25 +311,65 @@ export class SitemapScanner {
         detectedElementsMap['1.2.1'] = detectedMedia;
       }
 
+      // Build violations array before return so we can mutate nodes for screenshots
+      const violations = results.violations.map((v: any) => ({
+        id: v.id,
+        impact: v.impact as any,
+        description: v.description,
+        help: v.help,
+        helpUrl: v.helpUrl,
+        tags: v.tags,
+        level: this.deriveLevel(v.tags),
+        nodes: v.nodes.map((n: any) => ({
+          html: n.html,
+          target: n.target,
+          failureSummary: n.failureSummary,
+        }))
+      }));
+
+      // Capture screenshots of violation nodes using their CSS selectors (cap 5/violation, 30 total)
+      let violationScreenshots = 0;
+      for (const violation of violations) {
+        let perViolation = 0;
+        for (const node of violation.nodes) {
+          if (violationScreenshots >= 30 || perViolation >= 5) break;
+          const selector = Array.isArray(node.target) && node.target.length > 0
+            ? node.target[node.target.length - 1]
+            : null;
+          if (!selector || typeof selector !== 'string') continue;
+          try {
+            await page.evaluate((sel: string) => {
+              const el = document.querySelector(sel);
+              if (el) el.scrollIntoView({ behavior: 'instant', block: 'center' });
+            }, selector);
+            const handle = await page.$(selector);
+            if (!handle) continue;
+            const box = await handle.boundingBox();
+            if (!box || box.width === 0 || box.height === 0) { await handle.dispose(); continue; }
+            const pad = 8;
+            const clip = {
+              x: Math.max(0, box.x - pad),
+              y: Math.max(0, box.y - pad),
+              width: Math.min(box.width + pad * 2, viewportWidth),
+              height: Math.min(box.height + pad * 2, viewportHeight),
+            };
+            const buf = await page.screenshot({ clip, type: 'jpeg', quality: 75 });
+            node.screenshotDataUrl = `data:image/jpeg;base64,${Buffer.from(buf as Uint8Array).toString('base64')}`;
+            await handle.dispose();
+            perViolation++;
+            violationScreenshots++;
+          } catch {
+            // skip — element detached, invalid selector, or viewport issue
+          }
+        }
+      }
+
       return {
         id: uuidv4(),
         url,
         title: pageTitle || undefined,
         timestamp: new Date(),
-        violations: results.violations.map((v: any) => ({
-          id: v.id,
-          impact: v.impact as any,
-          description: v.description,
-          help: v.help,
-          helpUrl: v.helpUrl,
-          tags: v.tags,
-          level: this.deriveLevel(v.tags),
-          nodes: v.nodes.map((n: any) => ({
-            html: n.html,
-            target: n.target,
-            failureSummary: n.failureSummary
-          }))
-        })),
+        violations,
         passes: results.passes.length,
         incomplete: results.incomplete.length,
         inapplicable: results.inapplicable.length,

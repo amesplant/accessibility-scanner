@@ -105,6 +105,16 @@ const SCOPE_COLORS: Record<FailureScope, string> = {
   'page-specific': 'bg-sky-100   text-sky-800   border-sky-200',
 };
 
+const INSTANCE_STATUS_OPTIONS: { value: 'fail' | 'pass'; label: string }[] = [
+  { value: 'fail', label: 'Fail' },
+  { value: 'pass', label: 'Pass' },
+];
+
+const INSTANCE_STATUS_COLORS: Record<'fail' | 'pass', string> = {
+  'fail': 'bg-red-100   text-red-800   border-red-200',
+  'pass': 'bg-green-100 text-green-800 border-green-200',
+};
+
 // ---------------------------------------------------------------------------
 // View mode
 // ---------------------------------------------------------------------------
@@ -333,12 +343,13 @@ function FailureInstanceItem({
 }: {
   index: number;
   failure: ManualFailureInstance;
-  onUpdate: (data: Partial<Pick<ManualFailureInstance, 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl'>>) => void;
+  onUpdate: (data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl'>>) => void;
   onDelete: () => void;
 }) {
   const [localNotes, setLocalNotes] = useState(failure.notes ?? '');
   const [localCode, setLocalCode] = useState(failure.codeSnippet ?? '');
   const [screenshot, setScreenshot] = useState<string | undefined>(failure.screenshotDataUrl);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function commitNotes(value: string) {
@@ -393,6 +404,26 @@ function FailureInstanceItem({
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1">
           <span className="text-xs font-medium text-muted-foreground mr-1">Instance {index}</span>
+          {INSTANCE_STATUS_OPTIONS.map(opt => {
+            const active = failure.status === opt.value || (opt.value === 'fail' && !failure.status);
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => onUpdate({ status: opt.value })}
+                aria-pressed={active}
+                className={cn(
+                  'inline-flex items-center rounded border text-xs h-5 px-1.5 py-0 font-medium transition-opacity',
+                  active
+                    ? INSTANCE_STATUS_COLORS[opt.value]
+                    : 'bg-transparent text-muted-foreground border-dashed border-muted-foreground/30 hover:border-muted-foreground/60',
+                )}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+          <span className="text-muted-foreground/30 select-none px-0.5" aria-hidden="true">|</span>
           {SCOPE_OPTIONS.map(opt => {
             const active = failure.scope === opt.value;
             return (
@@ -453,7 +484,38 @@ function FailureInstanceItem({
           </span>
           {screenshot ? (
             <div className="relative inline-block">
-              <img src={screenshot} alt="Screenshot of failure" className="max-w-full max-h-48 rounded border border-border object-contain" />
+              {lightboxOpen && (
+                <div
+                  className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+                  onClick={() => setLightboxOpen(false)}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Screenshot preview"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setLightboxOpen(false)}
+                    aria-label="Close screenshot preview"
+                    className="absolute top-4 right-4 text-white hover:text-white/70 transition-colors"
+                  >
+                    <X className="h-6 w-6" aria-hidden="true" />
+                  </button>
+                  <img
+                    src={screenshot}
+                    alt="Full-size screenshot"
+                    className="max-w-full max-h-full rounded shadow-2xl object-contain"
+                    onClick={e => e.stopPropagation()}
+                  />
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setLightboxOpen(true)}
+                aria-label="View full-size screenshot"
+                className="block rounded border border-border hover:opacity-80 transition-opacity focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+              >
+                <img src={screenshot} alt="Screenshot of failure" className="max-w-full max-h-48 rounded object-contain" />
+              </button>
               <button type="button" onClick={removeScreenshot} aria-label="Remove screenshot" className="absolute -top-1.5 -right-1.5 h-6 w-6 flex items-center justify-center rounded-full bg-transparent">
                 <span aria-hidden="true" className="h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center hover:bg-destructive/80">
                   <X className="h-3 w-3" aria-hidden="true" />

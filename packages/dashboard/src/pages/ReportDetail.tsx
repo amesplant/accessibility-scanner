@@ -182,10 +182,12 @@ export function ReportDetail() {
       </div>
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="violations">Violations</TabsTrigger>
-          <TabsTrigger value="pages">Pages</TabsTrigger>
+        <div className="flex items-center">
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="violations">Violations</TabsTrigger>
+            <TabsTrigger value="pages">Pages</TabsTrigger>
+          </TabsList>
           <button
             type="button"
             onClick={() => setExportOpen(true)}
@@ -194,7 +196,7 @@ export function ReportDetail() {
             <Download className="h-4 w-4" aria-hidden="true" />
             Export
           </button>
-        </TabsList>
+        </div>
         
         <TabsContent value="overview" className="space-y-4">
           <Card>
@@ -271,6 +273,7 @@ export function ReportDetail() {
                           <Progress
                             value={(count / report.summary.totalViolations) * 100}
                             className="h-2"
+                            aria-label={`${label}: ${count} of ${report.summary.totalViolations} violations`}
                           />
                         </div>
                         <span className="text-sm w-12 text-right">{count}</span>

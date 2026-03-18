@@ -81,7 +81,7 @@ export function ViolationsTable({ report, initialImpactFilter = '' }: Violations
 
   // ── Automated violations ──────────────────────────────────────────────────
   const groupedViolations = report.results
-    .flatMap(result => result.violations.map(violation => ({ violation, url: result.url })))
+    .flatMap(result => result.violations.filter(v => !v.overrideStatus).map(violation => ({ violation, url: result.url })))
     .reduce((acc, { violation, url }) => {
       if (!acc[violation.id]) acc[violation.id] = { violation, urls: [], count: 0 };
       acc[violation.id].urls.push(url);

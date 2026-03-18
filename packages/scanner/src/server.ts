@@ -134,6 +134,91 @@ app.post('/api/reports/:id/export/jira', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Automated Violation Overrides & Node Screenshots
+// ---------------------------------------------------------------------------
+
+// PATCH /api/reports/:reportId/pages/:pageId/violations/:violationId
+app.patch('/api/reports/:reportId/pages/:pageId/violations/:violationId', async (req, res) => {
+  try {
+    const report = await db.getReport(req.params.reportId);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+
+    const page = report.results.find((r: { id: string }) => r.id === req.params.pageId);
+    if (!page) return res.status(404).json({ error: 'Page not found' });
+
+    const violation = page.violations.find((v: { id: string }) => v.id === req.params.violationId);
+    if (!violation) return res.status(404).json({ error: 'Violation not found' });
+
+    const { overrideStatus, overrideNotes } = req.body as {
+      overrideStatus?: 'pass' | 'na' | null;
+      overrideNotes?: string;
+    };
+    if (overrideStatus === null) {
+      delete violation.overrideStatus;
+      delete violation.overrideNotes;
+    } else {
+      if (overrideStatus !== undefined) violation.overrideStatus = overrideStatus;
+      if (overrideNotes !== undefined) violation.overrideNotes = overrideNotes || undefined;
+    }
+
+    await db.updateReport(report);
+    return res.json({ violations: page.violations });
+  } catch (err) {
+    console.error('Violation override error:', err);
+    return res.status(500).json({ error: 'Failed to update violation' });
+  }
+});
+
+// PATCH /api/reports/:reportId/pages/:pageId/violations/:violationId/nodes/:nodeIndex
+app.patch('/api/reports/:reportId/pages/:pageId/violations/:violationId/nodes/:nodeIndex', async (req, res) => {
+  try {
+    const report = await db.getReport(req.params.reportId);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+
+    const page = report.results.find((r: { id: string }) => r.id === req.params.pageId);
+    if (!page) return res.status(404).json({ error: 'Page not found' });
+
+    const violation = page.violations.find((v: { id: string }) => v.id === req.params.violationId);
+    if (!violation) return res.status(404).json({ error: 'Violation not found' });
+
+    const nodeIndex = parseInt(req.params.nodeIndex, 10);
+    const node = violation.nodes[nodeIndex];
+    if (!node) return res.status(404).json({ error: 'Node not found' });
+
+    const { screenshotDataUrl, overrideStatus } = req.body as {
+      screenshotDataUrl?: string | null;
+      overrideStatus?: 'pass' | 'fail' | null;
+    };
+    if (screenshotDataUrl === null) {
+      delete node.screenshotDataUrl;
+    } else if (screenshotDataUrl !== undefined) {
+      node.screenshotDataUrl = screenshotDataUrl;
+    }
+    if (overrideStatus === null) {
+      delete node.overrideStatus;
+    } else if (overrideStatus !== undefined) {
+      node.overrideStatus = overrideStatus;
+    }
+
+    // Auto-derive violation-level status from node statuses (unless violation is N/A)
+    if (violation.overrideStatus !== 'na') {
+      const allPass = violation.nodes.every(n => n.overrideStatus === 'pass');
+      if (allPass) {
+        violation.overrideStatus = 'pass';
+      } else {
+        delete violation.overrideStatus;
+      }
+    }
+
+    await db.updateReport(report);
+    return res.json({ violations: page.violations });
+  } catch (err) {
+    console.error('Node screenshot error:', err);
+    return res.status(500).json({ error: 'Failed to update node screenshot' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Manual Audit
 // ---------------------------------------------------------------------------
 
@@ -336,11 +421,19 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fai
     const failure = (check.failures ?? []).find(f => f.id === req.params.failureId);
     if (!failure) return res.status(404).json({ error: 'Failure instance not found' });
 
-    const { scope, notes, codeSnippet, screenshotDataUrl } = req.body;
+    const { scope, notes, codeSnippet, screenshotDataUrl, status } = req.body;
     if (scope !== undefined) failure.scope = scope;
     if (notes !== undefined) failure.notes = notes;
     if (codeSnippet !== undefined) failure.codeSnippet = codeSnippet;
     if (screenshotDataUrl !== undefined) failure.screenshotDataUrl = screenshotDataUrl;
+    if (status !== undefined) failure.status = status;
+
+    // Auto-derive check status from instance statuses
+    const allFailures = check.failures ?? [];
+    if (allFailures.length > 0) {
+      check.status = allFailures.every(f => f.status === 'pass') ? 'pass' : 'fail';
+    }
+
     check.updatedAt = new Date().toISOString();
     page.manualAudit.lastUpdated = new Date().toISOString();
 
