@@ -30,6 +30,10 @@ build/
 coverage/
 .nyc_output/
 
+# Nx
+.nx/
+nx.json
+
 # Misc
 .cache/
 .parcel-cache/
