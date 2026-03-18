@@ -53,7 +53,9 @@ export type DetectedElementType =
   | 'button-icon'
   | 'role-img'
   | 'area'
-  | 'object';
+  | 'object'
+  | 'audio'
+  | 'video-only';
 
 export interface DetectedElement {
   id: string;
