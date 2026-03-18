@@ -143,8 +143,9 @@ function buildGroups(audit: ManualAudit, mode: ViewMode): CheckGroup[] {
   switch (mode) {
     case 'wcag':
       return [
-        { id: 'level-a',  label: 'WCAG Level A',  checks: wcagChecks.filter(c => c.level === 'A') },
-        { id: 'level-aa', label: 'WCAG Level AA', checks: wcagChecks.filter(c => c.level === 'AA') },
+        { id: 'level-a',   label: 'WCAG Level A',   checks: wcagChecks.filter(c => c.level === 'A') },
+        { id: 'level-aa',  label: 'WCAG Level AA',  checks: wcagChecks.filter(c => c.level === 'AA') },
+        { id: 'level-aaa', label: 'WCAG Level AAA', checks: wcagChecks.filter(c => c.level === 'AAA') },
       ].filter(g => g.checks.length > 0);
 
     case 'category':
