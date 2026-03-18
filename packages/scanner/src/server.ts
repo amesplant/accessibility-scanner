@@ -18,6 +18,9 @@ const port = process.env.PORT || 3003;
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
+// Run migration before accepting requests (no-op if already migrated)
+await db.migrate();
+
 // ---------------------------------------------------------------------------
 // In-memory job store for scan progress tracking
 // ---------------------------------------------------------------------------
@@ -45,7 +48,7 @@ function cleanupJob(jobId: string) {
 // ---------------------------------------------------------------------------
 
 app.get('/api/reports', async (_req, res) => {
-  const reports = await db.getReports();
+  const reports = await db.getReportSummaries();
   return res.json(reports);
 });
 
@@ -412,7 +415,7 @@ app.patch('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId
 app.get('/api/projects', async (_req, res) => {
   try {
     const projects = await db.getProjects();
-    const reports = await db.getReports();
+    const reports = await db.getReportSummaries();
     const countMap = reports.reduce<Record<string, number>>((acc, r) => {
       if (r.projectId) acc[r.projectId] = (acc[r.projectId] ?? 0) + 1;
       return acc;
@@ -446,8 +449,8 @@ app.get('/api/projects/:id', async (req, res) => {
   try {
     const project = await db.getProject(req.params.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
-    const reports = await db.getReports();
-    const projectReports = reports.filter(r => r.projectId === req.params.id);
+    const summaries = await db.getReportSummaries();
+    const projectReports = summaries.filter(r => r.projectId === req.params.id);
     return res.json({ ...project, reports: projectReports });
   } catch (err) {
     console.error('Get project error:', err);
