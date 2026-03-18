@@ -964,6 +964,8 @@ function CheckRow({
               emptyLabel={
                 check.wcagCriterion === '1.2.1'
                   ? 'No audio or video-only elements detected on this page — nothing to audit for 1.2.1.'
+                  : check.wcagCriterion === '1.2.2'
+                  ? 'No video elements with audio detected on this page — nothing to audit for 1.2.2.'
                   : undefined
               }
             />
