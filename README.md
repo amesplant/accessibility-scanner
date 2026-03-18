@@ -1,6 +1,18 @@
 # Fueled Access — Accessibility Scanner
 
-A TypeScript tool for automated and manual accessibility testing using axe-core and Puppeteer. Supports three audit tiers with a React dashboard for viewing results, completing manual checklists, and exporting issues directly to Teamwork or Jira.
+**Fueled Access is our internal accessibility audit platform** — a purpose-built tool for the Fueled team to deliver thorough, consistent, and well-documented accessibility audits at every stage of a project.
+
+Whether you're running a quick check on a staging build before launch, conducting a deep WCAG 2.2 audit mid-engagement, or validating a live production site post-delivery, Fueled Access gives you a single place to scan, review, document findings, and hand off actionable issues directly to your project management workflow.
+
+**Three audit tiers match where you are in the project:**
+
+- **Rapid** — 5-page spot check, ideal for pre-launch gut checks or scoping conversations
+- **Mid-Level** — focused WCAG 2.2 AA review on any set of pages, great for mid-engagement checkpoints
+- **All-Inclusive** — full-site automated + manual audit covering all 52 WCAG criteria, the standard for final deliverables
+
+All findings live in a persistent dashboard organized by project and client engagement, with one-click export to Teamwork or Jira so issues land directly in your team's workflow.
+
+---
 
 ## Features
 
