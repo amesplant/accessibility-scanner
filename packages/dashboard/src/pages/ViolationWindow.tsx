@@ -64,7 +64,7 @@ export function ViolationWindow() {
         <Button variant="ghost" size="sm" onClick={() => navigate(`/reports/${id}?tab=pages`)}>
           <ArrowLeft className="mr-1 h-4 w-4" /> Back to report
         </Button>
-        <Button variant="ghost" size="icon" onClick={() => navigate('/')}>
+        <Button variant="ghost" size="icon" aria-label="Close violation detail" onClick={() => navigate('/')}>
           <X className="h-4 w-4" />
         </Button>
       </div>

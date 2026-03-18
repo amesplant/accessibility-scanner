@@ -45,7 +45,7 @@ export function ImpactChart({ data }: ImpactChartProps) {
           return (
             <div key={d.impact} className="flex items-center">
               <span className="w-24 text-sm font-medium capitalize">{d.impact}</span>
-              <div className="relative flex-1 ml-2 h-6 rounded bg-muted/30">
+              <div className="flex-1 ml-2 h-6 rounded bg-muted/30">
                 <div
                   className="h-full rounded"
                   style={{
@@ -54,10 +54,10 @@ export function ImpactChart({ data }: ImpactChartProps) {
                     backgroundImage: patterns[d.impact] || 'none',
                   }}
                 />
-                <span className="absolute right-2 top-0 text-xs font-semibold leading-6">
-                  {d.count} ({pct}%)
-                </span>
               </div>
+              <span className="w-20 shrink-0 text-right text-xs font-semibold leading-6">
+                {d.count} ({pct}%)
+              </span>
             </div>
           );
         })}
