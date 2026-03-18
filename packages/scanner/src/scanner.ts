@@ -95,22 +95,27 @@ export class SitemapScanner {
     try {
       await page.goto(url, { waitUntil: 'load', timeout: 30000 });
       const axe = new AxePuppeteer(page);
-      const [results, pageTitle, rawElements] = await Promise.all([
+      const [results, pageTitle, rawElements, rawMedia] = await Promise.all([
         axe.analyze(),
         page.title(),
         this.extractNonTextElements(page),
+        this.extractMediaElements(page),
       ]);
 
-      const detectedElements: DetectedElement[] = rawElements.map(el => {
-        const base = { ...el, id: uuidv4() };
-        if (base.isDecorative) {
-          return { ...base, auditStatus: 'pass' as const, auditComment: 'Decorative — correctly hidden from screen readers.' };
-        }
-        if (base.textAlternative === null) {
-          return { ...base, auditStatus: 'fail' as const, auditComment: 'No text alternative detected — screen reader will not announce this element.' };
-        }
-        return base;
-      });
+      const processElements = (raw: Omit<DetectedElement, 'id'>[]): DetectedElement[] =>
+        raw.map(el => {
+          const base = { ...el, id: uuidv4() };
+          if (base.isDecorative) {
+            return { ...base, auditStatus: 'pass' as const, auditComment: 'Decorative — correctly hidden from screen readers.' };
+          }
+          if (base.textAlternative === null) {
+            return { ...base, auditStatus: 'fail' as const, auditComment: 'No text alternative detected — screen reader will not announce this element.' };
+          }
+          return base;
+        });
+
+      const detectedElements = processElements(rawElements);
+      const detectedMedia = processElements(rawMedia);
 
       // Add highlight + label styles once for all context screenshots
       await page.addStyleTag({
@@ -142,6 +147,8 @@ export class SitemapScanner {
       const viewportHeight: number = await page.evaluate(() => window.innerHeight);
 
       // Capture screenshots using data-a11y-scan-id for reliable element lookup — cap at 30
+      // Process 1.1.1 elements first, then 1.2.1 media elements (offsets avoid ID collisions
+      // since extractMediaElements uses its own a11y-media-N attribute namespace)
       for (let i = 0; i < Math.min(detectedElements.length, 30); i++) {
         const el = detectedElements[i];
         const scanAttr = `a11y-${i}`;
@@ -202,6 +209,7 @@ export class SitemapScanner {
                 'img': 'Image', 'input-image': 'Image Input', 'svg': 'SVG',
                 'canvas': 'Canvas', 'video': 'Video', 'button-icon': 'Icon Button',
                 'role-img': 'Role=img', 'area': 'Image Map Area', 'object': 'Object',
+                'audio': 'Audio', 'video-only': 'Video',
               };
               const label = typeLabel[el.elementType] ?? el.elementType;
               return el.textAlternative
@@ -223,6 +231,84 @@ export class SitemapScanner {
         } catch {
           // skip — element hidden, detached, or viewport issue
         }
+      }
+
+      // Screenshots for 1.2.1 media elements
+      const mediaTypeLabels: Record<string, string> = { 'audio': 'Audio', 'video-only': 'Video' };
+      for (let i = 0; i < Math.min(detectedMedia.length, 30); i++) {
+        const el = detectedMedia[i];
+        const scanAttr = `a11y-media-${i}`;
+        try {
+          const visible = await page.evaluate((idx: string) => {
+            const node = document.querySelector(`[data-a11y-media-scan-id="${idx}"]`) as HTMLElement | null;
+            if (!node) return false;
+            node.scrollIntoView({ behavior: 'instant', block: 'center' });
+            const r = node.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+          }, scanAttr);
+
+          if (!visible) continue;
+
+          const handle = await page.$(`[data-a11y-media-scan-id="${scanAttr}"]`);
+          if (!handle) continue;
+
+          const box = await handle.boundingBox();
+          if (!box || box.width === 0 || box.height === 0) { await handle.dispose(); continue; }
+
+          const pad = 8;
+          const clip = {
+            x: Math.max(0, box.x - pad),
+            y: Math.max(0, box.y - pad),
+            width: Math.min(box.width + pad * 2, viewportWidth),
+            height: Math.min(box.height + pad * 2, viewportHeight),
+          };
+
+          const elBuf = await page.screenshot({ clip, type: 'jpeg', quality: 80 });
+          el.screenshotDataUrl = `data:image/jpeg;base64,${Buffer.from(elBuf as Uint8Array).toString('base64')}`;
+
+          await handle.evaluate(
+            (node: Element, labelText: string) => {
+              node.setAttribute('data-a11y-highlight', 'true');
+              const rect = node.getBoundingClientRect();
+              const vw = window.innerWidth;
+              const vh = window.innerHeight;
+              const label = document.createElement('div');
+              label.setAttribute('data-a11y-label', 'true');
+              label.textContent = labelText;
+              document.body.appendChild(label);
+              const approxLabelH = 36;
+              const top = rect.top > approxLabelH + 8
+                ? rect.top - approxLabelH - 6
+                : Math.min(rect.bottom + 6, vh - approxLabelH - 4);
+              label.style.top = `${Math.max(4, top)}px`;
+              label.style.left = `${Math.max(4, Math.min(rect.left, vw - 324))}px`;
+            },
+            (() => {
+              const label = mediaTypeLabels[el.elementType] ?? el.elementType;
+              return el.textAlternative
+                ? `${label}: \u201c${el.textAlternative}\u201d`
+                : `${label}: No alternative`;
+            })(),
+          );
+
+          const ctxBuf = await page.screenshot({ type: 'jpeg', quality: 75 });
+          el.contextScreenshotDataUrl = `data:image/jpeg;base64,${Buffer.from(ctxBuf as Uint8Array).toString('base64')}`;
+
+          await handle.evaluate((node: Element) => {
+            node.removeAttribute('data-a11y-highlight');
+            document.querySelector('[data-a11y-label]')?.remove();
+          });
+          await handle.dispose();
+        } catch {
+          // skip — element hidden, detached, or viewport issue
+        }
+      }
+
+      const detectedElementsMap: NonNullable<ScanResult['detectedElements']> = {
+        '1.1.1': detectedElements,
+      };
+      if (detectedMedia.length > 0) {
+        detectedElementsMap['1.2.1'] = detectedMedia;
       }
 
       return {
@@ -247,7 +333,7 @@ export class SitemapScanner {
         passes: results.passes.length,
         incomplete: results.incomplete.length,
         inapplicable: results.inapplicable.length,
-        detectedElements: { '1.1.1': detectedElements },
+        detectedElements: detectedElementsMap,
       };
     } catch (error) {
       console.error(`Error scanning ${url}:`, error);
@@ -449,6 +535,101 @@ export class SitemapScanner {
         const textAlt = getTextAlt(el) || el.textContent?.trim() || null;
         tag(el, {
           elementType: 'object',
+          html: truncHtml(el.outerHTML),
+          selector: getSelector(el),
+          textAlternative: textAlt,
+          isDecorative: false,
+          auditStatus: 'not-reviewed',
+        });
+      });
+
+      return elements;
+    }) as Promise<Omit<DetectedElement, 'id'>[]>;
+  }
+
+  private async extractMediaElements(page: any): Promise<Omit<DetectedElement, 'id'>[]> {
+    return page.evaluate(() => {
+      function truncHtml(html: string): string {
+        return html.length > 500 ? html.slice(0, 500) + '…' : html;
+      }
+
+      function getSelector(el: Element): string {
+        if ((el as HTMLElement).id) return `#${CSS.escape((el as HTMLElement).id)}`;
+        const parts: string[] = [];
+        let cur: Element | null = el;
+        while (cur && cur !== document.body && cur !== document.documentElement) {
+          let seg = cur.tagName.toLowerCase();
+          if ((cur as HTMLElement).id) {
+            seg = `#${CSS.escape((cur as HTMLElement).id)}`;
+            parts.unshift(seg);
+            break;
+          }
+          const parent = cur.parentElement;
+          if (parent) {
+            const sameTag = Array.from(parent.children).filter(c => c.tagName === cur!.tagName);
+            if (sameTag.length > 1) seg += `:nth-of-type(${sameTag.indexOf(cur as HTMLElement) + 1})`;
+          }
+          parts.unshift(seg);
+          cur = cur.parentElement;
+        }
+        return parts.join(' > ');
+      }
+
+      function resolveAriaLabelledby(el: Element): string | null {
+        const ids = el.getAttribute('aria-labelledby');
+        if (!ids) return null;
+        const text = ids.split(/\s+/)
+          .map(id => document.getElementById(id)?.textContent?.trim())
+          .filter(Boolean)
+          .join(' ');
+        return text || null;
+      }
+
+      const elements: any[] = [];
+
+      function tag(el: Element, data: any) {
+        const scanId = `a11y-media-${elements.length}`;
+        el.setAttribute('data-a11y-media-scan-id', scanId);
+        elements.push(data);
+      }
+
+      // 1. <audio> elements — need a transcript or text alternative (WCAG 1.2.1)
+      document.querySelectorAll('audio').forEach(el => {
+        const hasDescTrack = el.querySelector('track[kind="descriptions"]') !== null;
+        const hasSubtitleTrack = el.querySelector('track[kind="subtitles"]') !== null;
+        const ariaLabel = resolveAriaLabelledby(el)
+          || el.getAttribute('aria-label')?.trim()
+          || null;
+        const hasAriaDescribedby = el.hasAttribute('aria-describedby');
+        let textAlt: string | null = null;
+        if (hasDescTrack) textAlt = 'Has description track';
+        else if (hasSubtitleTrack) textAlt = 'Has subtitles track';
+        else if (ariaLabel) textAlt = ariaLabel;
+        else if (hasAriaDescribedby) textAlt = 'Has aria-describedby reference';
+        tag(el, {
+          elementType: 'audio',
+          html: truncHtml(el.outerHTML),
+          selector: getSelector(el),
+          textAlternative: textAlt,
+          isDecorative: false,
+          auditStatus: 'not-reviewed',
+        });
+      });
+
+      // 2. Muted <video> elements — likely video-only, need a text alternative (WCAG 1.2.1)
+      document.querySelectorAll('video').forEach(el => {
+        const isMuted = (el as HTMLVideoElement).muted || el.hasAttribute('muted');
+        if (!isMuted) return;
+        const hasDescTrack = el.querySelector('track[kind="descriptions"]') !== null;
+        const ariaLabel = resolveAriaLabelledby(el)
+          || el.getAttribute('aria-label')?.trim()
+          || el.getAttribute('title')?.trim()
+          || null;
+        let textAlt: string | null = null;
+        if (hasDescTrack) textAlt = 'Has description track';
+        else if (ariaLabel) textAlt = ariaLabel;
+        tag(el, {
+          elementType: 'video-only',
           html: truncHtml(el.outerHTML),
           selector: getSelector(el),
           textAlternative: textAlt,

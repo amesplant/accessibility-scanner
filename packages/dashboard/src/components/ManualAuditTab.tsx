@@ -491,6 +491,8 @@ const ELEMENT_TYPE_LABELS: Record<DetectedElement['elementType'], string> = {
   'role-img': 'Role=img',
   'area': 'Image Map Area',
   'object': 'Object',
+  'audio': 'Audio',
+  'video-only': 'Video',
 };
 
 function CopyButton({ text }: { text: string }) {
@@ -697,10 +699,12 @@ function NonTextElementsPanel({
   elements,
   onUpdate,
   onAutoPass,
+  emptyLabel = 'No non-text elements detected on this page — nothing to audit for 1.1.1.',
 }: {
   elements: DetectedElement[];
   onUpdate?: (elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => void;
   onAutoPass?: () => void;
+  emptyLabel?: string;
 }) {
   const reviewed = elements.filter(e => e.auditStatus !== 'not-reviewed').length;
   const failed = elements.filter(e => e.auditStatus === 'fail').length;
@@ -711,7 +715,7 @@ function NonTextElementsPanel({
         <div className="px-3 py-3 bg-muted/30 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="text-green-600">✓</span>
-            <span>No non-text elements detected on this page — nothing to audit for 1.1.1.</span>
+            <span>{emptyLabel}</span>
           </div>
           {onAutoPass && (
             <Button size="sm" variant="outline" onClick={onAutoPass}
@@ -728,7 +732,7 @@ function NonTextElementsPanel({
     <div className="mt-3 mb-3 border rounded overflow-hidden">
       <div className="flex items-center justify-between px-3 py-2 bg-muted/30 border-b">
         <span className="text-xs font-medium">
-          Non-text Elements on Page ({elements.length})
+          Detected Elements on Page ({elements.length})
         </span>
         <span className="text-xs text-muted-foreground">
           {reviewed}/{elements.length} reviewed
@@ -895,6 +899,11 @@ function CheckRow({
               elements={smartElements}
               onUpdate={onUpdateSmartElement}
               onAutoPass={smartElements.length === 0 ? () => onStatusChange('pass') : undefined}
+              emptyLabel={
+                check.wcagCriterion === '1.2.1'
+                  ? 'No audio or video-only elements detected on this page — nothing to audit for 1.2.1.'
+                  : undefined
+              }
             />
           )}
 

@@ -53,6 +53,12 @@ function buildTree(results: ScanResult[], search: string, filter: string): TreeN
       continue;
     }
 
+    // Root URL (pathname = "/") has no segments — add it directly as a "/" leaf
+    if (segments.length === 0) {
+      dataMap.set('/', { result, children: new Map() });
+      continue;
+    }
+
     let currentMap = dataMap;
     let i = 0;
     while (i < segments.length) {
