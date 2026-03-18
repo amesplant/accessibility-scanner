@@ -600,7 +600,7 @@ app.patch('/api/reports/:id/project', async (req, res) => {
 // ---------------------------------------------------------------------------
 
 app.post('/api/scan', (req, res) => {
-  const { sitemap, xmlContent, filename, crawlUrl, maxPages = 200, concurrent = 5, auditType = 'all-inclusive', urls, projectId } = req.body;
+  const { sitemap, xmlContent, filename, crawlUrl, maxPages = 200, concurrent = 5, auditType = 'all-inclusive', wcagLevel = 'AA', includeBestPractices = false, urls, projectId } = req.body;
 
   const hasUrls = Array.isArray(urls) && urls.length > 0;
 
@@ -643,6 +643,8 @@ app.post('/api/scan', (req, res) => {
         concurrent: String(concurrent),
         headless: true,
         auditType: auditType as AuditType,
+        wcagLevel: wcagLevel as 'A' | 'AA' | 'AAA',
+        includeBestPractices: Boolean(includeBestPractices),
         signal: abortController.signal,
         onProgress: (scanned: number, total: number, url: string) => {
           job.scanned = scanned;

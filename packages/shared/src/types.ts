@@ -130,6 +130,8 @@ export interface ScanReport {
   startTime: Date;
   endTime: Date;
   auditType?: AuditType;
+  wcagLevel?: 'A' | 'AA' | 'AAA';
+  includeBestPractices?: boolean;
   projectId?: string;
   results: ScanResult[];
   summary: {

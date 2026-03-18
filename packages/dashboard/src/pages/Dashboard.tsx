@@ -53,6 +53,8 @@ export function Dashboard() {
   const [showScanForm, setShowScanForm] = useState(false);
 
   const [auditType, setAuditType] = useState<AuditType>('all-inclusive');
+  const [wcagLevel, setWcagLevel] = useState<'A' | 'AA' | 'AAA'>('AA');
+  const [includeBestPractices, setIncludeBestPractices] = useState(false);
   const [mode, setMode] = useState<InputMode>('url');
   const [sitemap, setSitemap] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -95,6 +97,8 @@ export function Dashboard() {
 
   function resetForm() {
     setAuditType('all-inclusive');
+    setWcagLevel('AA');
+    setIncludeBestPractices(false);
     setMode('url');
     setSitemap('');
     setFile(null);
@@ -168,15 +172,16 @@ export function Dashboard() {
         resolvedProjectId = created.id;
       }
 
+      const scanOptions = { auditType, wcagLevel, includeBestPractices };
       let body: Record<string, unknown>;
       if (mode === 'urllist') {
-        body = { urls: urlList, auditType };
+        body = { urls: urlList, ...scanOptions };
       } else if (mode === 'file' && file) {
-        body = { xmlContent: await file.text(), filename: file.name, auditType };
+        body = { xmlContent: await file.text(), filename: file.name, ...scanOptions };
       } else if (mode === 'crawl') {
-        body = { crawlUrl, maxPages: Number(maxPages) || 200, auditType };
+        body = { crawlUrl, maxPages: Number(maxPages) || 200, ...scanOptions };
       } else {
-        body = { sitemap, auditType };
+        body = { sitemap, ...scanOptions };
       }
       if (resolvedProjectId) body.projectId = resolvedProjectId;
 
@@ -238,6 +243,43 @@ export function Dashboard() {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* WCAG level + best practices */}
+      <div className="flex flex-wrap gap-4 items-end">
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-sm font-medium">WCAG Level</Label>
+          <div className="flex gap-1">
+            {(['A', 'AA', 'AAA'] as const).map(level => (
+              <button
+                key={level}
+                type="button"
+                disabled={scanning}
+                onClick={() => setWcagLevel(level)}
+                aria-pressed={wcagLevel === level}
+                className={[
+                  'rounded border px-3 py-1 text-sm font-medium transition-colors',
+                  wcagLevel === level
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-border hover:border-primary/50 hover:bg-muted/50',
+                  scanning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
+                ].join(' ')}
+              >
+                {level}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className="flex items-center gap-2 cursor-pointer select-none pb-0.5">
+          <input
+            type="checkbox"
+            checked={includeBestPractices}
+            onChange={e => setIncludeBestPractices(e.target.checked)}
+            disabled={scanning}
+            className="h-4 w-4 rounded border-input accent-primary"
+          />
+          <span className="text-sm font-medium">Include best practices</span>
+        </label>
       </div>
 
       {/* Project assignment */}

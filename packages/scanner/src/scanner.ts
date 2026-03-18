@@ -95,6 +95,21 @@ export class SitemapScanner {
     try {
       await page.goto(url, { waitUntil: 'load', timeout: 30000 });
       const axe = new AxePuppeteer(page);
+      const wcagLevel: 'A' | 'AA' | 'AAA' = this.options.wcagLevel ?? 'AA';
+      const includeBestPractices: boolean = this.options.includeBestPractices ?? false;
+      const axeTags: string[] = [];
+      // Always include Level A tags
+      axeTags.push('wcag2a', 'wcag21a');
+      if (wcagLevel === 'AA' || wcagLevel === 'AAA') {
+        axeTags.push('wcag2aa', 'wcag21aa', 'wcag22aa');
+      }
+      if (wcagLevel === 'AAA') {
+        axeTags.push('wcag2aaa');
+      }
+      if (includeBestPractices) {
+        axeTags.push('best-practice');
+      }
+      axe.withTags(axeTags);
       const [results, pageTitle, rawElements, rawMedia, rawCaptions] = await Promise.all([
         axe.analyze(),
         page.title(),
@@ -868,6 +883,8 @@ export class SitemapScanner {
       startTime,
       endTime,
       auditType: this.options.auditType,
+      wcagLevel: this.options.wcagLevel ?? 'AA',
+      includeBestPractices: this.options.includeBestPractices ?? false,
       results,
       summary
     };
