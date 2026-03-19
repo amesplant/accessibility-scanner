@@ -73,6 +73,8 @@ export function Dashboard() {
   const [showNewProjectInput, setShowNewProjectInput] = useState(false);
   const [assignReport, setAssignReport] = useState<ScanReport | null>(null);
   const [assignProjectId, setAssignProjectId] = useState<string>('');
+  const [assignNewProjectName, setAssignNewProjectName] = useState('');
+  const [assignShowNewProjectInput, setAssignShowNewProjectInput] = useState(false);
   const [editingProject, setEditingProject] = useState<ProjectWithCount | null>(null);
   const [pendingDeleteProjectId, setPendingDeleteProjectId] = useState<string | null>(null);
 
@@ -845,7 +847,7 @@ export function Dashboard() {
       })()}
 
       {/* Assign to project dialog */}
-      <Dialog open={!!assignReport} onOpenChange={open => { if (!open) setAssignReport(null); }}>
+      <Dialog open={!!assignReport} onOpenChange={open => { if (!open) { setAssignReport(null); setAssignShowNewProjectInput(false); setAssignNewProjectName(''); } }}>
         <DialogContent className="text-foreground">
           <DialogHeader>
             <DialogTitle>Assign to Project</DialogTitle>
@@ -855,17 +857,36 @@ export function Dashboard() {
           </DialogHeader>
           <div className="py-2">
             <Label htmlFor="assign-project-select">Project</Label>
-            <select
-              id="assign-project-select"
-              value={assignProjectId}
-              onChange={e => setAssignProjectId(e.target.value)}
-              className="mt-1.5 flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-            >
-              <option value="">No project</option>
-              {projects.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
+            {assignShowNewProjectInput ? (
+              <div className="mt-1.5 flex gap-2">
+                <Input
+                  id="assign-project-select"
+                  placeholder="New project name"
+                  value={assignNewProjectName}
+                  onChange={e => setAssignNewProjectName(e.target.value)}
+                />
+                <Button type="button" variant="outline" size="sm" onClick={() => { setAssignShowNewProjectInput(false); setAssignNewProjectName(''); }}>
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <div className="mt-1.5 flex gap-2">
+                <select
+                  id="assign-project-select"
+                  value={assignProjectId}
+                  onChange={e => setAssignProjectId(e.target.value)}
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                >
+                  <option value="">No project</option>
+                  {projects.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+                <Button type="button" variant="outline" size="sm" onClick={() => setAssignShowNewProjectInput(true)}>
+                  + New
+                </Button>
+              </div>
+            )}
           </div>
           <DialogFooter className="gap-2">
             <DialogClose asChild>
@@ -875,12 +896,19 @@ export function Dashboard() {
               type="button"
               onClick={async () => {
                 if (!assignReport) return;
+                let resolvedProjectId = assignProjectId;
+                if (assignShowNewProjectInput && assignNewProjectName.trim()) {
+                  const created = await createProject(assignNewProjectName.trim());
+                  if (created) resolvedProjectId = created.id;
+                }
                 await fetch(`/api/reports/${assignReport.id}/project`, {
                   method: 'PATCH',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ projectId: assignProjectId || null }),
+                  body: JSON.stringify({ projectId: resolvedProjectId || null }),
                 });
                 setAssignReport(null);
+                setAssignShowNewProjectInput(false);
+                setAssignNewProjectName('');
                 refresh();
                 refreshProjects();
               }}
