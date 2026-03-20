@@ -7,30 +7,42 @@ import { ViolationDetail } from './pages/ViolationDetail';
 import { PageDetail } from './pages/PageDetail';
 import { ViolationWindow } from './pages/ViolationWindow';
 import { PageWindow } from './pages/PageWindow';
+import { Login } from './pages/Login';
 import { Layout } from './components/Layout';
+import { ProtectedRoute } from './components/ProtectedRoute';
 import { CurrentReportProvider } from './context/CurrentReportContext';
 import { ScanProvider } from './context/ScanContext';
+import { AuthProvider } from './context/AuthContext';
 
 function App() {
   return (
     <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <AuthProvider>
       <CurrentReportProvider>
       <ScanProvider>
-      <Layout>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/projects" element={<Projects />} />
-          <Route path="/projects/:id" element={<ProjectDetail />} />
-          <Route path="/reports/:id" element={<ReportDetail />} />
-          <Route path="/reports/:id/violation/:violationId" element={<ViolationWindow />} />
-          <Route path="/reports/:id/page/:pageId" element={<PageWindow />} />
-          {/* Legacy state-based routes kept for backwards compatibility */}
-          <Route path="/violation" element={<ViolationDetail />} />
-          <Route path="/page" element={<PageDetail />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/*" element={
+            <ProtectedRoute>
+              <Layout>
+                <Routes>
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/projects" element={<Projects />} />
+                  <Route path="/projects/:id" element={<ProjectDetail />} />
+                  <Route path="/reports/:id" element={<ReportDetail />} />
+                  <Route path="/reports/:id/violation/:violationId" element={<ViolationWindow />} />
+                  <Route path="/reports/:id/page/:pageId" element={<PageWindow />} />
+                  {/* Legacy state-based routes kept for backwards compatibility */}
+                  <Route path="/violation" element={<ViolationDetail />} />
+                  <Route path="/page" element={<PageDetail />} />
+                </Routes>
+              </Layout>
+            </ProtectedRoute>
+          } />
         </Routes>
-      </Layout>
       </ScanProvider>
       </CurrentReportProvider>
+      </AuthProvider>
     </Router>
   );
 }

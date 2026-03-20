@@ -21,10 +21,18 @@ export class SitemapScanner {
     const urls: string[] = this.options.urls ?? await this.fetchSitemapUrls(this.options.sitemap);
     const limit = pLimit(parseInt(this.options.concurrent));
 
-    this.browser = await puppeteer.launch({
-      headless: this.options.headless,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
+    const launchOptions: Parameters<typeof puppeteer.launch>[0] = {
+      headless: this.options.useGoogleSso ? false : this.options.headless,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    };
+
+    if (this.options.useGoogleSso) {
+      launchOptions.executablePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+      launchOptions.userDataDir = this.options.googleSsoProfilePath
+        ?? `${process.env.HOME}/Library/Application Support/Google/Chrome`;
+    }
+
+    this.browser = await puppeteer.launch(launchOptions);
 
     const startTime = new Date();
     const results: ScanResult[] = [];
@@ -93,6 +101,13 @@ export class SitemapScanner {
     const page = await this.browser!.newPage();
 
     try {
+      if (this.options.basicAuth?.username) {
+        await page.authenticate({
+          username: this.options.basicAuth.username,
+          password: this.options.basicAuth.password,
+        });
+      }
+
       await page.goto(url, { waitUntil: 'load', timeout: 30000 });
       const axe = new AxePuppeteer(page);
       const wcagLevel: 'A' | 'AA' | 'AAA' = this.options.wcagLevel ?? 'AA';

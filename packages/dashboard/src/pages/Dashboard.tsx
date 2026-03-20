@@ -78,6 +78,12 @@ export function Dashboard() {
   const [editingProject, setEditingProject] = useState<ProjectWithCount | null>(null);
   const [pendingDeleteProjectId, setPendingDeleteProjectId] = useState<string | null>(null);
 
+  const [basicAuthEnabled, setBasicAuthEnabled] = useState(false);
+  const [basicAuthUser, setBasicAuthUser] = useState('');
+  const [basicAuthPassword, setBasicAuthPassword] = useState('');
+  const [useGoogleSso, setUseGoogleSso] = useState(false);
+  const [googleSsoProfilePath, setGoogleSsoProfilePath] = useState('');
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -113,6 +119,11 @@ export function Dashboard() {
     setScanProjectId('');
     setNewProjectName('');
     setShowNewProjectInput(false);
+    setBasicAuthEnabled(false);
+    setBasicAuthUser('');
+    setBasicAuthPassword('');
+    setUseGoogleSso(false);
+    setGoogleSsoProfilePath('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
@@ -186,6 +197,14 @@ export function Dashboard() {
         body = { sitemap, ...scanOptions };
       }
       if (resolvedProjectId) body.projectId = resolvedProjectId;
+      if (basicAuthEnabled && basicAuthUser.trim()) {
+        body.basicAuthUser = basicAuthUser.trim();
+        body.basicAuthPassword = basicAuthPassword;
+      }
+      if (useGoogleSso) {
+        body.useGoogleSso = true;
+        if (googleSsoProfilePath.trim()) body.googleSsoProfilePath = googleSsoProfilePath.trim();
+      }
 
       const res = await fetch('/api/scan', {
         method: 'POST',
@@ -316,6 +335,70 @@ export function Dashboard() {
             <Button type="button" variant="outline" size="sm" onClick={() => setShowNewProjectInput(true)} disabled={scanning}>
               + New
             </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Authentication */}
+      <div className="flex flex-col gap-2">
+        <p className="text-sm font-medium">Authentication <span className="text-muted-foreground font-normal">(optional)</span></p>
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={basicAuthEnabled}
+            onChange={e => setBasicAuthEnabled(e.target.checked)}
+            disabled={scanning}
+            className="h-4 w-4 rounded border-input accent-primary"
+          />
+          <span className="text-sm">Site requires HTTP Basic Auth</span>
+        </label>
+        {basicAuthEnabled && (
+          <div className="ml-6 flex flex-col gap-2">
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="basic-auth-user">Username</Label>
+              <Input
+                id="basic-auth-user"
+                type="text"
+                value={basicAuthUser}
+                onChange={e => setBasicAuthUser(e.target.value)}
+                disabled={scanning}
+                className="max-w-xs"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="basic-auth-password">Password</Label>
+              <Input
+                id="basic-auth-password"
+                type="password"
+                value={basicAuthPassword}
+                onChange={e => setBasicAuthPassword(e.target.value)}
+                disabled={scanning}
+                className="max-w-xs"
+              />
+            </div>
+          </div>
+        )}
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={useGoogleSso}
+            onChange={e => setUseGoogleSso(e.target.checked)}
+            disabled={scanning}
+            className="h-4 w-4 rounded border-input accent-primary"
+          />
+          <span className="text-sm">Site uses Google SSO (uses your logged-in Chrome session)</span>
+        </label>
+        {useGoogleSso && (
+          <div className="ml-6 flex flex-col gap-1">
+            <Label htmlFor="google-sso-profile">Chrome profile path <span className="text-muted-foreground font-normal">(optional, leave blank for default)</span></Label>
+            <Input
+              id="google-sso-profile"
+              type="text"
+              value={googleSsoProfilePath}
+              onChange={e => setGoogleSsoProfilePath(e.target.value)}
+              disabled={scanning}
+              className="max-w-sm"
+            />
           </div>
         )}
       </div>
