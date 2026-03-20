@@ -16,8 +16,10 @@ All findings live in a persistent dashboard organized by project and client enga
 
 ## Features
 
+- **Google OAuth login** — restricted to `@10up.com` and `@fueled.com` Google Workspace accounts; all other accounts are rejected
 - **Three audit types** — Rapid (up to 5 pages), Mid-Level (any page count), and All-Inclusive (full site via sitemap or crawl)
 - **Automated scanning** via sitemap URL, XML file upload, or site crawl — powered by axe-core for WCAG 2.2 A/AA/AAA
+- **Scan authentication** — scan sites protected by HTTP Basic Auth or Google SSO (uses your local Chrome profile)
 - **Smart element detection** — during a scan, non-text elements (images, SVGs, icon buttons, canvas, video, etc.) are extracted with their computed text alternatives and screenshots for WCAG 1.1.1 review
 - **Element screenshots** — each detected element gets a cropped screenshot and an annotated full-page context screenshot (element highlighted, surroundings dimmed)
 - **Manual audit checklists** scoped per audit type — 13 criteria for Rapid, 20 for Mid-Level, all 52 for All-Inclusive
@@ -37,6 +39,7 @@ All findings live in a persistent dashboard organized by project and client enga
 
 - Node.js >= 22.12
 - npm >= 10
+- A Google Cloud project with OAuth 2.0 credentials (see [Authentication Setup](#authentication-setup) below)
 
 ### Installation
 
@@ -45,6 +48,23 @@ git clone https://github.com/yourusername/accessibility-scanner.git
 cd accessibility-scanner
 npm install
 ```
+
+### Environment Variables
+
+Copy the example env file and fill in the values:
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Description |
+|----------|-------------|
+| `SESSION_SECRET` | Long random string used to sign session cookies |
+| `GOOGLE_CLIENT_ID` | OAuth 2.0 Client ID from Google Cloud Console |
+| `GOOGLE_CLIENT_SECRET` | OAuth 2.0 Client Secret from Google Cloud Console |
+| `CALLBACK_URL` | OAuth callback URL — `http://localhost:5173/auth/google/callback` for local dev |
+| `FRONTEND_URL` | Dashboard origin — `http://localhost:5173` for local dev |
+| `PORT` | API server port (default: `3003`) |
 
 ### Run in development
 
@@ -58,6 +78,34 @@ Or individually:
 npm run dev:server    # API server only
 npm run dev:dashboard # Dashboard only
 ```
+
+---
+
+## Authentication Setup
+
+Access is restricted to `@10up.com` and `@fueled.com` Google accounts. You'll need to create OAuth credentials in Google Cloud Console once per environment.
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials
+2. Create an **OAuth 2.0 Client ID** (Web application)
+3. Add to **Authorized JavaScript origins**: `http://localhost:5173`
+4. Add to **Authorized redirect URIs**: `http://localhost:5173/auth/google/callback`
+5. Copy the Client ID and Client Secret into your `.env` file
+
+Sign in with a `@10up.com` or `@fueled.com` account. Attempts from other domains are rejected with a 401.
+
+---
+
+## Scanning Sites That Require Authentication
+
+### HTTP Basic Auth
+
+Enable "Site requires HTTP Basic Auth" in the scan form and provide credentials. Puppeteer will authenticate before loading each page.
+
+### Google SSO
+
+Enable "Site uses Google SSO" in the scan form. The scanner will launch a real (non-headless) Chrome browser using your local Chrome profile, so it inherits your logged-in Google session. You can optionally provide a custom Chrome profile path; if left blank, the default profile is used.
+
+> **Note:** Google SSO scanning requires Google Chrome to be installed at its default location (`/Applications/Google Chrome.app` on macOS).
 
 ---
 
@@ -137,6 +185,17 @@ Each exported issue includes a description, severity, code snippet, affected pag
 
 ## API Reference
 
+All `/api/*` endpoints require an authenticated session. Unauthenticated requests return `401 Unauthorized`.
+
+### Auth
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/auth/google` | Initiate Google OAuth flow |
+| `GET` | `/auth/google/callback` | OAuth callback — redirects to dashboard or `/login` |
+| `GET` | `/auth/me` | Returns the current authenticated user |
+| `POST` | `/auth/logout` | Destroys the session and signs out |
+
 ### Scanning & Reports
 
 | Method | Endpoint | Description |
@@ -158,11 +217,15 @@ POST /api/scan
 {
   "auditType": "all-inclusive",
   "sitemap": "https://example.com/sitemap.xml",
-  "projectId": "proj_abc123"
+  "projectId": "proj_abc123",
+  "basicAuthUser": "username",
+  "basicAuthPassword": "password",
+  "useGoogleSso": false,
+  "googleSsoProfilePath": ""
 }
 ```
 
-`auditType` options: `"rapid"`, `"mid-level"`, `"all-inclusive"`. Provide one of `urls[]`, `sitemap`, `xmlContent`, or `crawlUrl` depending on audit type.
+`auditType` options: `"rapid"`, `"mid-level"`, `"all-inclusive"`. Provide one of `urls[]`, `sitemap`, `xmlContent`, or `crawlUrl` depending on audit type. Auth fields are all optional.
 
 ### Projects
 
