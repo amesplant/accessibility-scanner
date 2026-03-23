@@ -59,8 +59,6 @@ npm run dev:server    # API server only
 npm run dev:dashboard # Dashboard only
 ```
 
----
-
 ## Audit Types
 
 | Audit Type | Pages | Input | Manual Checklist |
