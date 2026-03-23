@@ -144,9 +144,4 @@ export interface ScanReport {
   };
 }
 
-export interface ScanAuthOptions {
-  basicAuth?: { username: string; password: string };
-  useGoogleSso?: boolean;
-  googleSsoProfilePath?: string;
-}
 
