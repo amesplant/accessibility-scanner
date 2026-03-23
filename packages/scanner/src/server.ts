@@ -1,6 +1,5 @@
 import express from 'express';
 import cors from 'cors';
-import passport from 'passport';
 import { EventEmitter } from 'events';
 import { writeFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
@@ -10,25 +9,14 @@ import { DatabaseService } from './database.js';
 import { Reporter } from './exporter.js';
 import { SitemapScanner } from './scanner.js';
 import { crawlSite } from './crawler.js';
-import { sessionMiddleware, authRouter, requireAuth } from './auth.js';
 import { AuditType, createDefaultChecks, ManualAudit, ManualAuditStatus, ManualCheckResult, ManualFailureInstance, Project } from '@accessibility-scanner/shared';
 
 const app = express();
 const db = new DatabaseService();
 const port = process.env.PORT || 3003;
 
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  credentials: true,
-}));
+app.use(cors());
 app.use(express.json({ limit: '10mb' }));
-app.use(sessionMiddleware);
-app.use(passport.initialize());
-app.use(passport.session());
-app.use(authRouter);
-
-// Protect all /api routes
-app.use('/api', requireAuth);
 
 // Run migration before accepting requests (no-op if already migrated)
 await db.migrate();
@@ -612,7 +600,7 @@ app.patch('/api/reports/:id/project', async (req, res) => {
 // ---------------------------------------------------------------------------
 
 app.post('/api/scan', (req, res) => {
-  const { sitemap, xmlContent, filename, crawlUrl, maxPages = 200, concurrent = 5, auditType = 'all-inclusive', wcagLevel = 'AA', includeBestPractices = false, urls, projectId, basicAuthUser, basicAuthPassword, useGoogleSso, googleSsoProfilePath } = req.body;
+  const { sitemap, xmlContent, filename, crawlUrl, maxPages = 200, concurrent = 5, auditType = 'all-inclusive', wcagLevel = 'AA', includeBestPractices = false, urls, projectId } = req.body;
 
   const hasUrls = Array.isArray(urls) && urls.length > 0;
 
@@ -664,14 +652,6 @@ app.post('/api/scan', (req, res) => {
           emitter.emit('progress', { scanned, total, url });
         },
       };
-
-      if (basicAuthUser) {
-        scannerOptions.basicAuth = { username: String(basicAuthUser), password: String(basicAuthPassword ?? '') };
-      }
-      if (useGoogleSso) {
-        scannerOptions.useGoogleSso = true;
-        if (googleSsoProfilePath) scannerOptions.googleSsoProfilePath = String(googleSsoProfilePath);
-      }
 
       if (hasUrls) {
         job.total = urls.length;

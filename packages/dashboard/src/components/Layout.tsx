@@ -3,7 +3,6 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useCurrentReport } from '@/context/CurrentReportContext';
 import { useReports } from '@/hooks/useReports';
 import { useScanContext, formatElapsed } from '@/context/ScanContext';
-import { useAuth } from '@/context/AuthContext';
 import { FueledAccessLogo } from '@/components/FueledAccessLogo';
 import {
   Dialog,
@@ -98,7 +97,6 @@ export function Layout({ children }: Props) {
   const { } = useCurrentReport(); // keep context subscription
   const { } = useReports();       // keep context subscription
   const { scanning, aborting, scanState, elapsed, abortScan, completedReportId, clearCompletedReport } = useScanContext();
-  const { user, logout } = useAuth();
 
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(() =>
@@ -215,29 +213,6 @@ export function Layout({ children }: Props) {
           )}
         </nav>
 
-        {user && (
-          <div className="px-5 py-4 border-t border-border shrink-0">
-            <div className="flex items-center gap-3">
-              {user.picture ? (
-                <img src={user.picture} alt={user.name} width={34} height={34} className="rounded-full shrink-0" referrerPolicy="no-referrer" />
-              ) : (
-                <span className="h-[34px] w-[34px] rounded-full bg-primary flex items-center justify-center text-xs font-bold text-white shrink-0" aria-hidden="true">
-                  {user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-                </span>
-              )}
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white truncate">{user.name}</p>
-                <p className="text-xs text-zinc-500 truncate">{user.email}</p>
-              </div>
-            </div>
-            <button
-              onClick={() => void logout()}
-              className="mt-3 w-full text-xs text-zinc-500 hover:text-zinc-300 py-1.5 rounded-md hover:bg-white/5 transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
-            >
-              Sign out
-            </button>
-          </div>
-        )}
       </>
     );
   }
@@ -281,17 +256,6 @@ export function Layout({ children }: Props) {
         >
           <IconHamburger />
         </button>
-        {user && (
-          <div aria-hidden="true">
-            {user.picture ? (
-              <img src={user.picture} alt="" width={32} height={32} className="rounded-full" referrerPolicy="no-referrer" />
-            ) : (
-              <span className="h-8 w-8 rounded-full bg-primary flex items-center justify-center text-xs font-bold text-white">
-                {user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-              </span>
-            )}
-          </div>
-        )}
       </header>
 
       {/* ── Mobile backdrop (hidden on lg+) ── */}
