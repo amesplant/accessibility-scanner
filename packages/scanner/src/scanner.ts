@@ -110,12 +110,13 @@ export class SitemapScanner {
         axeTags.push('best-practice');
       }
       axe.withTags(axeTags);
-      const [results, pageTitle, rawElements, rawMedia, rawCaptions] = await Promise.all([
+      const [results, pageTitle, rawElements, rawMedia, rawCaptions, rawLinks] = await Promise.all([
         axe.analyze(),
         page.title(),
         this.extractNonTextElements(page),
         this.extractMediaElements(page),
         this.extractCaptionsElements(page),
+        this.extractLinkPurposeElements(page),
       ]);
 
       const processElements = (raw: Omit<DetectedElement, 'id'>[]): DetectedElement[] =>
@@ -139,6 +140,15 @@ export class SitemapScanner {
         auditComment: el.textAlternative !== null
           ? 'Captions track detected.'
           : 'No captions track detected — videos with speech or meaningful audio require synchronized captions.',
+      }));
+
+      const detectedLinks: DetectedElement[] = rawLinks.map(el => ({
+        ...el,
+        id: uuidv4(),
+        auditStatus: el.textAlternative !== null ? 'pass' as const : 'fail' as const,
+        auditComment: el.textAlternative !== null
+          ? `Descriptive accessible name: \u201c${el.textAlternative}\u201d`
+          : 'Link text is ambiguous — the purpose cannot be determined from the link text alone.',
       }));
 
       // Add highlight + label styles once for all context screenshots
@@ -233,7 +243,7 @@ export class SitemapScanner {
                 'img': 'Image', 'input-image': 'Image Input', 'svg': 'SVG',
                 'canvas': 'Canvas', 'video': 'Video', 'button-icon': 'Icon Button',
                 'role-img': 'Role=img', 'area': 'Image Map Area', 'object': 'Object',
-                'audio': 'Audio', 'video-only': 'Video',
+                'audio': 'Audio', 'video-only': 'Video', 'link': 'Link',
               };
               const label = typeLabel[el.elementType] ?? el.elementType;
               return el.textAlternative
@@ -399,6 +409,73 @@ export class SitemapScanner {
         }
       }
 
+      // Screenshots for 2.4.4 link purpose elements
+      for (let i = 0; i < Math.min(detectedLinks.length, 30); i++) {
+        const el = detectedLinks[i];
+        const scanAttr = `a11y-link-${i}`;
+        try {
+          const visible = await page.evaluate((idx: string) => {
+            const node = document.querySelector(`[data-a11y-link-scan-id="${idx}"]`) as HTMLElement | null;
+            if (!node) return false;
+            node.scrollIntoView({ behavior: 'instant', block: 'center' });
+            const r = node.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+          }, scanAttr);
+
+          if (!visible) continue;
+
+          const handle = await page.$(`[data-a11y-link-scan-id="${scanAttr}"]`);
+          if (!handle) continue;
+
+          const box = await handle.boundingBox();
+          if (!box || box.width === 0 || box.height === 0) { await handle.dispose(); continue; }
+
+          const pad = 8;
+          const clip = {
+            x: Math.max(0, box.x - pad),
+            y: Math.max(0, box.y - pad),
+            width: Math.min(box.width + pad * 2, viewportWidth),
+            height: Math.min(box.height + pad * 2, viewportHeight),
+          };
+
+          const elBuf = await page.screenshot({ clip, type: 'jpeg', quality: 80 });
+          el.screenshotDataUrl = `data:image/jpeg;base64,${Buffer.from(elBuf as Uint8Array).toString('base64')}`;
+
+          await handle.evaluate(
+            (node: Element, labelText: string) => {
+              node.setAttribute('data-a11y-highlight', 'true');
+              const rect = node.getBoundingClientRect();
+              const vw = window.innerWidth;
+              const vh = window.innerHeight;
+              const label = document.createElement('div');
+              label.setAttribute('data-a11y-label', 'true');
+              label.textContent = labelText;
+              document.body.appendChild(label);
+              const approxLabelH = 36;
+              const top = rect.top > approxLabelH + 8
+                ? rect.top - approxLabelH - 6
+                : Math.min(rect.bottom + 6, vh - approxLabelH - 4);
+              label.style.top = `${Math.max(4, top)}px`;
+              label.style.left = `${Math.max(4, Math.min(rect.left, vw - 324))}px`;
+            },
+            el.textAlternative
+              ? `Link: \u201c${el.textAlternative}\u201d`
+              : `Link: Ambiguous text`,
+          );
+
+          const ctxBuf = await page.screenshot({ type: 'jpeg', quality: 75 });
+          el.contextScreenshotDataUrl = `data:image/jpeg;base64,${Buffer.from(ctxBuf as Uint8Array).toString('base64')}`;
+
+          await handle.evaluate((node: Element) => {
+            node.removeAttribute('data-a11y-highlight');
+            document.querySelector('[data-a11y-label]')?.remove();
+          });
+          await handle.dispose();
+        } catch {
+          // skip — element hidden, detached, or viewport issue
+        }
+      }
+
       const detectedElementsMap: NonNullable<ScanResult['detectedElements']> = {
         '1.1.1': detectedElements,
       };
@@ -407,6 +484,9 @@ export class SitemapScanner {
       }
       if (detectedCaptions.length > 0) {
         detectedElementsMap['1.2.2'] = detectedCaptions;
+      }
+      if (detectedLinks.length > 0) {
+        detectedElementsMap['2.4.4'] = detectedLinks;
       }
 
       // Build violations array before return so we can mutate nodes for screenshots
@@ -833,6 +913,92 @@ export class SitemapScanner {
           html: truncHtml(el.outerHTML),
           selector: getSelector(el),
           textAlternative: textAlt,
+          isDecorative: false,
+          auditStatus: 'not-reviewed',
+        });
+      });
+
+      return elements;
+    }) as Promise<Omit<DetectedElement, 'id'>[]>;
+  }
+
+  private async extractLinkPurposeElements(page: any): Promise<Omit<DetectedElement, 'id'>[]> {
+    return page.evaluate(() => {
+      function truncHtml(html: string): string {
+        return html.length > 500 ? html.slice(0, 500) + '…' : html;
+      }
+
+      function getSelector(el: Element): string {
+        if ((el as HTMLElement).id) return `#${CSS.escape((el as HTMLElement).id)}`;
+        const parts: string[] = [];
+        let cur: Element | null = el;
+        while (cur && cur !== document.body && cur !== document.documentElement) {
+          let seg = cur.tagName.toLowerCase();
+          if ((cur as HTMLElement).id) {
+            seg = `#${CSS.escape((cur as HTMLElement).id)}`;
+            parts.unshift(seg);
+            break;
+          }
+          const parent = cur.parentElement;
+          if (parent) {
+            const sameTag = Array.from(parent.children).filter(c => c.tagName === cur!.tagName);
+            if (sameTag.length > 1) seg += `:nth-of-type(${sameTag.indexOf(cur as HTMLElement) + 1})`;
+          }
+          parts.unshift(seg);
+          cur = cur.parentElement;
+        }
+        return parts.join(' > ');
+      }
+
+      // Generic/ambiguous link text patterns that fail 2.4.4 without additional context
+      const AMBIGUOUS_PATTERNS = /^(click here|here|read more|more|learn more|link|this|continue|details|info|information|go|view|see|see more|see all|show more|show all|find out more|find out|visit|open|download|get|get more|get started|start|begin|next|previous|prev|back|forward|full story|full article|article|page|more info|more information|more details|more here|this link|this page|this article)$/i;
+
+      const elements: any[] = [];
+
+      function tag(el: Element, data: any) {
+        const scanId = `a11y-link-${elements.length}`;
+        el.setAttribute('data-a11y-link-scan-id', scanId);
+        elements.push(data);
+      }
+
+      document.querySelectorAll('a[href]').forEach(el => {
+        // Compute accessible name: aria-labelledby > aria-label > link text content > title
+        let accessibleName: string | null = null;
+
+        const labelledBy = el.getAttribute('aria-labelledby');
+        if (labelledBy) {
+          const text = labelledBy.split(/\s+/)
+            .map(id => document.getElementById(id)?.textContent?.trim())
+            .filter(Boolean)
+            .join(' ');
+          if (text) accessibleName = text;
+        }
+
+        if (!accessibleName) {
+          const ariaLabel = el.getAttribute('aria-label')?.trim();
+          if (ariaLabel) accessibleName = ariaLabel;
+        }
+
+        const linkText = el.textContent?.trim().replace(/\s+/g, ' ') || '';
+
+        if (!accessibleName) {
+          if (linkText) accessibleName = linkText;
+        }
+
+        if (!accessibleName) {
+          const title = el.getAttribute('title')?.trim();
+          if (title) accessibleName = title;
+        }
+
+        // Only surface links whose accessible name matches an ambiguous pattern
+        if (!accessibleName || !AMBIGUOUS_PATTERNS.test(accessibleName)) return;
+
+        tag(el, {
+          elementType: 'link',
+          html: truncHtml(el.outerHTML),
+          selector: getSelector(el),
+          // textAlternative = null signals a fail (ambiguous with no override)
+          textAlternative: null,
           isDecorative: false,
           auditStatus: 'not-reviewed',
         });
