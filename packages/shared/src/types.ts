@@ -56,7 +56,8 @@ export type DetectedElementType =
   | 'area'
   | 'object'
   | 'audio'
-  | 'video-only';
+  | 'video-only'
+  | 'link';
 
 export interface DetectedElement {
   id: string;

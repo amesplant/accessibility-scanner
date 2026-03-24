@@ -556,6 +556,7 @@ const ELEMENT_TYPE_LABELS: Record<DetectedElement['elementType'], string> = {
   'object': 'Object',
   'audio': 'Audio',
   'video-only': 'Video',
+  'link': 'Link',
 };
 
 function CopyButton({ text }: { text: string }) {
@@ -967,6 +968,8 @@ function CheckRow({
                   ? 'No audio or video-only elements detected on this page — nothing to audit for 1.2.1.'
                   : check.wcagCriterion === '1.2.2'
                   ? 'No video elements with audio detected on this page — nothing to audit for 1.2.2.'
+                  : check.wcagCriterion === '2.4.4'
+                  ? 'No ambiguous links detected on this page — nothing to audit for 2.4.4.'
                   : undefined
               }
             />
