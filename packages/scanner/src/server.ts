@@ -1,5 +1,8 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
+import jwt from 'jsonwebtoken';
 import { EventEmitter } from 'events';
 import { writeFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
@@ -15,8 +18,27 @@ const app = express();
 const db = new DatabaseService();
 const port = process.env.PORT || 3003;
 
-app.use(cors());
+const COOKIE_NAME = process.env.AUTH_COOKIE_NAME || 'fueled_access_session';
+const JWT_SECRET = process.env.AUTH_JWT_SECRET || 'please-change-this-in-production';
+const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
+
+interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  picture?: string;
+}
+
+interface AuthenticatedRequest extends express.Request {
+  user?: AuthUser;
+}
+
+const AUTH_CALLBACK_URL = process.env.AUTH_CALLBACK_URL || `http://localhost:${port}/auth/callback`;
+const SSO_PROXY_URL = process.env.SSO_PROXY_URL || '';
+
+app.use(cors({ origin: FRONTEND_ORIGIN, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
+app.use(cookieParser());
 
 // Run migration before accepting requests (no-op if already migrated)
 await db.migrate();
@@ -42,6 +64,125 @@ const jobs = new Map<string, Job>();
 function cleanupJob(jobId: string) {
   setTimeout(() => jobs.delete(jobId), 5 * 60 * 1000);
 }
+
+function signToken(user: AuthUser) {
+  return jwt.sign(user, JWT_SECRET, { expiresIn: '7d' });
+}
+
+function setSessionCookie(res: express.Response, token: string) {
+  res.cookie(COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+}
+
+function getAuthToken(req: express.Request) {
+  return req.cookies?.[COOKIE_NAME] ?? null;
+}
+
+function authenticate(req: AuthenticatedRequest, res: express.Response, next: express.NextFunction) {
+  const token = getAuthToken(req);
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
+    req.user = decoded;
+    return next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
+// Auth routes
+app.get('/auth/login', (req, res) => {
+  const redirect = (req.query.redirect as string | undefined) || `${FRONTEND_ORIGIN}`;
+  const callbackUrl = `${AUTH_CALLBACK_URL}?redirect=${encodeURIComponent(redirect)}`;
+  const followUrl = `${SSO_PROXY_URL}?action=10up-login&type=10up&redirect=${encodeURIComponent(callbackUrl)}`;
+  res.redirect(followUrl);
+});
+
+app.get('/auth/callback', async (req, res) => {
+  const returnUrl = (req.query.redirect as string | undefined) ?? FRONTEND_ORIGIN;
+  let user: AuthUser | null = null;
+
+  // If proxy returns user data directly in query string (legacy or 10up format), use it.
+  const email = req.query.email as string | undefined;
+  const id = req.query.id as string | undefined;
+  const rawName = req.query.name as string | undefined;
+  const fullName = req.query.full_name as string | undefined;
+  const firstName = req.query.first_name as string | undefined;
+  const lastName = req.query.last_name as string | undefined;
+  const picture = req.query.picture as string | undefined;
+
+  const name = rawName || fullName ||
+    (firstName && lastName ? `${firstName} ${lastName}` : firstName || lastName);
+
+  if (email && name) {
+    user = {
+      id: id || email,
+      email,
+      name,
+      picture: picture ?? undefined,
+    };
+  } else {
+    // Attempt server-side verify call against SSO proxy
+    try {
+      const verifyUrl = `${SSO_PROXY_URL}?action=10up-verify&sso_version=1.12.1`;
+      const verifyRes = await fetch(verifyUrl, {
+        headers: {
+          accept: 'application/json',
+          cookie: req.headers.cookie || '',
+        },
+      });
+
+      if (verifyRes.ok) {
+        const data = await verifyRes.json();
+        if (data?.email && data?.name) {
+          user = {
+            id: data.id ? `${data.id}` : data.email,
+            email: data.email,
+            name: data.name,
+            picture: data.picture,
+          };
+        }
+      }
+    } catch (err) {
+      console.error('SSO verify failed', err);
+    }
+  }
+
+  if (!user) {
+    return res.status(401).send('SSO callback failed. Please try again.');
+  }
+
+  const token = signToken(user);
+  setSessionCookie(res, token);
+  return res.redirect(returnUrl);
+});
+
+app.post('/auth/logout', (_req, res) => {
+  res.clearCookie(COOKIE_NAME);
+  return res.json({ success: true });
+});
+
+app.get('/api/me', authenticate, (req: AuthenticatedRequest, res) => {
+  return res.json({ user: req.user });
+});
+
+// Require auth for all /api requests after this point.
+app.use('/api', authenticate);
+
+// ---------------------------------------------------------------------------
+// Root redirect for convenience
+// ---------------------------------------------------------------------------
+
+app.get('/', (_req, res) => {
+  return res.redirect(FRONTEND_ORIGIN + '/');
+});
 
 // ---------------------------------------------------------------------------
 // Reports
