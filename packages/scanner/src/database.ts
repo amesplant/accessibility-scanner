@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { ScanReport, Project } from '@accessibility-scanner/shared';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -19,12 +20,29 @@ export class DatabaseService {
   private metaFile: string;
   /** Path to the legacy monolithic file, used only for one-time migration */
   private legacyFile: string;
+  private supabase: SupabaseClient | null = null;
+  private useSupabase = false;
 
   constructor(dataDir?: string) {
     this.dataDir = dataDir ?? DEFAULT_DATA_DIR;
     this.reportsDir = path.join(this.dataDir, 'reports');
     this.metaFile = path.join(this.dataDir, 'meta.json');
     this.legacyFile = path.join(this.dataDir, 'reports.json');
+
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (supabaseUrl && supabaseKey) {
+      this.supabase = createClient(supabaseUrl, supabaseKey);
+      this.useSupabase = true;
+      console.log('[db] Using Supabase persistence');
+    }
+  }
+
+  private requireUser(userId?: string) {
+    if (this.useSupabase && !userId) {
+      throw new Error('userId is required when using Supabase persistence');
+    }
   }
 
   // ── Initialisation / migration ────────────────────────────────────────────
@@ -39,6 +57,11 @@ export class DatabaseService {
    * The legacy file is renamed to reports.json.bak when done.
    */
   async migrate(): Promise<void> {
+    if (this.useSupabase) {
+      // No local filesystem migration needed in Supabase mode.
+      return;
+    }
+
     await this.ensureDirs();
 
     const metaExists = await fs.access(this.metaFile).then(() => true).catch(() => false);
@@ -93,34 +116,125 @@ export class DatabaseService {
     return summary;
   }
 
-  // ── Reports ──────────────────────────────────────────────────────────────
+  private async supabaseFallback<T>(
+    operation: (supabase: SupabaseClient) => Promise<T>,
+    fallback: () => Promise<T>
+  ): Promise<T> {
+    if (!this.useSupabase || !this.supabase) {
+      return fallback();
+    }
 
-  async saveReport(report: ScanReport): Promise<void> {
-    await fs.writeFile(
-      path.join(this.reportsDir, `${report.id}.json`),
-      JSON.stringify(report)
-    );
-    const meta = await this.readMeta();
-    meta.summaries.push(this.summaryOf(report));
-    await this.writeMeta(meta);
-  }
-
-  /** Returns lightweight summaries (no results array) — use for list views. */
-  async getReportSummaries(): Promise<ReportSummary[]> {
-    const meta = await this.readMeta();
-    return meta.summaries;
-  }
-
-  async getReport(id: string): Promise<ScanReport | undefined> {
     try {
-      const raw = await fs.readFile(path.join(this.reportsDir, `${id}.json`), 'utf-8');
-      return JSON.parse(raw) as ScanReport;
-    } catch {
-      return undefined;
+      return await operation(this.supabase);
+    } catch (err) {
+      console.error('[db] Supabase operation failed; falling back to local JSON:', err);
+      this.useSupabase = false;
+      return fallback();
     }
   }
 
-  async deleteReport(id: string): Promise<boolean> {
+  // ── Reports ──────────────────────────────────────────────────────────────
+
+  async saveReport(report: ScanReport, userId?: string): Promise<void> {
+    const localSave = async () => {
+      await fs.writeFile(
+        path.join(this.reportsDir, `${report.id}.json`),
+        JSON.stringify(report)
+      );
+      const meta = await this.readMeta();
+      meta.summaries.push(this.summaryOf(report));
+      await this.writeMeta(meta);
+    };
+
+    if (!this.useSupabase || !this.supabase) {
+      return localSave();
+    }
+
+    this.requireUser(userId);
+
+    return this.supabaseFallback(async supabase => {
+      const { error } = await supabase
+        .from('reports')
+        .upsert({
+          id: report.id,
+          user_id: userId,
+          project_id: report.projectId ?? null,
+          report_data: report,
+        }, { onConflict: 'id' });
+
+      if (error) throw error;
+    }, localSave);
+  }
+
+  /** Returns lightweight summaries (no results array) — use for list views. */
+  async getReportSummaries(userId?: string): Promise<ReportSummary[]> {
+    const localRead = async () => {
+      const meta = await this.readMeta();
+      return meta.summaries;
+    };
+
+    if (!this.useSupabase || !this.supabase) {
+      return localRead();
+    }
+
+    this.requireUser(userId);
+
+    return this.supabaseFallback(async supabase => {
+      const { data, error } = await supabase
+        .from('reports')
+        .select('report_data')
+        .eq('user_id', userId);
+
+      if (error) throw error;
+      return (data ?? []).map((row: any) => this.summaryOf(row.report_data as ScanReport));
+    }, localRead);
+  }
+
+  async getReport(id: string, userId?: string): Promise<ScanReport | undefined> {
+    const localGet = async () => {
+      try {
+        const raw = await fs.readFile(path.join(this.reportsDir, `${id}.json`), 'utf-8');
+        return JSON.parse(raw) as ScanReport;
+      } catch {
+        return undefined;
+      }
+    };
+
+    if (!this.useSupabase || !this.supabase) {
+      return localGet();
+    }
+
+    this.requireUser(userId);
+
+    return this.supabaseFallback(async supabase => {
+      const { data, error } = await supabase
+        .from('reports')
+        .select('report_data')
+        .eq('id', id)
+        .eq('user_id', userId)
+        .single();
+
+      if (error && error.code !== 'PGRST116') throw error;
+      return data?.report_data as ScanReport | undefined;
+    }, localGet);
+  }
+
+  async deleteReport(id: string, userId?: string): Promise<boolean> {
+    if (this.useSupabase) {
+      this.requireUser(userId);
+      if (!this.supabase) return false;
+
+      const { data, error } = await this.supabase
+        .from('reports')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', userId)
+        .select();
+
+      if (error) throw error;
+      return (data ?? []).length > 0;
+    }
+
     try {
       await fs.unlink(path.join(this.reportsDir, `${id}.json`));
     } catch {
@@ -134,7 +248,22 @@ export class DatabaseService {
     return true;
   }
 
-  async updateReport(report: ScanReport): Promise<boolean> {
+  async updateReport(report: ScanReport, userId?: string): Promise<boolean> {
+    if (this.useSupabase) {
+      this.requireUser(userId);
+      if (!this.supabase) return false;
+
+      const { data, error } = await this.supabase
+        .from('reports')
+        .update({ report_data: report, project_id: report.projectId ?? null })
+        .eq('id', report.id)
+        .eq('user_id', userId)
+        .select();
+
+      if (error) throw error;
+      return (data ?? []).length > 0;
+    }
+
     const filePath = path.join(this.reportsDir, `${report.id}.json`);
     try {
       await fs.access(filePath);
@@ -151,7 +280,17 @@ export class DatabaseService {
     return true;
   }
 
-  async clearReports(): Promise<void> {
+  async clearReports(userId?: string): Promise<void> {
+    if (this.useSupabase) {
+      this.requireUser(userId);
+      if (!this.supabase) return;
+      await this.supabase
+        .from('reports')
+        .delete()
+        .eq('user_id', userId);
+      return;
+    }
+
     const meta = await this.readMeta();
     await Promise.all(
       meta.summaries.map(s =>
@@ -163,23 +302,100 @@ export class DatabaseService {
 
   // ── Projects ─────────────────────────────────────────────────────────────
 
-  async saveProject(project: Project): Promise<void> {
+  async saveProject(project: Project, userId?: string): Promise<void> {
+    if (this.useSupabase) {
+      this.requireUser(userId);
+      if (!this.supabase) return;
+
+      const { error } = await this.supabase
+        .from('projects')
+        .upsert({
+          id: project.id,
+          user_id: userId,
+          name: project.name,
+          description: project.description ?? null,
+          created_at: project.createdAt,
+        }, { onConflict: 'id' });
+
+      if (error) throw error;
+      return;
+    }
+
     const meta = await this.readMeta();
     meta.projects.push(project);
     await this.writeMeta(meta);
   }
 
-  async getProjects(): Promise<Project[]> {
+  async getProjects(userId?: string): Promise<Project[]> {
+    if (this.useSupabase) {
+      this.requireUser(userId);
+      if (!this.supabase) return [];
+
+      const { data, error } = await this.supabase
+        .from('projects')
+        .select('*')
+        .eq('user_id', userId);
+
+      if (error) throw error;
+
+      return (data ?? []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description ?? undefined,
+        createdAt: p.created_at,
+      }));
+    }
+
     const meta = await this.readMeta();
     return meta.projects;
   }
 
-  async getProject(id: string): Promise<Project | undefined> {
+  async getProject(projectId: string, userId?: string): Promise<Project | undefined> {
+    if (this.useSupabase) {
+      this.requireUser(userId);
+      if (!this.supabase) return undefined;
+
+      const { data, error } = await this.supabase
+        .from('projects')
+        .select('*')
+        .eq('id', projectId)
+        .eq('user_id', userId)
+        .single();
+
+      if (error && error.code !== 'PGRST116') throw error;
+      if (!data) return undefined;
+
+      return {
+        id: data.id,
+        name: data.name,
+        description: data.description ?? undefined,
+        createdAt: data.created_at,
+      };
+    }
+
     const meta = await this.readMeta();
-    return meta.projects.find(p => p.id === id);
+    return meta.projects.find(p => p.id === projectId);
   }
 
-  async updateProject(project: Project): Promise<boolean> {
+  async updateProject(project: Project, userId?: string): Promise<boolean> {
+    if (this.useSupabase) {
+      this.requireUser(userId);
+      if (!this.supabase) return false;
+
+      const { data, error } = await this.supabase
+        .from('projects')
+        .update({
+          name: project.name,
+          description: project.description ?? null,
+        })
+        .eq('id', project.id)
+        .eq('user_id', userId)
+        .select();
+
+      if (error) throw error;
+      return (data ?? []).length > 0;
+    }
+
     const meta = await this.readMeta();
     const idx = meta.projects.findIndex(p => p.id === project.id);
     if (idx === -1) return false;
@@ -188,16 +404,37 @@ export class DatabaseService {
     return true;
   }
 
-  async deleteProject(id: string): Promise<boolean> {
+  async deleteProject(projectId: string, userId?: string): Promise<boolean> {
+    if (this.useSupabase) {
+      this.requireUser(userId);
+      if (!this.supabase) return false;
+
+      await this.supabase
+        .from('reports')
+        .update({ project_id: null })
+        .eq('project_id', projectId)
+        .eq('user_id', userId);
+
+      const { data, error } = await this.supabase
+        .from('projects')
+        .delete()
+        .eq('id', projectId)
+        .eq('user_id', userId)
+        .select();
+
+      if (error) throw error;
+      return (data ?? []).length > 0;
+    }
+
     const meta = await this.readMeta();
     const before = meta.projects.length;
-    meta.projects = meta.projects.filter(p => p.id !== id);
+    meta.projects = meta.projects.filter(p => p.id !== projectId);
     if (meta.projects.length === before) return false;
 
     // Unassign all reports belonging to this project
-    const affected = meta.summaries.filter(s => s.projectId === id);
+    const affected = meta.summaries.filter(s => s.projectId === projectId);
     meta.summaries = meta.summaries.map(s =>
-      s.projectId === id ? { ...s, projectId: undefined } : s
+      s.projectId === projectId ? { ...s, projectId: undefined } : s
     );
     await this.writeMeta(meta);
 

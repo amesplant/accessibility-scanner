@@ -20,7 +20,7 @@ program
     const report = await scanner.scan();
     
     const db = new DatabaseService();
-    await db.saveReport(report);
+    await db.saveReport(report, 'system');
 
     // report is now persisted to the JSON file; the React dashboard
     // will pick it up from the API.  no need for a separate HTML or

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ScanReport } from '@accessibility-scanner/shared';
+import { apiFetch } from '@/lib/api';
 
 export function useReport(id: string | undefined) {
   const [report, setReport] = useState<ScanReport | null>(null);
@@ -9,7 +10,7 @@ export function useReport(id: string | undefined) {
   useEffect(() => {
     if (!id) return;
 
-    fetch(`/api/reports/${id}`)
+    apiFetch(`/api/reports/${id}`)
       .then(res => {
         if (!res.ok) throw new Error('Failed to fetch report');
         return res.json();
@@ -32,7 +33,7 @@ export function useReport(id: string | undefined) {
     overrideNotes?: string,
   ) {
     if (!id) return;
-    const res = await fetch(`/api/reports/${id}/pages/${pageId}/violations/${violationId}`, {
+    const res = await apiFetch(`/api/reports/${id}/pages/${pageId}/violations/${violationId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ overrideStatus, overrideNotes }),
@@ -49,7 +50,7 @@ export function useReport(id: string | undefined) {
     data: { screenshotDataUrl?: string | null; overrideStatus?: 'pass' | 'fail' | null },
   ) {
     if (!id) return;
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/reports/${id}/pages/${pageId}/violations/${violationId}/nodes/${nodeIndex}`,
       {
         method: 'PATCH',

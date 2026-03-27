@@ -97,6 +97,15 @@ function authenticate(req: AuthenticatedRequest, res: express.Response, next: ex
   }
 }
 
+function getUserId(req: express.Request, res: express.Response): string | undefined {
+  const user = (req as AuthenticatedRequest).user;
+  if (!user?.id) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return undefined;
+  }
+  return user.id;
+}
+
 // Auth routes
 app.get('/auth/login', (req, res) => {
   const redirect = (req.query.redirect as string | undefined) || `${FRONTEND_ORIGIN}`;
@@ -188,13 +197,19 @@ app.get('/', (_req, res) => {
 // Reports
 // ---------------------------------------------------------------------------
 
-app.get('/api/reports', async (_req, res) => {
-  const reports = await db.getReportSummaries();
+app.get('/api/reports', async (req, res) => {
+  const userId = getUserId(req, res);
+  if (!userId) return;
+
+  const reports = await db.getReportSummaries(userId);
   return res.json(reports);
 });
 
 app.get('/api/reports/:id', async (req, res) => {
-  const report = await db.getReport(req.params.id);
+  const userId = getUserId(req, res);
+  if (!userId) return;
+
+  const report = await db.getReport(req.params.id, userId);
   if (!report) {
     return res.status(404).json({ error: 'Report not found' });
   }
@@ -202,8 +217,11 @@ app.get('/api/reports/:id', async (req, res) => {
 });
 
 app.delete('/api/reports/:id', async (req, res) => {
+  const userId = getUserId(req, res);
+  if (!userId) return;
+
   try {
-    const deleted = await db.deleteReport(req.params.id);
+    const deleted = await db.deleteReport(req.params.id, userId);
     if (!deleted) return res.status(404).json({ error: 'Report not found' });
     return res.sendStatus(204);
   } catch (err) {
@@ -212,9 +230,12 @@ app.delete('/api/reports/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/reports', async (_req, res) => {
+app.delete('/api/reports', async (req, res) => {
+  const userId = getUserId(req, res);
+  if (!userId) return;
+
   try {
-    await db.clearReports();
+    await db.clearReports(userId);
     return res.sendStatus(204);
   } catch (err) {
     console.error('Error clearing reports:', err);
@@ -227,8 +248,11 @@ app.delete('/api/reports', async (_req, res) => {
 // ---------------------------------------------------------------------------
 
 app.post('/api/reports/:id/export/csv', async (req, res) => {
+  const userId = getUserId(req, res);
+  if (!userId) return;
+
   try {
-    const report = await db.getReport(req.params.id);
+    const report = await db.getReport(req.params.id, userId);
     if (!report) return res.status(404).json({ error: 'Report not found' });
     const { selectedViolations, tasklistName, selectedLevels } = req.body;
     const exporter = new Reporter();
@@ -243,8 +267,11 @@ app.post('/api/reports/:id/export/csv', async (req, res) => {
 });
 
 app.post('/api/reports/:id/export/excel', async (req, res) => {
+  const userId = getUserId(req, res);
+  if (!userId) return;
+
   try {
-    const report = await db.getReport(req.params.id);
+    const report = await db.getReport(req.params.id, userId);
     if (!report) return res.status(404).json({ error: 'Report not found' });
     const { selectedViolations, tasklistName, selectedLevels } = req.body;
     const exporter = new Reporter();
@@ -259,8 +286,11 @@ app.post('/api/reports/:id/export/excel', async (req, res) => {
 });
 
 app.post('/api/reports/:id/export/jira', async (req, res) => {
+  const userId = getUserId(req, res);
+  if (!userId) return;
+
   try {
-    const report = await db.getReport(req.params.id);
+    const report = await db.getReport(req.params.id, userId);
     if (!report) return res.status(404).json({ error: 'Report not found' });
     const { selectedViolations, selectedLevels } = req.body;
     const exporter = new Reporter();
@@ -280,8 +310,11 @@ app.post('/api/reports/:id/export/jira', async (req, res) => {
 
 // PATCH /api/reports/:reportId/pages/:pageId/violations/:violationId
 app.patch('/api/reports/:reportId/pages/:pageId/violations/:violationId', async (req, res) => {
+  const userId = getUserId(req, res);
+  if (!userId) return;
+
   try {
-    const report = await db.getReport(req.params.reportId);
+    const report = await db.getReport(req.params.reportId, userId);
     if (!report) return res.status(404).json({ error: 'Report not found' });
 
     const page = report.results.find((r: { id: string }) => r.id === req.params.pageId);
@@ -302,7 +335,7 @@ app.patch('/api/reports/:reportId/pages/:pageId/violations/:violationId', async 
       if (overrideNotes !== undefined) violation.overrideNotes = overrideNotes || undefined;
     }
 
-    await db.updateReport(report);
+    await db.updateReport(report, userId);
     return res.json({ violations: page.violations });
   } catch (err) {
     console.error('Violation override error:', err);
@@ -312,8 +345,11 @@ app.patch('/api/reports/:reportId/pages/:pageId/violations/:violationId', async 
 
 // PATCH /api/reports/:reportId/pages/:pageId/violations/:violationId/nodes/:nodeIndex
 app.patch('/api/reports/:reportId/pages/:pageId/violations/:violationId/nodes/:nodeIndex', async (req, res) => {
+  const userId = getUserId(req, res);
+  if (!userId) return;
+
   try {
-    const report = await db.getReport(req.params.reportId);
+    const report = await db.getReport(req.params.reportId, userId);
     if (!report) return res.status(404).json({ error: 'Report not found' });
 
     const page = report.results.find((r: { id: string }) => r.id === req.params.pageId);
@@ -351,7 +387,7 @@ app.patch('/api/reports/:reportId/pages/:pageId/violations/:violationId/nodes/:n
       }
     }
 
-    await db.updateReport(report);
+    await db.updateReport(report, userId);
     return res.json({ violations: page.violations });
   } catch (err) {
     console.error('Node screenshot error:', err);
@@ -372,8 +408,11 @@ function initManualAudit(auditType?: AuditType): ManualAudit {
 
 // PATCH /api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId
 app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId', async (req, res) => {
+  const userId = getUserId(req, res);
+  if (!userId) return;
+
   try {
-    const report = await db.getReport(req.params.reportId);
+    const report = await db.getReport(req.params.reportId, userId);
     if (!report) return res.status(404).json({ error: 'Report not found' });
 
     const page = report.results.find(r => r.id === req.params.pageId);
@@ -397,7 +436,7 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId', a
     }
     page.manualAudit.lastUpdated = new Date().toISOString();
 
-    await db.updateReport(report);
+    await db.updateReport(report, userId);
     return res.json({ manualAudit: page.manualAudit });
   } catch (err) {
     console.error('Manual audit update error:', err);
@@ -407,8 +446,11 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId', a
 
 // POST /api/reports/:reportId/pages/:pageId/manual-audit/checks
 app.post('/api/reports/:reportId/pages/:pageId/manual-audit/checks', async (req, res) => {
+  const userId = getUserId(req, res);
+  if (!userId) return;
+
   try {
-    const report = await db.getReport(req.params.reportId);
+    const report = await db.getReport(req.params.reportId, userId);
     if (!report) return res.status(404).json({ error: 'Report not found' });
 
     const page = report.results.find(r => r.id === req.params.pageId);
@@ -432,7 +474,7 @@ app.post('/api/reports/:reportId/pages/:pageId/manual-audit/checks', async (req,
     page.manualAudit.checks.push(newCheck);
     page.manualAudit.lastUpdated = new Date().toISOString();
 
-    await db.updateReport(report);
+    await db.updateReport(report, userId);
     return res.status(201).json({ manualAudit: page.manualAudit });
   } catch (err) {
     console.error('Add custom check error:', err);
@@ -442,8 +484,11 @@ app.post('/api/reports/:reportId/pages/:pageId/manual-audit/checks', async (req,
 
 // DELETE /api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId
 app.delete('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId', async (req, res) => {
+  const userId = getUserId(req, res);
+  if (!userId) return;
+
   try {
-    const report = await db.getReport(req.params.reportId);
+    const report = await db.getReport(req.params.reportId, userId);
     if (!report) return res.status(404).json({ error: 'Report not found' });
 
     const page = report.results.find(r => r.id === req.params.pageId);
@@ -456,7 +501,7 @@ app.delete('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId', 
     page.manualAudit.checks = page.manualAudit.checks.filter(c => c.id !== req.params.checkId);
     page.manualAudit.lastUpdated = new Date().toISOString();
 
-    await db.updateReport(report);
+    await db.updateReport(report, userId);
     return res.sendStatus(204);
   } catch (err) {
     console.error('Delete custom check error:', err);
@@ -466,8 +511,11 @@ app.delete('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId', 
 
 // PATCH /api/reports/:reportId/pages/:pageId/manual-audit/complete
 app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/complete', async (req, res) => {
+  const userId = getUserId(req, res);
+  if (!userId) return;
+
   try {
-    const report = await db.getReport(req.params.reportId);
+    const report = await db.getReport(req.params.reportId, userId);
     if (!report) return res.status(404).json({ error: 'Report not found' });
 
     const page = report.results.find(r => r.id === req.params.pageId);
@@ -480,7 +528,7 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/complete', async (r
     page.manualAudit.completedAt = completed ? new Date().toISOString() : undefined;
     page.manualAudit.lastUpdated = new Date().toISOString();
 
-    await db.updateReport(report);
+    await db.updateReport(report, userId);
     return res.json({ manualAudit: page.manualAudit });
   } catch (err) {
     console.error('Audit complete toggle error:', err);
@@ -490,8 +538,11 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/complete', async (r
 
 // PATCH /api/reports/:reportId/pages/:pageId/manual-audit
 app.patch('/api/reports/:reportId/pages/:pageId/manual-audit', async (req, res) => {
+  const userId = getUserId(req, res);
+  if (!userId) return;
+
   try {
-    const report = await db.getReport(req.params.reportId);
+    const report = await db.getReport(req.params.reportId, userId);
     if (!report) return res.status(404).json({ error: 'Report not found' });
 
     const page = report.results.find(r => r.id === req.params.pageId);
@@ -503,7 +554,7 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit', async (req, res) 
     page.manualAudit.auditorNotes = auditorNotes;
     page.manualAudit.lastUpdated = new Date().toISOString();
 
-    await db.updateReport(report);
+    await db.updateReport(report, userId);
     return res.json({ manualAudit: page.manualAudit });
   } catch (err) {
     console.error('Auditor notes update error:', err);
@@ -513,8 +564,11 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit', async (req, res) 
 
 // POST /api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/failures
 app.post('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/failures', async (req, res) => {
+  const userId = getUserId(req, res);
+  if (!userId) return;
+
   try {
-    const report = await db.getReport(req.params.reportId);
+    const report = await db.getReport(req.params.reportId, userId);
     if (!report) return res.status(404).json({ error: 'Report not found' });
 
     const page = report.results.find(r => r.id === req.params.pageId);
@@ -539,7 +593,7 @@ app.post('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fail
     check.updatedAt = new Date().toISOString();
     page.manualAudit.lastUpdated = new Date().toISOString();
 
-    await db.updateReport(report);
+    await db.updateReport(report, userId);
     return res.status(201).json({ manualAudit: page.manualAudit });
   } catch (err) {
     console.error('Add failure instance error:', err);
@@ -549,8 +603,11 @@ app.post('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fail
 
 // PATCH /api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/failures/:failureId
 app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/failures/:failureId', async (req, res) => {
+  const userId = getUserId(req, res);
+  if (!userId) return;
+
   try {
-    const report = await db.getReport(req.params.reportId);
+    const report = await db.getReport(req.params.reportId, userId);
     if (!report) return res.status(404).json({ error: 'Report not found' });
 
     const page = report.results.find(r => r.id === req.params.pageId);
@@ -578,7 +635,7 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fai
     check.updatedAt = new Date().toISOString();
     page.manualAudit.lastUpdated = new Date().toISOString();
 
-    await db.updateReport(report);
+    await db.updateReport(report, userId);
     return res.json({ manualAudit: page.manualAudit });
   } catch (err) {
     console.error('Update failure instance error:', err);
@@ -588,8 +645,11 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fai
 
 // DELETE /api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/failures/:failureId
 app.delete('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/failures/:failureId', async (req, res) => {
+  const userId = getUserId(req, res);
+  if (!userId) return;
+
   try {
-    const report = await db.getReport(req.params.reportId);
+    const report = await db.getReport(req.params.reportId, userId);
     if (!report) return res.status(404).json({ error: 'Report not found' });
 
     const page = report.results.find(r => r.id === req.params.pageId);
@@ -603,7 +663,7 @@ app.delete('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fa
     check.updatedAt = new Date().toISOString();
     page.manualAudit.lastUpdated = new Date().toISOString();
 
-    await db.updateReport(report);
+    await db.updateReport(report, userId);
     return res.sendStatus(204);
   } catch (err) {
     console.error('Delete failure instance error:', err);
@@ -617,8 +677,11 @@ app.delete('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fa
 
 // PATCH /api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId
 app.patch('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId', async (req, res) => {
+  const userId = getUserId(req, res);
+  if (!userId) return;
+
   try {
-    const report = await db.getReport(req.params.reportId);
+    const report = await db.getReport(req.params.reportId, userId);
     if (!report) return res.status(404).json({ error: 'Report not found' });
 
     const page = report.results.find(r => r.id === req.params.pageId);
@@ -634,7 +697,7 @@ app.patch('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId
     if (auditStatus) element.auditStatus = auditStatus;
     if (auditComment !== undefined) element.auditComment = auditComment || undefined;
 
-    await db.updateReport(report);
+    await db.updateReport(report, userId);
     return res.json({ detectedElements: page.detectedElements });
   } catch (err) {
     console.error('Element update error:', err);
@@ -646,10 +709,13 @@ app.patch('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId
 // Projects
 // ---------------------------------------------------------------------------
 
-app.get('/api/projects', async (_req, res) => {
+app.get('/api/projects', async (req, res) => {
+  const { user } = req as AuthenticatedRequest;
+  if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+
   try {
-    const projects = await db.getProjects();
-    const reports = await db.getReportSummaries();
+    const projects = await db.getProjects(user.id);
+    const reports = await db.getReportSummaries(user.id);
     const countMap = reports.reduce<Record<string, number>>((acc, r) => {
       if (r.projectId) acc[r.projectId] = (acc[r.projectId] ?? 0) + 1;
       return acc;
@@ -662,6 +728,9 @@ app.get('/api/projects', async (_req, res) => {
 });
 
 app.post('/api/projects', async (req, res) => {
+  const { user } = req as AuthenticatedRequest;
+  if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+
   try {
     const { name, description } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'Project name is required' });
@@ -671,7 +740,7 @@ app.post('/api/projects', async (req, res) => {
       description: description?.trim() || undefined,
       createdAt: new Date().toISOString(),
     };
-    await db.saveProject(project);
+    await db.saveProject(project, user.id);
     return res.status(201).json(project);
   } catch (err) {
     console.error('Create project error:', err);
@@ -680,10 +749,13 @@ app.post('/api/projects', async (req, res) => {
 });
 
 app.get('/api/projects/:id', async (req, res) => {
+  const { user } = req as AuthenticatedRequest;
+  if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+
   try {
-    const project = await db.getProject(req.params.id);
+    const project = await db.getProject(req.params.id, user.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
-    const summaries = await db.getReportSummaries();
+    const summaries = await db.getReportSummaries(user.id);
     const projectReports = summaries.filter(r => r.projectId === req.params.id);
     return res.json({ ...project, reports: projectReports });
   } catch (err) {
@@ -693,13 +765,16 @@ app.get('/api/projects/:id', async (req, res) => {
 });
 
 app.patch('/api/projects/:id', async (req, res) => {
+  const { user } = req as AuthenticatedRequest;
+  if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+
   try {
-    const project = await db.getProject(req.params.id);
+    const project = await db.getProject(req.params.id, user.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
     const { name, description } = req.body;
     if (name !== undefined) project.name = name.trim() || project.name;
     if (description !== undefined) project.description = description?.trim() || undefined;
-    await db.updateProject(project);
+    await db.updateProject(project, user.id);
     return res.json(project);
   } catch (err) {
     console.error('Update project error:', err);
@@ -708,8 +783,11 @@ app.patch('/api/projects/:id', async (req, res) => {
 });
 
 app.delete('/api/projects/:id', async (req, res) => {
+  const { user } = req as AuthenticatedRequest;
+  if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+
   try {
-    const deleted = await db.deleteProject(req.params.id);
+    const deleted = await db.deleteProject(req.params.id, user.id);
     if (!deleted) return res.status(404).json({ error: 'Project not found' });
     return res.sendStatus(204);
   } catch (err) {
@@ -719,16 +797,19 @@ app.delete('/api/projects/:id', async (req, res) => {
 });
 
 app.patch('/api/reports/:id/project', async (req, res) => {
+  const { user } = req as AuthenticatedRequest;
+  if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+
   try {
-    const report = await db.getReport(req.params.id);
+    const report = await db.getReport(req.params.id, user.id);
     if (!report) return res.status(404).json({ error: 'Report not found' });
     const { projectId } = req.body;
     if (projectId !== null && projectId !== undefined) {
-      const project = await db.getProject(projectId);
+      const project = await db.getProject(projectId, user.id);
       if (!project) return res.status(404).json({ error: 'Project not found' });
     }
     report.projectId = projectId ?? undefined;
-    await db.updateReport(report);
+    await db.updateReport(report, user.id);
     return res.json(report);
   } catch (err) {
     console.error('Assign project error:', err);
@@ -741,6 +822,9 @@ app.patch('/api/reports/:id/project', async (req, res) => {
 // ---------------------------------------------------------------------------
 
 app.post('/api/scan', (req, res) => {
+  const { user } = req as AuthenticatedRequest;
+  if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+
   const { sitemap, xmlContent, filename, crawlUrl, maxPages = 200, concurrent = 5, auditType = 'all-inclusive', wcagLevel = 'AA', includeBestPractices = false, urls, projectId } = req.body;
 
   const hasUrls = Array.isArray(urls) && urls.length > 0;
@@ -844,7 +928,7 @@ app.post('/api/scan', (req, res) => {
       }
 
       if (projectId) report.projectId = projectId;
-      await db.saveReport(report);
+      await db.saveReport(report, user.id);
       job.status = 'complete';
       job.reportId = report.id;
       emitter.emit('complete', { reportId: report.id });

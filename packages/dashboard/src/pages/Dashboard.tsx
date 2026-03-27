@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useReports } from '@/hooks/useReports';
 import { useProjects } from '@/hooks/useProjects';
 import { useScanContext, formatElapsed } from '@/context/ScanContext';
+import { apiFetch } from '@/lib/api';
 import { AuditType, ScanReport } from '@accessibility-scanner/shared';
 import {
   Card,
@@ -187,7 +188,7 @@ export function Dashboard() {
       }
       if (resolvedProjectId) body.projectId = resolvedProjectId;
 
-      const res = await fetch('/api/scan', {
+      const res = await apiFetch('/api/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -900,7 +901,7 @@ value={assignNewProjectName}
                   const created = await createProject(assignNewProjectName.trim());
                   if (created) resolvedProjectId = created.id;
                 }
-                await fetch(`/api/reports/${assignReport.id}/project`, {
+                await apiFetch(`/api/reports/${assignReport.id}/project`, {
                   method: 'PATCH',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ projectId: resolvedProjectId || null }),
@@ -921,7 +922,7 @@ value={assignNewProjectName}
   );
 
   async function handleRemove(id: string) {
-    await fetch(`/api/reports/${id}`, { method: 'DELETE' });
+    await apiFetch(`/api/reports/${id}`, { method: 'DELETE' });
     setPendingRemoveId(null);
     refresh();
   }

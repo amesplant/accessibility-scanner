@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
+import { apiFetch } from '@/lib/api';
 
 type AuthUser = {
   id: string;
@@ -55,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    await fetch('/auth/logout', { method: 'POST' });
+    await apiFetch('/auth/logout', { method: 'POST' });
     setUser(null);
     window.location.href = '/auth/login';
   };

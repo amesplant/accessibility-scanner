@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Project } from '@accessibility-scanner/shared';
+import { apiFetch } from '@/lib/api';
 
 export interface ProjectWithCount extends Project {
   reportCount: number;
@@ -12,7 +13,7 @@ export function useProjects() {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch('/api/projects');
+      const res = await apiFetch('/api/projects');
       if (!res.ok) throw new Error('Failed to fetch projects');
       setProjects(await res.json());
       setError(null);
@@ -26,7 +27,7 @@ export function useProjects() {
   useEffect(() => { refresh(); }, [refresh]);
 
   async function createProject(name: string, description?: string): Promise<Project> {
-    const res = await fetch('/api/projects', {
+    const res = await apiFetch('/api/projects', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, description }),
@@ -41,12 +42,12 @@ export function useProjects() {
   }
 
   async function deleteProject(id: string): Promise<void> {
-    await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+    await apiFetch(`/api/projects/${id}`, { method: 'DELETE' });
     await refresh();
   }
 
   async function updateProject(id: string, name: string, description?: string): Promise<void> {
-    await fetch(`/api/projects/${id}`, {
+    await apiFetch(`/api/projects/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, description }),

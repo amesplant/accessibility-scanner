@@ -70,6 +70,52 @@ Create a `.env` file in the repository root (or set env vars in your launch envi
 - `AUTH_CALLBACK_URL` (optional): callback URL after SSO, default `http://localhost:3003/auth/callback`
 - `SSO_PROXY_URL` (required for SSO in production): Fueled SSO proxy endpoint (e.g. `https://sso.fueled.com`)
 - `NODE_ENV` (optional): set to `production` to make cookie `secure`
+- `SUPABASE_URL`: Supabase project URL (for hosting persistent data)
+- `SUPABASE_KEY`: Supabase service role key (required on server side)
+
+### Supabase + Vercel deployment (Option B)
+
+This project now supports storing user-specific reports in Supabase with per-user access enforcement in the API.
+
+1. Create or use an existing Supabase project.
+2. Create database tables (SQL for `psql` / Supabase SQL editor):
+
+```sql
+create table reports (
+  id text primary key,
+  user_id text not null,
+  project_id text null,
+  report_data jsonb not null,
+  created_at timestamptz not null default now()
+);
+
+create table projects (
+  id text primary key,
+  user_id text not null,
+  name text not null,
+  description text,
+  created_at timestamptz not null default now()
+);
+```
+
+3. Set `SUPABASE_URL` and `SUPABASE_KEY` in `.env` locally and in Vercel dashboard (Environment variables).
+4. Start local dev:
+
+```bash
+npm run dev
+```
+
+5. Deploy to Vercel as a monorepo app:
+   - Set root project path to `/packages/scanner` for server, and `/packages/dashboard` for UI.
+   - Add environment variables in Vercel:
+     - `SUPABASE_URL`
+     - `SUPABASE_KEY`
+     - `AUTH_JWT_SECRET`
+     - `FRONTEND_ORIGIN` (e.g. `https://your-app.vercel.app`)
+     - `AUTH_CALLBACK_URL` (e.g. `https://your-api-url.vercel.app/auth/callback`)
+     - `SSO_PROXY_URL`
+
+6. Confirm security: authenticated users only see their own reports and projects. If you want row-level security in Supabase, add policies with `auth.uid() = user_id` as a later improvement.
 
 ### Login behavior (new)
 
