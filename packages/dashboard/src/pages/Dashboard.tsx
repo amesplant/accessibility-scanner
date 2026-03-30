@@ -861,7 +861,8 @@ export function Dashboard() {
               <div className="mt-1.5 flex gap-2">
                 <Input
                   id="assign-project-select"
-value={assignNewProjectName}
+                  placeholder="New project name"
+                  value={assignNewProjectName}
                   onChange={e => setAssignNewProjectName(e.target.value)}
                 />
                 <Button type="button" variant="outline" size="sm" onClick={() => { setAssignShowNewProjectInput(false); setAssignNewProjectName(''); }}>

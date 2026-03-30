@@ -457,6 +457,7 @@ function FailureInstanceItem({
 
       <input
         type="text"
+        placeholder="Describe what failed…"
         value={localNotes}
         onChange={e => setLocalNotes(e.target.value)}
         onBlur={() => commitNotes(localNotes)}
@@ -472,6 +473,7 @@ function FailureInstanceItem({
             value={localCode}
             onChange={e => setLocalCode(e.target.value)}
             onBlur={() => commitCode(localCode)}
+            placeholder="Paste relevant HTML or code here…"
             rows={3}
             spellCheck={false}
             className="w-full font-mono text-xs rounded border border-border bg-muted/40 px-2 py-1.5 resize-y focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
@@ -745,6 +747,7 @@ function NonTextElementRow({
       {element.auditStatus === 'fail' && (
         <Textarea
           aria-label="Comment on this failure"
+          placeholder="Comment on this failure…"
           value={comment}
           onChange={e => setComment(e.target.value)}
           onBlur={commitComment}
@@ -1057,6 +1060,7 @@ function CustomCheckItem({
       </div>
       <input
         type="text"
+        placeholder="Add notes…"
         value={localNotes}
         onChange={e => setLocalNotes(e.target.value)}
         onBlur={() => {
@@ -1261,6 +1265,7 @@ function AddCustomCheckDialog({
               required
               value={form.title}
               onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
+              placeholder="e.g. Videos autoplay with sound"
             />
           </div>
           <div className="space-y-1.5">
@@ -1269,6 +1274,7 @@ function AddCustomCheckDialog({
               id="custom-desc"
               value={form.description}
               onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
+              placeholder="Describe the issue…"
               className="min-h-[60px]"
             />
           </div>
@@ -1318,6 +1324,7 @@ function AddCustomCheckDialog({
               id="custom-notes"
               value={form.notes}
               onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
+              placeholder="Additional context…"
               className="min-h-[60px]"
             />
           </div>
@@ -1487,6 +1494,7 @@ export function ManualAuditTab({
           </label>
           <Textarea
             id="auditor-notes"
+            placeholder="Overall notes for this page…"
             value={auditorNotes}
             onChange={e => setAuditorNotes(e.target.value)}
             onBlur={() => {
