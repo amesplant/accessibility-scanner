@@ -3,7 +3,6 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useCurrentReport } from '@/context/CurrentReportContext';
 import { useReports } from '@/hooks/useReports';
 import { useScanContext, formatElapsed } from '@/context/ScanContext';
-import { useAuth } from '@/context/AuthContext';
 import { FueledAccessLogo } from '@/components/FueledAccessLogo';
 import {
   Dialog,
@@ -97,7 +96,6 @@ function getFocusable(el: HTMLElement): HTMLElement[] {
 export function Layout({ children }: Props) {
   const { } = useCurrentReport(); // keep context subscription
   const { } = useReports();       // keep context subscription
-  const { user, loading, logout } = useAuth();
   const { scanning, aborting, scanState, elapsed, abortScan, completedReportId, clearCompletedReport } = useScanContext();
 
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -239,25 +237,6 @@ export function Layout({ children }: Props) {
             <FueledAccessLogo />
           </Link>
         </div>
-        <div className="px-4 py-3 border-b border-border text-xs text-zinc-300">
-          {loading ? (
-            'Checking auth...'
-          ) : user ? (
-            <div className="flex items-center justify-between">
-              <span className="truncate font-medium">{user.name}</span>
-              <button
-                onClick={logout}
-                className="text-xs text-zinc-400 hover:text-white"
-              >
-                Sign out
-              </button>
-            </div>
-          ) : (
-            <button onClick={() => window.location.href = '/auth/login'} className="text-xs text-zinc-400 hover:text-white">
-              Sign in
-            </button>
-          )}
-        </div>
         <SidebarContent />
       </aside>
 
@@ -277,28 +256,6 @@ export function Layout({ children }: Props) {
         >
           <IconHamburger />
         </button>
-        <div className="flex items-center gap-2">
-          {loading ? (
-            <span className="text-xs text-zinc-400">Checking auth...</span>
-          ) : user ? (
-            <>
-              <span className="text-xs text-zinc-100 truncate max-w-[10rem]">{user.name}</span>
-              <button
-                onClick={logout}
-                className="text-xs text-zinc-400 hover:text-white"
-              >
-                Sign out
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={() => window.location.href = '/auth/login'}
-              className="text-xs text-zinc-400 hover:text-white"
-            >
-              Sign in
-            </button>
-          )}
-        </div>
       </header>
 
       {/* ── Mobile backdrop (hidden on lg+) ── */}

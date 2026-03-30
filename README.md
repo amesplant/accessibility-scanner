@@ -59,24 +59,6 @@ npm run dev:server    # API server only
 npm run dev:dashboard # Dashboard only
 ```
 
-### Environment variables
-
-Create a `.env` file in the repository root (or set env vars in your launch environment) to configure auth and origins:
-
-- `PORT` (optional): API server port, default `3003`
-- `FRONTEND_ORIGIN` (optional): dashboard URL, default `http://localhost:5173`
-- `AUTH_COOKIE_NAME` (optional): auth session cookie name, default `fueled_access_session`
-- `AUTH_JWT_SECRET` (optional): JWT signing secret; change in production (default `please-change-this-in-production`)
-- `AUTH_CALLBACK_URL` (optional): callback URL after SSO, default `http://localhost:3003/auth/callback`
-- `SSO_PROXY_URL` (required for SSO in production): Fueled SSO proxy endpoint (e.g. `https://sso.fueled.com`)
-- `NODE_ENV` (optional): set to `production` to make cookie `secure`
-
-### Login behavior (new)
-
-When visiting `/` and not authenticated, the dashboard now forces a login UI at `/login` with a prominent “Sign in with Fueled SSO” button. 
-
-The button starts the existing SSO flow via `/auth/login`, and after successful callback the user is returned to the original page.
-
 ## Audit Types
 
 | Audit Type | Pages | Input | Manual Checklist |
