@@ -88,7 +88,7 @@ export function PageWindow() {
         document.title = `${page.url} — Page Detail`;
       }
     }
-    return () => { document.title = 'Fueled Access'; };
+    return () => { document.title = 'Seymour'; };
   }, [page]);
 
   if (loading) return <div className="p-6">Loading…</div>;

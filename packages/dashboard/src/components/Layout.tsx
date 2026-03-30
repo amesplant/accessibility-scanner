@@ -3,7 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useCurrentReport } from '@/context/CurrentReportContext';
 import { useReports } from '@/hooks/useReports';
 import { useScanContext, formatElapsed } from '@/context/ScanContext';
-import { FueledAccessLogo } from '@/components/FueledAccessLogo';
+import { SeymourLogo } from '@/components/SeymourLogo';
 import {
   Dialog,
   DialogContent,
@@ -234,7 +234,7 @@ export function Layout({ children }: Props) {
       >
         <div className="h-14 px-5 flex items-center border-b border-border shrink-0">
           <Link to="/" className="focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring rounded-sm">
-            <FueledAccessLogo />
+            <SeymourLogo />
           </Link>
         </div>
         <SidebarContent />
@@ -282,7 +282,7 @@ export function Layout({ children }: Props) {
 
         <div className="h-14 px-5 flex items-center justify-between border-b border-border shrink-0">
           <Link to="/" onClick={closeMobileSidebar} className="focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring rounded-sm">
-            <FueledAccessLogo />
+            <SeymourLogo />
           </Link>
           <button
             ref={closeButtonRef}
@@ -380,7 +380,7 @@ export function Layout({ children }: Props) {
         </main>
 
         <footer className="border-t border-border py-3 px-6 shrink-0">
-          <p className="text-xs text-muted-foreground">Fueled Access — powered by axe-core</p>
+          <p className="text-xs text-muted-foreground">Seymour — powered by axe-core</p>
         </footer>
       </div>
 

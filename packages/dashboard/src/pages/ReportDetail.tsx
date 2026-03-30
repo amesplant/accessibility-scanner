@@ -49,7 +49,7 @@ export function ReportDetail() {
       document.title = `${label} — Accessibility Report`;
       setCurrentReport(report.id, label, report.auditType);
     }
-    return () => { document.title = 'Fueled Access'; };
+    return () => { document.title = 'Seymour'; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report]);
 

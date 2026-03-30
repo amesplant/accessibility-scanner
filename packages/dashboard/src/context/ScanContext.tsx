@@ -45,7 +45,7 @@ const ScanContext = createContext<ScanContextValue>({
   setScanError: () => {},
 });
 
-const SESSION_KEY = 'fueled-access-active-job';
+const SESSION_KEY = 'seymour-active-job';
 
 export function ScanProvider({ children }: { children: ReactNode }) {
   const [scanning, setScanning] = useState(false);

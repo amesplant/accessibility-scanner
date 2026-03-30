@@ -81,7 +81,7 @@ export function Dashboard() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    document.title = 'Fueled Access — Reports';
+    document.title = 'Seymour — Reports';
   }, []);
 
   // Show form when "New Scan" is triggered from another page
