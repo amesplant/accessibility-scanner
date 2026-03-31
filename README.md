@@ -41,9 +41,10 @@ All findings live in a persistent dashboard organized by project and client enga
 ### Installation
 
 ```bash
-git clone https://github.com/yourusername/accessibility-scanner.git
+git clone git clone git@github.com:10up/accessibility-scanner.git
 cd accessibility-scanner
 npm install
+npm run build
 ```
 
 ### Run in development
@@ -52,30 +53,21 @@ npm install
 npm run dev          # starts both API server (port 3003) and dashboard (port 5173)
 ```
 
-Or individually:
-
-```bash
-npm run dev:server    # API server only
-npm run dev:dashboard # Dashboard only
-```
-
 ### Environment variables
 
-Create a `.env` file in the repository root (or set env vars in your launch environment) to configure auth and origins:
+Create a `.env` file in the repository root (or set env vars in your launch environment) to configure auth, SSO, and optional Supabase persistence:
 
-- `PORT` (optional): API server port, default `3003`
 - `FRONTEND_ORIGIN` (optional): dashboard URL, default `http://localhost:5173`
 - `AUTH_COOKIE_NAME` (optional): auth session cookie name, default `fueled_access_session`
 - `AUTH_JWT_SECRET` (optional): JWT signing secret; change in production (default `please-change-this-in-production`)
 - `AUTH_CALLBACK_URL` (optional): callback URL after SSO, default `http://localhost:3003/auth/callback`
-- `SSO_PROXY_URL` (required for SSO in production): Fueled SSO proxy endpoint (e.g. `https://sso.fueled.com`)
-- `NODE_ENV` (optional): set to `production` to make cookie `secure`
-- `SUPABASE_URL`: Supabase project URL (for hosting persistent data)
-- `SUPABASE_KEY`: Supabase service role key (required on server side)
+- `SSO_PROXY_URL` (required for SSO in production): Fueled SSO proxy endpoint (e.g. `https://ssoproxy.example.com/wp-login.php`)
+- `SUPABASE_URL` (optional): Supabase project URL (enables Supabase-backed report/project persistence when paired with `SUPABASE_KEY`)
+- `SUPABASE_KEY` (optional): Supabase key for server-side access (anon/service role depending on your security setup)
 
 ### Supabase + Vercel deployment (Option B)
 
-This project now supports storing user-specific reports in Supabase with per-user access enforcement in the API.
+This project supports storing user-specific reports/projects in Supabase when `SUPABASE_URL` and `SUPABASE_KEY` are set.
 
 1. Create or use an existing Supabase project.
 2. Create database tables (SQL for `psql` / Supabase SQL editor):
