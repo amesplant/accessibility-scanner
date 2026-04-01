@@ -21,6 +21,10 @@ export class DatabaseService {
   /** Path to the legacy monolithic file, used only for one-time migration */
   private legacyFile: string;
   private supabase: SupabaseClient | null = null;
+  private supabaseUrl: string | null = null;
+  private supabaseKey: string | null = null;
+  /** Publishable key + user access token per request (RLS auth.uid()). Requires service role only to mint sessions in auth/callback. */
+  private useUserJwt = false;
   private useSupabase = false;
 
   constructor(dataDir?: string) {
@@ -31,11 +35,21 @@ export class DatabaseService {
 
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_KEY;
+    const supabaseSecretKey =
+      process.env.SUPABASE_SECRET_KEY;
+
+    this.supabaseUrl = supabaseUrl ?? null;
+    this.supabaseKey = supabaseKey ?? null;
+    this.useUserJwt = !!(supabaseUrl && supabaseKey && supabaseSecretKey);
+    this.useSupabase = !!(supabaseUrl && supabaseKey);
 
     if (supabaseUrl && supabaseKey) {
-      this.supabase = createClient(supabaseUrl, supabaseKey);
-      this.useSupabase = true;
-      console.log('[db] Using Supabase persistence');
+      if (this.useUserJwt) {
+        console.log('[db] Using Supabase persistence with RLS (session JWT per request)');
+      } else {
+        this.supabase = createClient(supabaseUrl, supabaseKey);
+        console.log('[db] Using Supabase persistence (shared key; API role may bypass RLS)');
+      }
     }
   }
 
@@ -116,26 +130,59 @@ export class DatabaseService {
     return summary;
   }
 
+  private localFallbackOk(accessToken?: string): boolean {
+    return this.useSupabase && this.useUserJwt && !accessToken;
+  }
+
   private async supabaseFallback<T>(
+    accessToken: string | undefined,
     operation: (supabase: SupabaseClient) => Promise<T>,
     fallback: () => Promise<T>
   ): Promise<T> {
-    if (!this.useSupabase || !this.supabase) {
+    if (!this.useSupabase) {
+      return fallback();
+    }
+
+    if (this.useUserJwt && !accessToken) {
       return fallback();
     }
 
     try {
-      return await operation(this.supabase);
+      const client = this.getClientForDb(this.useUserJwt ? accessToken : undefined);
+      return await operation(client);
     } catch (err) {
+      if (this.useUserJwt) {
+        console.error('[db] Supabase RLS operation failed:', err);
+        throw err;
+      }
       console.error('[db] Supabase operation failed; falling back to local JSON:', err);
       this.useSupabase = false;
+      this.supabase = null;
       return fallback();
     }
   }
 
+  private getClientForDb(accessToken?: string): SupabaseClient {
+    if (!this.supabaseUrl || !this.supabaseKey) {
+      throw new Error('Supabase is not configured');
+    }
+    if (this.useUserJwt) {
+      if (!accessToken) {
+        throw new Error('Session JWT is required for Supabase RLS');
+      }
+      return createClient(this.supabaseUrl, this.supabaseKey, {
+        accessToken: async () => accessToken,
+      });
+    }
+    if (!this.supabase) {
+      throw new Error('Supabase client not initialized');
+    }
+    return this.supabase;
+  }
+
   // ── Reports ──────────────────────────────────────────────────────────────
 
-  async saveReport(report: ScanReport, userId?: string): Promise<void> {
+  async saveReport(report: ScanReport, userId?: string, accessToken?: string): Promise<void> {
     const localSave = async () => {
       await fs.writeFile(
         path.join(this.reportsDir, `${report.id}.json`),
@@ -146,51 +193,59 @@ export class DatabaseService {
       await this.writeMeta(meta);
     };
 
-    if (!this.useSupabase || !this.supabase) {
+    if (!this.useSupabase || this.localFallbackOk(accessToken)) {
       return localSave();
     }
 
     this.requireUser(userId);
 
-    return this.supabaseFallback(async supabase => {
-      const { error } = await supabase
-        .from('reports')
-        .upsert({
-          id: report.id,
-          user_id: userId,
-          project_id: report.projectId ?? null,
-          report_data: report,
-        }, { onConflict: 'id' });
+    return this.supabaseFallback(
+      accessToken,
+      async supabase => {
+        const { error } = await supabase
+          .from('reports')
+          .upsert({
+            id: report.id,
+            user_id: userId,
+            project_id: report.projectId ?? null,
+            report_data: report,
+          }, { onConflict: 'id' });
 
-      if (error) throw error;
-    }, localSave);
+        if (error) throw error;
+      },
+      localSave
+    );
   }
 
   /** Returns lightweight summaries (no results array) — use for list views. */
-  async getReportSummaries(userId?: string): Promise<ReportSummary[]> {
+  async getReportSummaries(userId?: string, accessToken?: string): Promise<ReportSummary[]> {
     const localRead = async () => {
       const meta = await this.readMeta();
       return meta.summaries;
     };
 
-    if (!this.useSupabase || !this.supabase) {
+    if (!this.useSupabase || this.localFallbackOk(accessToken)) {
       return localRead();
     }
 
     this.requireUser(userId);
 
-    return this.supabaseFallback(async supabase => {
-      const { data, error } = await supabase
-        .from('reports')
-        .select('report_data')
-        .eq('user_id', userId);
+    return this.supabaseFallback(
+      accessToken,
+      async supabase => {
+        const { data, error } = await supabase
+          .from('reports')
+          .select('report_data')
+          .eq('user_id', userId);
 
-      if (error) throw error;
-      return (data ?? []).map((row: any) => this.summaryOf(row.report_data as ScanReport));
-    }, localRead);
+        if (error) throw error;
+        return (data ?? []).map((row: any) => this.summaryOf(row.report_data as ScanReport));
+      },
+      localRead
+    );
   }
 
-  async getReport(id: string, userId?: string): Promise<ScanReport | undefined> {
+  async getReport(id: string, userId?: string, accessToken?: string): Promise<ScanReport | undefined> {
     const localGet = async () => {
       try {
         const raw = await fs.readFile(path.join(this.reportsDir, `${id}.json`), 'utf-8');
@@ -200,31 +255,35 @@ export class DatabaseService {
       }
     };
 
-    if (!this.useSupabase || !this.supabase) {
+    if (!this.useSupabase || this.localFallbackOk(accessToken)) {
       return localGet();
     }
 
     this.requireUser(userId);
 
-    return this.supabaseFallback(async supabase => {
-      const { data, error } = await supabase
-        .from('reports')
-        .select('report_data')
-        .eq('id', id)
-        .eq('user_id', userId)
-        .single();
+    return this.supabaseFallback(
+      accessToken,
+      async supabase => {
+        const { data, error } = await supabase
+          .from('reports')
+          .select('report_data')
+          .eq('id', id)
+          .eq('user_id', userId)
+          .single();
 
-      if (error && error.code !== 'PGRST116') throw error;
-      return data?.report_data as ScanReport | undefined;
-    }, localGet);
+        if (error && error.code !== 'PGRST116') throw error;
+        return data?.report_data as ScanReport | undefined;
+      },
+      localGet
+    );
   }
 
-  async deleteReport(id: string, userId?: string): Promise<boolean> {
-    if (this.useSupabase) {
+  async deleteReport(id: string, userId?: string, accessToken?: string): Promise<boolean> {
+    if (this.useSupabase && !this.localFallbackOk(accessToken)) {
       this.requireUser(userId);
-      if (!this.supabase) return false;
+      const client = this.getClientForDb(this.useUserJwt ? accessToken : undefined);
 
-      const { data, error } = await this.supabase
+      const { data, error } = await client
         .from('reports')
         .delete()
         .eq('id', id)
@@ -248,12 +307,12 @@ export class DatabaseService {
     return true;
   }
 
-  async updateReport(report: ScanReport, userId?: string): Promise<boolean> {
-    if (this.useSupabase) {
+  async updateReport(report: ScanReport, userId?: string, accessToken?: string): Promise<boolean> {
+    if (this.useSupabase && !this.localFallbackOk(accessToken)) {
       this.requireUser(userId);
-      if (!this.supabase) return false;
+      const client = this.getClientForDb(this.useUserJwt ? accessToken : undefined);
 
-      const { data, error } = await this.supabase
+      const { data, error } = await client
         .from('reports')
         .update({ report_data: report, project_id: report.projectId ?? null })
         .eq('id', report.id)
@@ -280,14 +339,11 @@ export class DatabaseService {
     return true;
   }
 
-  async clearReports(userId?: string): Promise<void> {
-    if (this.useSupabase) {
+  async clearReports(userId?: string, accessToken?: string): Promise<void> {
+    if (this.useSupabase && !this.localFallbackOk(accessToken)) {
       this.requireUser(userId);
-      if (!this.supabase) return;
-      await this.supabase
-        .from('reports')
-        .delete()
-        .eq('user_id', userId);
+      const client = this.getClientForDb(this.useUserJwt ? accessToken : undefined);
+      await client.from('reports').delete().eq('user_id', userId);
       return;
     }
 
@@ -302,12 +358,12 @@ export class DatabaseService {
 
   // ── Projects ─────────────────────────────────────────────────────────────
 
-  async saveProject(project: Project, userId?: string): Promise<void> {
-    if (this.useSupabase) {
+  async saveProject(project: Project, userId?: string, accessToken?: string): Promise<void> {
+    if (this.useSupabase && !this.localFallbackOk(accessToken)) {
       this.requireUser(userId);
-      if (!this.supabase) return;
+      const client = this.getClientForDb(this.useUserJwt ? accessToken : undefined);
 
-      const { error } = await this.supabase
+      const { error } = await client
         .from('projects')
         .upsert({
           id: project.id,
@@ -326,15 +382,12 @@ export class DatabaseService {
     await this.writeMeta(meta);
   }
 
-  async getProjects(userId?: string): Promise<Project[]> {
-    if (this.useSupabase) {
+  async getProjects(userId?: string, accessToken?: string): Promise<Project[]> {
+    if (this.useSupabase && !this.localFallbackOk(accessToken)) {
       this.requireUser(userId);
-      if (!this.supabase) return [];
+      const client = this.getClientForDb(this.useUserJwt ? accessToken : undefined);
 
-      const { data, error } = await this.supabase
-        .from('projects')
-        .select('*')
-        .eq('user_id', userId);
+      const { data, error } = await client.from('projects').select('*').eq('user_id', userId);
 
       if (error) throw error;
 
@@ -350,12 +403,12 @@ export class DatabaseService {
     return meta.projects;
   }
 
-  async getProject(projectId: string, userId?: string): Promise<Project | undefined> {
-    if (this.useSupabase) {
+  async getProject(projectId: string, userId?: string, accessToken?: string): Promise<Project | undefined> {
+    if (this.useSupabase && !this.localFallbackOk(accessToken)) {
       this.requireUser(userId);
-      if (!this.supabase) return undefined;
+      const client = this.getClientForDb(this.useUserJwt ? accessToken : undefined);
 
-      const { data, error } = await this.supabase
+      const { data, error } = await client
         .from('projects')
         .select('*')
         .eq('id', projectId)
@@ -377,12 +430,12 @@ export class DatabaseService {
     return meta.projects.find(p => p.id === projectId);
   }
 
-  async updateProject(project: Project, userId?: string): Promise<boolean> {
-    if (this.useSupabase) {
+  async updateProject(project: Project, userId?: string, accessToken?: string): Promise<boolean> {
+    if (this.useSupabase && !this.localFallbackOk(accessToken)) {
       this.requireUser(userId);
-      if (!this.supabase) return false;
+      const client = this.getClientForDb(this.useUserJwt ? accessToken : undefined);
 
-      const { data, error } = await this.supabase
+      const { data, error } = await client
         .from('projects')
         .update({
           name: project.name,
@@ -404,18 +457,18 @@ export class DatabaseService {
     return true;
   }
 
-  async deleteProject(projectId: string, userId?: string): Promise<boolean> {
-    if (this.useSupabase) {
+  async deleteProject(projectId: string, userId?: string, accessToken?: string): Promise<boolean> {
+    if (this.useSupabase && !this.localFallbackOk(accessToken)) {
       this.requireUser(userId);
-      if (!this.supabase) return false;
+      const client = this.getClientForDb(this.useUserJwt ? accessToken : undefined);
 
-      await this.supabase
+      await client
         .from('reports')
         .update({ project_id: null })
         .eq('project_id', projectId)
         .eq('user_id', userId);
 
-      const { data, error } = await this.supabase
+      const { data, error } = await client
         .from('projects')
         .delete()
         .eq('id', projectId)

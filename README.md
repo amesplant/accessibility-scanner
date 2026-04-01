@@ -62,12 +62,15 @@ Create a `.env` file in the repository root (or set env vars in your launch envi
 - `AUTH_JWT_SECRET` (optional): JWT signing secret; change in production (default `please-change-this-in-production`)
 - `AUTH_CALLBACK_URL` (optional): callback URL after SSO, default `http://localhost:3003/auth/callback`
 - `SSO_PROXY_URL` (required for SSO in production): Fueled SSO proxy endpoint (e.g. `https://ssoproxy.example.com/wp-login.php`)
-- `SUPABASE_URL` (optional): Supabase project URL (enables Supabase-backed report/project persistence when paired with `SUPABASE_KEY`)
-- `SUPABASE_KEY` (optional): Supabase key for server-side access (anon/service role depending on your security setup)
+- `SUPABASE_URL` (optional): Supabase project URL (enables Supabase-backed persistence when paired with `SUPABASE_KEY`)
+- `SUPABASE_KEY` (optional): **Publishable (anon)** API key for the scanner server
+- `SUPABASE_SECRET_KEY` (optional): **Secret** API key (`sb_secret_…`), server-only. When set with `SUPABASE_URL` and `SUPABASE_KEY`, after SSO the server creates a **real Supabase Auth session** (access + refresh token), stores it in the cookie, and sends the **access token** on each database request so **RLS** policies using `auth.uid()` apply. Tokens are **ES256** and verified against your project’s [JWKS](https://supabase.com/docs/guides/auth/jwts) (`/auth/v1/.well-known/jwks.json`), not a legacy shared JWT secret. If this secret is unset, the app uses a single shared Supabase client and `AUTH_JWT_SECRET` for the session cookie (RLS with `auth.uid()` is not applied via the API).
 
 ### Supabase + Vercel deployment (Option B)
 
-This project supports storing user-specific reports/projects in Supabase when `SUPABASE_URL` and `SUPABASE_KEY` are set.
+This project supports storing user-specific reports/projects in Supabase when `SUPABASE_URL` and `SUPABASE_KEY` are set. With **`SUPABASE_SECRET_KEY`** also set, each request uses a Supabase Auth **access token** so RLS can enforce ownership (`user_id` must match `auth.uid()` / JWT `sub`).
+
+**RLS user ids:** In RLS mode, `user_id` must be the user’s **`auth.users.id`** (the `sub` claim on the access token). On first SSO login, Supabase creates or reuses that Auth user; new `projects` / `reports` rows must use that id. Older rows keyed by email or a custom UUID need a one-time migration or reset.
 
 1. Create or use an existing Supabase project.
 2. Create database tables (SQL for `psql` / Supabase SQL editor):
@@ -90,7 +93,7 @@ create table projects (
 );
 ```
 
-3. Set `SUPABASE_URL` and `SUPABASE_KEY` in `.env` locally and in Vercel dashboard (Environment variables).
+3. Set `SUPABASE_URL`, `SUPABASE_KEY`, and (for RLS) `SUPABASE_SECRET_KEY` in `.env` locally and in Vercel dashboard (Environment variables).
 4. Start local dev:
 
 ```bash
@@ -101,13 +104,14 @@ npm run dev
    - Set root project path to `/packages/scanner` for server, and `/packages/dashboard` for UI.
    - Add environment variables in Vercel:
      - `SUPABASE_URL`
-     - `SUPABASE_KEY`
-     - `AUTH_JWT_SECRET`
+     - `SUPABASE_KEY` (publishable/anon)
+     - `SUPABASE_SECRET_KEY` (if using RLS + Supabase Auth sessions)
+     - `AUTH_JWT_SECRET` (when the RLS env trio is incomplete)
      - `FRONTEND_ORIGIN` (e.g. `https://your-app.vercel.app`)
      - `AUTH_CALLBACK_URL` (e.g. `https://your-api-url.vercel.app/auth/callback`)
      - `SSO_PROXY_URL`
 
-6. Confirm security: authenticated users only see their own reports and projects. If you want row-level security in Supabase, add policies with `auth.uid() = user_id` as a later improvement.
+6. Confirm security: the API scopes data by user id; with RLS enabled, use **publishable + secret** keys as above so PostgREST runs as the signed-in user. Add indexes on `reports(user_id)` and `projects(user_id)` for policy performance.
 
 ### Login behavior (new)
 
