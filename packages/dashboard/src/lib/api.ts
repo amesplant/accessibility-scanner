@@ -1,7 +1,4 @@
-/**
- * Browser calls to the scanner API. `credentials: 'include'` sends the session cookie
- * on same-origin requests (Vite proxies /api and /auth to the Express server).
- */
+/** Browser calls to the scanner API (proxied to Express via Vite in development). */
 export async function apiFetch(input: RequestInfo, init?: RequestInit): Promise<Response> {
   const options: RequestInit = {
     credentials: 'include',
