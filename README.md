@@ -53,6 +53,17 @@ npm run build
 npm run dev          # starts both API server (port 3003) and dashboard (port 5173)
 ```
 
+### Run scanner via CLI
+
+```bash
+npm run scan -- -s https://example.com/sitemap.xml
+```
+
+The scanner command is handled by `packages/scanner/src/index.ts` and supports options:
+- `-s, --sitemap <url|path>` (required)
+- `-c, --concurrent <number>` (default `8`)
+- `--headless` (default `true`)
+
 ### Environment variables
 
 Optional `.env` in the repo root:
