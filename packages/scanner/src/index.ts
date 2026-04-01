@@ -67,8 +67,11 @@ program
       } else {
         await db.saveReport(mergedReport);
 
-        // Remove partial chunk reports so dashboard shows only consolidated result
-        await Promise.all(partialReports.map((chunkReport) => db.deleteReport(chunkReport.id)));
+        // Remove partial chunk reports so dashboard shows only consolidated result.
+        // Delete serially to avoid concurrent meta.json race conditions.
+        for (const chunkReport of partialReports) {
+          await db.deleteReport(chunkReport.id);
+        }
 
         // eslint-disable-next-line no-console
         console.log(`Merged report saved with ID ${mergedReport.id} (deleted partial chunk reports)`);
@@ -148,6 +151,18 @@ program
       await db.saveReport(mergedReport);
       // eslint-disable-next-line no-console
       console.log(`Merged report saved with ID ${mergedReport.id}`);
+    }
+
+    // Clean up source reports from DB to keep only the merged result
+    const sourceIds = options.input
+      .filter((item: string) => !item.endsWith('.json') && !item.includes('/') && !item.includes('\\'));
+
+    if (sourceIds.length > 0) {
+      for (const id of sourceIds) {
+        await db.deleteReport(id).catch(() => null);
+      }
+      // eslint-disable-next-line no-console
+      console.log(`Deleted source reports from DB: ${sourceIds.join(', ')}`);
     }
   });
 

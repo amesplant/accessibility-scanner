@@ -1124,10 +1124,29 @@ export class SitemapScanner {
 
     const first = reports[0];
 
+    let rootPageTitle = first.pageTitle;
+    const sitemapBase = options.outputSitemap || first.sitemap;
+    try {
+      const sitemapUrl = new URL(sitemapBase);
+      const rootUrl = `${sitemapUrl.origin}/`;
+      const rootResult = combinedResults.find((r) => {
+        try {
+          return new URL(r.url).href.replace(/\/$/, '') === rootUrl.replace(/\/$/, '');
+        } catch {
+          return r.url.replace(/\/$/, '') === rootUrl.replace(/\/$/, '');
+        }
+      });
+      if (rootResult?.title) {
+        rootPageTitle = rootResult.title;
+      }
+    } catch {
+      // keep first.pageTitle when sitemapBase is not a URL
+    }
+
     return {
       id: uuidv4(),
       sitemap: options.outputSitemap || first.sitemap,
-      pageTitle: first.pageTitle,
+      pageTitle: rootPageTitle,
       startTime,
       endTime,
       auditType: first.auditType,
