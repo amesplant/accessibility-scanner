@@ -81,6 +81,7 @@ export class DatabaseService {
   }
 
   private async writeMeta(meta: Meta): Promise<void> {
+    await this.ensureDirs();
     await fs.writeFile(this.metaFile, JSON.stringify(meta));
   }
 
@@ -92,6 +93,7 @@ export class DatabaseService {
   // ── Reports ──────────────────────────────────────────────────────────────
 
   async saveReport(report: ScanReport): Promise<void> {
+    await this.ensureDirs();
     await fs.writeFile(
       path.join(this.reportsDir, `${report.id}.json`),
       JSON.stringify(report)
@@ -132,6 +134,7 @@ export class DatabaseService {
   }
 
   async deleteReport(id: string): Promise<boolean> {
+    await this.ensureDirs();
     try {
       await fs.unlink(path.join(this.reportsDir, `${id}.json`));
     } catch {
@@ -146,6 +149,7 @@ export class DatabaseService {
   }
 
   async updateReport(report: ScanReport): Promise<boolean> {
+    await this.ensureDirs();
     const filePath = path.join(this.reportsDir, `${report.id}.json`);
     try {
       await fs.access(filePath);
@@ -163,6 +167,7 @@ export class DatabaseService {
   }
 
   async clearReports(): Promise<void> {
+    await this.ensureDirs();
     const meta = await this.readMeta();
     await Promise.all(
       meta.summaries.map(s =>
@@ -211,6 +216,7 @@ export class DatabaseService {
     );
     await this.writeMeta(meta);
 
+    await this.ensureDirs();
     await Promise.all(affected.map(async s => {
       const report = await this.getReport(s.id);
       if (report) {
