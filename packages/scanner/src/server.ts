@@ -810,11 +810,7 @@ app.get('/api/projects', async (req, res) => {
 
   try {
     const projects = await db.getProjects(user.id, sessionJwt(req));
-    const reports = await db.getReportSummaries(user.id, sessionJwt(req));
-    const countMap = reports.reduce<Record<string, number>>((acc, r) => {
-      if (r.projectId) acc[r.projectId] = (acc[r.projectId] ?? 0) + 1;
-      return acc;
-    }, {});
+    const countMap = await db.getReportProjectCounts(user.id, sessionJwt(req));
     return res.json(projects.map(p => ({ ...p, reportCount: countMap[p.id] ?? 0 })));
   } catch (err) {
     console.error('List projects error:', err);
@@ -850,8 +846,11 @@ app.get('/api/projects/:id', async (req, res) => {
   try {
     const project = await db.getProject(req.params.id, user.id, sessionJwt(req));
     if (!project) return res.status(404).json({ error: 'Project not found' });
-    const summaries = await db.getReportSummaries(user.id, sessionJwt(req));
-    const projectReports = summaries.filter(r => r.projectId === req.params.id);
+    const projectReports = await db.getReportSummariesForProject(
+      req.params.id,
+      user.id,
+      sessionJwt(req),
+    );
     return res.json({ ...project, reports: projectReports });
   } catch (err) {
     console.error('Get project error:', err);

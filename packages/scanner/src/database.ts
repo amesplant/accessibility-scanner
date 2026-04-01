@@ -14,6 +14,29 @@ interface Meta {
   summaries: ReportSummary[];
 }
 
+/** PostgREST: pull list fields only; avoids downloading every page’s `results` blob. */
+const REPORT_SUMMARY_SELECT = `
+  id,
+  project_id,
+  sitemap:report_data->sitemap,
+  pageTitle:report_data->pageTitle,
+  startTime:report_data->startTime,
+  endTime:report_data->endTime,
+  auditType:report_data->auditType,
+  wcagLevel:report_data->wcagLevel,
+  includeBestPractices:report_data->includeBestPractices,
+  jsonProjectId:report_data->projectId,
+  summary:report_data->summary
+`.replace(/\s+/g, ' ').trim();
+
+const EMPTY_AGG_SUMMARY: ScanReport['summary'] = {
+  totalPages: 0,
+  totalViolations: 0,
+  violationsByImpact: {},
+  violationsByType: {},
+  violationsByLevel: {},
+};
+
 export class DatabaseService {
   private dataDir: string;
   private reportsDir: string;
@@ -130,6 +153,33 @@ export class DatabaseService {
     return summary;
   }
 
+  private parseSlimSummaryRows(rows: Record<string, unknown>[]): ReportSummary[] {
+    return rows.map(row => {
+      const mergedSummary = {
+        ...EMPTY_AGG_SUMMARY,
+        ...(typeof row.summary === 'object' && row.summary !== null
+          ? (row.summary as Record<string, unknown>)
+          : {}),
+      } as ScanReport['summary'];
+      const projectId =
+        (row.project_id as string | null | undefined) ??
+        (row.jsonProjectId as string | null | undefined) ??
+        undefined;
+      return {
+        id: row.id as string,
+        sitemap: (row.sitemap as string) ?? '',
+        pageTitle: (row.pageTitle as string | undefined) || undefined,
+        startTime: row.startTime as ScanReport['startTime'],
+        endTime: row.endTime as ScanReport['endTime'],
+        auditType: row.auditType as ScanReport['auditType'] | undefined,
+        wcagLevel: row.wcagLevel as ScanReport['wcagLevel'] | undefined,
+        includeBestPractices: row.includeBestPractices as boolean | undefined,
+        projectId: projectId || undefined,
+        summary: mergedSummary,
+      };
+    });
+  }
+
   private localFallbackOk(accessToken?: string): boolean {
     return this.useSupabase && this.useUserJwt && !accessToken;
   }
@@ -235,11 +285,81 @@ export class DatabaseService {
       async supabase => {
         const { data, error } = await supabase
           .from('reports')
-          .select('report_data')
+          .select(REPORT_SUMMARY_SELECT)
           .eq('user_id', userId);
 
         if (error) throw error;
-        return (data ?? []).map((row: any) => this.summaryOf(row.report_data as ScanReport));
+        return this.parseSlimSummaryRows((data ?? []) as unknown as Record<string, unknown>[]);
+      },
+      localRead
+    );
+  }
+
+  /** Assignments only — small payload for project list report counts. */
+  async getReportProjectCounts(userId?: string, accessToken?: string): Promise<Record<string, number>> {
+    const localRead = async () => {
+      const meta = await this.readMeta();
+      const acc: Record<string, number> = {};
+      for (const s of meta.summaries) {
+        if (s.projectId) acc[s.projectId] = (acc[s.projectId] ?? 0) + 1;
+      }
+      return acc;
+    };
+
+    if (!this.useSupabase || this.localFallbackOk(accessToken)) {
+      return localRead();
+    }
+
+    this.requireUser(userId);
+
+    return this.supabaseFallback(
+      accessToken,
+      async supabase => {
+        const { data, error } = await supabase
+          .from('reports')
+          .select('project_id')
+          .eq('user_id', userId)
+          .not('project_id', 'is', null);
+
+        if (error) throw error;
+        const acc: Record<string, number> = {};
+        for (const row of data ?? []) {
+          const pid = (row as { project_id?: string }).project_id;
+          if (pid) acc[pid] = (acc[pid] ?? 0) + 1;
+        }
+        return acc;
+      },
+      localRead
+    );
+  }
+
+  async getReportSummariesForProject(
+    projectId: string,
+    userId?: string,
+    accessToken?: string,
+  ): Promise<ReportSummary[]> {
+    const localRead = async () => {
+      const meta = await this.readMeta();
+      return meta.summaries.filter(s => s.projectId === projectId);
+    };
+
+    if (!this.useSupabase || this.localFallbackOk(accessToken)) {
+      return localRead();
+    }
+
+    this.requireUser(userId);
+
+    return this.supabaseFallback(
+      accessToken,
+      async supabase => {
+        const { data, error } = await supabase
+          .from('reports')
+          .select(REPORT_SUMMARY_SELECT)
+          .eq('user_id', userId)
+          .eq('project_id', projectId);
+
+        if (error) throw error;
+        return this.parseSlimSummaryRows((data ?? []) as unknown as Record<string, unknown>[]);
       },
       localRead
     );

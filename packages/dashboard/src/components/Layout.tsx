@@ -1,7 +1,5 @@
 import { ReactNode, useState, useRef, useEffect, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { useCurrentReport } from '@/context/CurrentReportContext';
-import { useReports } from '@/hooks/useReports';
 import { useScanContext, formatElapsed } from '@/context/ScanContext';
 import { useAuth } from '@/context/AuthContext';
 import { SeymourLogo } from '@/components/SeymourLogo';
@@ -95,8 +93,6 @@ function getFocusable(el: HTMLElement): HTMLElement[] {
 // ── Layout ────────────────────────────────────────────────────────────────────
 
 export function Layout({ children }: Props) {
-  const { } = useCurrentReport(); // keep context subscription
-  const { } = useReports();       // keep context subscription
   const { user, loading, logout } = useAuth();
   const { scanning, aborting, scanState, elapsed, abortScan, completedReportId, clearCompletedReport } = useScanContext();
 

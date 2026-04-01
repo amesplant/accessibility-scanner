@@ -11,7 +11,9 @@ export function useProjects() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options?: { background?: boolean }) => {
+    const blocking = !options?.background;
+    if (blocking) setLoading(true);
     try {
       const res = await apiFetch('/api/projects');
       if (!res.ok) throw new Error('Failed to fetch projects');
@@ -20,7 +22,7 @@ export function useProjects() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
-      setLoading(false);
+      if (blocking) setLoading(false);
     }
   }, []);
 
@@ -37,13 +39,13 @@ export function useProjects() {
       throw new Error(data.error || 'Failed to create project');
     }
     const project = await res.json();
-    await refresh();
+    await refresh({ background: true });
     return project;
   }
 
   async function deleteProject(id: string): Promise<void> {
     await apiFetch(`/api/projects/${id}`, { method: 'DELETE' });
-    await refresh();
+    await refresh({ background: true });
   }
 
   async function updateProject(id: string, name: string, description?: string): Promise<void> {
@@ -52,7 +54,7 @@ export function useProjects() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, description }),
     });
-    await refresh();
+    await refresh({ background: true });
   }
 
   return { projects, loading, error, refresh, createProject, deleteProject, updateProject };

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useReports } from '@/hooks/useReports';
+import { useReports, type ReportListItem } from '@/hooks/useReports';
 import { useProjects } from '@/hooks/useProjects';
 import { useScanContext, formatElapsed } from '@/context/ScanContext';
 import { apiFetch } from '@/lib/api';
-import { AuditType, ScanReport } from '@accessibility-scanner/shared';
+import { AuditType } from '@accessibility-scanner/shared';
 import {
   Card,
   CardContent,
@@ -69,11 +69,11 @@ export function Dashboard() {
   const { scanning, scanState, elapsed, crawlingUrl, scanningUrl, scanError, startScan, abortScan, setScanError } = useScanContext();
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
   const removeButtonRef = useRef<HTMLButtonElement | null>(null);
-  const [exportReport, setExportReport] = useState<ScanReport | null>(null);
+  const [exportReport, setExportReport] = useState<ReportListItem | null>(null);
   const [scanProjectId, setScanProjectId] = useState<string>('');
   const [newProjectName, setNewProjectName] = useState('');
   const [showNewProjectInput, setShowNewProjectInput] = useState(false);
-  const [assignReport, setAssignReport] = useState<ScanReport | null>(null);
+  const [assignReport, setAssignReport] = useState<ReportListItem | null>(null);
   const [assignProjectId, setAssignProjectId] = useState<string>('');
   const [assignNewProjectName, setAssignNewProjectName] = useState('');
   const [assignShowNewProjectInput, setAssignShowNewProjectInput] = useState(false);
@@ -204,7 +204,12 @@ export function Dashboard() {
 
       const { jobId } = await res.json();
       startScan(jobId, {
-        onComplete: () => { resetForm(); setShowScanForm(false); refresh(); refreshProjects(); },
+        onComplete: () => {
+          resetForm();
+          setShowScanForm(false);
+          refresh({ background: true });
+          refreshProjects({ background: true });
+        },
       });
     } catch (err) {
       setScanError(err instanceof Error ? err.message : 'Scan failed');
@@ -581,13 +586,15 @@ export function Dashboard() {
 
   const unassignedReports = reports?.filter(r => !r.projectId) ?? [];
   const hasUnassigned = unassignedReports.length > 0;
-  const hasAnything = !loading && ((reports?.length ?? 0) > 0 || projects.length > 0);
+  const hasAnything =
+    (!loading || reports.length > 0 || projects.length > 0) &&
+    ((reports?.length ?? 0) > 0 || projects.length > 0);
 
   return (
     <div className="container mx-auto p-6">
       <h1 className="text-3xl font-bold mb-6">Accessibility Reports</h1>
 
-      {(!hasAnything || showScanForm || scanning) && !loading && (
+      {(!hasAnything || showScanForm || scanning) && !(loading && reports.length === 0) && (
         <Card className="mb-8">
           <CardHeader>
             <CardTitle>New Scan</CardTitle>
@@ -596,7 +603,7 @@ export function Dashboard() {
         </Card>
       )}
 
-      {loading && <div>Loading…</div>}
+      {loading && reports.length === 0 && <div>Loading…</div>}
       {error && <div>Error: {error}</div>}
 
       {/* Projects section */}
@@ -859,7 +866,6 @@ export function Dashboard() {
                     if (!pendingDeleteProjectId) return;
                     await deleteProject(pendingDeleteProjectId);
                     setPendingDeleteProjectId(null);
-                    refreshProjects();
                   }}
                 >
                   Delete Project
@@ -933,8 +939,8 @@ export function Dashboard() {
                 setAssignReport(null);
                 setAssignShowNewProjectInput(false);
                 setAssignNewProjectName('');
-                refresh();
-                refreshProjects();
+                refresh({ background: true });
+                refreshProjects({ background: true });
               }}
             >
               Save
@@ -948,7 +954,7 @@ export function Dashboard() {
   async function handleRemove(id: string) {
     await apiFetch(`/api/reports/${id}`, { method: 'DELETE' });
     setPendingRemoveId(null);
-    refresh();
+    refresh({ background: true });
   }
 
 }
