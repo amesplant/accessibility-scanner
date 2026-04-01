@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useReports } from '@/hooks/useReports';
+import { useReports, type ReportListItem } from '@/hooks/useReports';
 import { useProjects } from '@/hooks/useProjects';
 import { useScanContext, formatElapsed } from '@/context/ScanContext';
-import { AuditType, ScanReport } from '@accessibility-scanner/shared';
+import { apiFetch } from '@/lib/api';
+import { AuditType } from '@accessibility-scanner/shared';
 import {
   Card,
   CardContent,
@@ -55,6 +56,7 @@ export function Dashboard() {
   const [auditType, setAuditType] = useState<AuditType>('all-inclusive');
   const [wcagLevel, setWcagLevel] = useState<'A' | 'AA' | 'AAA'>('AA');
   const [includeBestPractices, setIncludeBestPractices] = useState(false);
+  const [parallelTabs, setParallelTabs] = useState<'1' | '3' | '5' | '8'>('1');
   const [mode, setMode] = useState<InputMode>('url');
   const [sitemap, setSitemap] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -67,11 +69,11 @@ export function Dashboard() {
   const { scanning, scanState, elapsed, crawlingUrl, scanningUrl, scanError, startScan, abortScan, setScanError } = useScanContext();
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
   const removeButtonRef = useRef<HTMLButtonElement | null>(null);
-  const [exportReport, setExportReport] = useState<ScanReport | null>(null);
+  const [exportReport, setExportReport] = useState<ReportListItem | null>(null);
   const [scanProjectId, setScanProjectId] = useState<string>('');
   const [newProjectName, setNewProjectName] = useState('');
   const [showNewProjectInput, setShowNewProjectInput] = useState(false);
-  const [assignReport, setAssignReport] = useState<ScanReport | null>(null);
+  const [assignReport, setAssignReport] = useState<ReportListItem | null>(null);
   const [assignProjectId, setAssignProjectId] = useState<string>('');
   const [assignNewProjectName, setAssignNewProjectName] = useState('');
   const [assignShowNewProjectInput, setAssignShowNewProjectInput] = useState(false);
@@ -101,6 +103,7 @@ export function Dashboard() {
     setAuditType('all-inclusive');
     setWcagLevel('AA');
     setIncludeBestPractices(false);
+    setParallelTabs('1');
     setMode('url');
     setSitemap('');
     setFile(null);
@@ -174,7 +177,8 @@ export function Dashboard() {
         resolvedProjectId = created.id;
       }
 
-      const scanOptions = { auditType, wcagLevel, includeBestPractices };
+      const concurrent = Number(parallelTabs);
+      const scanOptions = { auditType, wcagLevel, includeBestPractices, concurrent };
       let body: Record<string, unknown>;
       if (mode === 'urllist') {
         body = { urls: urlList, ...scanOptions };
@@ -187,7 +191,7 @@ export function Dashboard() {
       }
       if (resolvedProjectId) body.projectId = resolvedProjectId;
 
-      const res = await fetch('/api/scan', {
+      const res = await apiFetch('/api/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -200,7 +204,12 @@ export function Dashboard() {
 
       const { jobId } = await res.json();
       startScan(jobId, {
-        onComplete: () => { resetForm(); setShowScanForm(false); refresh(); refreshProjects(); },
+        onComplete: () => {
+          resetForm();
+          setShowScanForm(false);
+          refresh({ background: true });
+          refreshProjects({ background: true });
+        },
       });
     } catch (err) {
       setScanError(err instanceof Error ? err.message : 'Scan failed');
@@ -282,6 +291,26 @@ export function Dashboard() {
           />
           <span className="text-sm font-medium">Include best practices</span>
         </label>
+      </div>
+
+      <div className="flex flex-col gap-1.5 max-w-xs">
+        <Label htmlFor="scan-parallel">Parallel browser tabs</Label>
+        <select
+          id="scan-parallel"
+          value={parallelTabs}
+          onChange={e => setParallelTabs(e.target.value as '1' | '3' | '5' | '8')}
+          disabled={scanning}
+          aria-describedby="scan-parallel-hint"
+          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <option value="1">1</option>
+          <option value="3">3</option>
+          <option value="5">5</option>
+          <option value="8">8</option>
+        </select>
+        <p id="scan-parallel-hint" className="text-xs text-muted-foreground">
+          Crawl and audit use this many Chromium tabs at once. Lower numbers use less memory.
+        </p>
       </div>
 
       {/* Project assignment */}
@@ -448,8 +477,8 @@ export function Dashboard() {
             <p className="font-medium">⚠ Before you crawl</p>
             <ul className="list-disc list-inside text-muted-foreground space-y-0.5">
               <li>Crawling follows internal links from your starting URL downward — keep the path specific to avoid scanning the whole site.</li>
-              <li>~200 pages takes 5–10 min at default settings.</li>
-              <li>500 pages can take 30+ min and uses significantly more memory.</li>
+              <li>Speed depends on the site and parallel tabs; increase parallel tabs for large crawls if your machine has headroom.</li>
+              <li>Heavy sites (many images, long pages) use more memory — lower parallel tabs if the process struggles.</li>
             </ul>
           </div>
           <div className="flex flex-col gap-1.5 w-32">
@@ -458,7 +487,7 @@ export function Dashboard() {
               id="max-pages"
               type="number"
               min="1"
-              max="500"
+              max="5000"
               value={maxPages}
               onChange={e => setMaxPages(e.target.value)}
               disabled={scanning}
@@ -557,13 +586,15 @@ export function Dashboard() {
 
   const unassignedReports = reports?.filter(r => !r.projectId) ?? [];
   const hasUnassigned = unassignedReports.length > 0;
-  const hasAnything = !loading && ((reports?.length ?? 0) > 0 || projects.length > 0);
+  const hasAnything =
+    (!loading || reports.length > 0 || projects.length > 0) &&
+    ((reports?.length ?? 0) > 0 || projects.length > 0);
 
   return (
     <div className="container mx-auto p-6">
       <h1 className="text-3xl font-bold mb-6">Accessibility Reports</h1>
 
-      {(!hasAnything || showScanForm || scanning) && !loading && (
+      {(!hasAnything || showScanForm || scanning) && !(loading && reports.length === 0) && (
         <Card className="mb-8">
           <CardHeader>
             <CardTitle>New Scan</CardTitle>
@@ -572,7 +603,7 @@ export function Dashboard() {
         </Card>
       )}
 
-      {loading && <div>Loading…</div>}
+      {loading && reports.length === 0 && <div>Loading…</div>}
       {error && <div>Error: {error}</div>}
 
       {/* Projects section */}
@@ -835,7 +866,6 @@ export function Dashboard() {
                     if (!pendingDeleteProjectId) return;
                     await deleteProject(pendingDeleteProjectId);
                     setPendingDeleteProjectId(null);
-                    refreshProjects();
                   }}
                 >
                   Delete Project
@@ -901,7 +931,7 @@ export function Dashboard() {
                   const created = await createProject(assignNewProjectName.trim());
                   if (created) resolvedProjectId = created.id;
                 }
-                await fetch(`/api/reports/${assignReport.id}/project`, {
+                await apiFetch(`/api/reports/${assignReport.id}/project`, {
                   method: 'PATCH',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ projectId: resolvedProjectId || null }),
@@ -909,8 +939,8 @@ export function Dashboard() {
                 setAssignReport(null);
                 setAssignShowNewProjectInput(false);
                 setAssignNewProjectName('');
-                refresh();
-                refreshProjects();
+                refresh({ background: true });
+                refreshProjects({ background: true });
               }}
             >
               Save
@@ -922,9 +952,9 @@ export function Dashboard() {
   );
 
   async function handleRemove(id: string) {
-    await fetch(`/api/reports/${id}`, { method: 'DELETE' });
+    await apiFetch(`/api/reports/${id}`, { method: 'DELETE' });
     setPendingRemoveId(null);
-    refresh();
+    refresh({ background: true });
   }
 
 }

@@ -13,14 +13,14 @@ program
   .command('scan')
   .description('Scan a website using its sitemap')
   .requiredOption('-s, --sitemap <url|path>', 'Sitemap URL or local file path')
-  .option('-c, --concurrent <number>', 'Concurrent pages to scan', '5')
+  .option('-c, --concurrent <number>', 'Concurrent pages to scan', '8')
   .option('--headless', 'Run in headless mode', true)
   .action(async (options) => {
     const scanner = new SitemapScanner(options);
     const report = await scanner.scan();
     
     const db = new DatabaseService();
-    await db.saveReport(report);
+    await db.saveReport(report, 'system');
 
     // report is now persisted to the JSON file; the React dashboard
     // will pick it up from the API.  no need for a separate HTML or

@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react';
-import { ScanReport } from '@accessibility-scanner/shared';
+import type { ReportListItem } from '@/hooks/useReports';
 import { Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -30,7 +30,7 @@ const LEVELS = [
 ] as const;
 
 interface ExportModalProps {
-  report: ScanReport | null;
+  report: ReportListItem | null;
   onClose: () => void;
 }
 
@@ -52,7 +52,6 @@ export function ExportModal({ report, onClose }: ExportModalProps) {
       setFormat('excel');
       setSelectedLevels(['A', 'AA', 'AAA', 'best-practice']);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report?.id]);
 
   function toggleLevel(value: string) {
