@@ -58,21 +58,21 @@ npm run dev          # starts both API server (port 3003) and dashboard (port 51
 Single scan:
 
 ```bash
-npm run scan -- -s https://example.com/sitemap.xml
+npm run scan -- scan -s https://example.com/sitemap.xml
 ```
 
 Batched scan (max 750 pages per chunk):
 
 ```bash
-npm run scan -- -s https://example.com/sitemap.xml --batch-size 750 --batch-index 1
-npm run scan -- -s https://example.com/sitemap.xml --batch-size 750 --batch-index 2
+npm run scan -- scan -s https://example.com/sitemap.xml --batch-size 750 --batch-index 1
+npm run scan -- scan -s https://example.com/sitemap.xml --batch-size 750 --batch-index 2
 # ...
 ```
 
 Or run all batches in one command (auto-chunks + auto-merge):
 
 ```bash
-npm run scan -- -s https://example.com/sitemap.xml --batch-size 750
+npm run scan -- scan -s https://example.com/sitemap.xml --batch-size 750
 ```
 
 This will scan all batches and then merge the chunks into one report automatically.
@@ -80,7 +80,13 @@ This will scan all batches and then merge the chunks into one report automatical
 Merge partial reports (by ID or JSON path):
 
 ```bash
-npm run scan:raw -- merge -i <id1> <id2> <id3> -o packages/scanner/data/reports/merged.json
+npm run scan -- merge -i <id1> <id2> <id3> -o packages/scanner/data/reports/merged.json
+```
+
+Clear all scans via CLI:
+
+```bash
+npm run scan -- clear
 ```
 
 The scanner CLI is in `packages/scanner/src/index.ts` and supports options:
@@ -90,6 +96,11 @@ The scanner CLI is in `packages/scanner/src/index.ts` and supports options:
 - `--batch-size <number>` (default `0`, no batching)
 - `--batch-index <number>` (1-based, required when batch-size is set for selective chunk runs)
 - `--output <path>` (write report JSON to file instead of database; supports relative paths)
+
+Clear all scans via CLI
+```bash
+npm run scan -- clear
+```
 
 ### Environment variables
 

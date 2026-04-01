@@ -37,7 +37,11 @@ program
         const chunkScanner = new SitemapScanner({ ...options, urls: chunkUrls });
         const chunkReport = await chunkScanner.scan();
         partialReports.push(chunkReport);
-        await db.saveReport(chunkReport);
+
+        if (!options.output) {
+          await db.saveReport(chunkReport);
+        }
+
         // eslint-disable-next-line no-console
         console.log(`Batch ${i}/${totalBatches} complete; report ID ${chunkReport.id}`);
       }
@@ -54,8 +58,12 @@ program
         console.log(`Merged report written to ${outputPath}`);
       } else {
         await db.saveReport(mergedReport);
+
+        // Remove partial chunk reports so dashboard shows only consolidated result
+        await Promise.all(partialReports.map((chunkReport) => db.deleteReport(chunkReport.id)));
+
         // eslint-disable-next-line no-console
-        console.log(`Merged report saved with ID ${mergedReport.id}`);
+        console.log(`Merged report saved with ID ${mergedReport.id} (deleted partial chunk reports)`);
       }
 
       return;
