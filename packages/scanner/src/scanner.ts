@@ -16,9 +16,37 @@ export class SitemapScanner {
     this.options = options;
   }
 
+  async getUrls(): Promise<string[]> {
+    if (this.options.urls && Array.isArray(this.options.urls)) {
+      return this.options.urls;
+    }
+    if (!this.options.sitemap) {
+      throw new Error('Missing sitemap URL or urls array');
+    }
+    return this.fetchSitemapUrls(this.options.sitemap);
+  }
+
   async scan(): Promise<ScanReport> {
     const signal: AbortSignal | undefined = this.options.signal;
-    const urls: string[] = this.options.urls ?? await this.fetchSitemapUrls(this.options.sitemap);
+    const allUrls: string[] = await this.getUrls();
+    const batchSize = Number(this.options.batchSize ?? 0);
+    const batchIndex = Number(this.options.batchIndex ?? 0);
+    let urls = allUrls;
+
+    if (batchSize > 0) {
+      if (batchIndex <= 0) {
+        throw new Error('When batchSize is set, batchIndex must be a positive integer');
+      }
+      const totalBatches = Math.ceil(allUrls.length / batchSize);
+      if (batchIndex > totalBatches) {
+        throw new Error(`batchIndex ${batchIndex} is out of range (1..${totalBatches})`);
+      }
+      const start = (batchIndex - 1) * batchSize;
+      const end = Math.min(allUrls.length, start + batchSize);
+      urls = allUrls.slice(start, end);
+      this.options.batchInfo = { batchIndex, totalBatches, start, end, originalTotal: allUrls.length };
+    }
+
     const limit = pLimit(parseInt(this.options.concurrent));
 
     this.browser = await puppeteer.launch({
@@ -1056,6 +1084,47 @@ export class SitemapScanner {
     };
   }
 
+  static mergeReports(reports: ScanReport[], options: { label?: string; outputSitemap?: string } = {}): ScanReport {
+    if (!reports.length) {
+      throw new Error('No reports to merge');
+    }
+
+    const combinedResults = reports.flatMap(r => r.results);
+    const startTime = new Date(Math.min(...reports.map(r => new Date(r.startTime).getTime())));
+    const endTime = new Date(Math.max(...reports.map(r => new Date(r.endTime).getTime())));
+
+    const summary = {
+      totalPages: combinedResults.length,
+      totalViolations: combinedResults.reduce((sum, r) => sum + r.violations.length, 0),
+      violationsByImpact: {} as Record<string, number>,
+      violationsByType: {} as Record<string, number>,
+      violationsByLevel: {} as Record<string, number>
+    };
+
+    combinedResults.forEach(result => {
+      result.violations.forEach(violation => {
+        summary.violationsByImpact[violation.impact] = (summary.violationsByImpact[violation.impact] || 0) + 1;
+        summary.violationsByType[violation.id] = (summary.violationsByType[violation.id] || 0) + 1;
+        const lvl = violation.level || 'best-practice';
+        summary.violationsByLevel[lvl] = (summary.violationsByLevel[lvl] || 0) + 1;
+      });
+    });
+
+    const first = reports[0];
+
+    return {
+      id: uuidv4(),
+      sitemap: options.outputSitemap || first.sitemap,
+      pageTitle: first.pageTitle,
+      startTime,
+      endTime,
+      auditType: first.auditType,
+      wcagLevel: first.wcagLevel,
+      includeBestPractices: first.includeBestPractices,
+      results: combinedResults,
+      summary
+    };
+  }
 
   /**
    * Look for a wcag level indicator in the axe tags.  Returns

@@ -20,6 +20,7 @@
     "lint": "lerna run lint",
     "type-check": "lerna run type-check",
     "scan": "cd packages/scanner && npm run start -- scan",
+    "scan:raw": "cd packages/scanner && npm run start --",
     "update:deps": "npx npm-check-updates -u --workspaces && npx lerna exec -- npx npm-check-updates -u && npm install"
   },
   "devDependencies": {
