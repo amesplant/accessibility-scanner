@@ -32,9 +32,9 @@ program
       const partialReports = [];
 
       for (let i = 1; i <= totalBatches; i++) {
-        // run each batch with explicit index so log and persistence are per-chunk
+        // run each batch with explicit URLs so scanner does not re-slice the same batch
         const chunkUrls = allUrls.slice((i - 1) * batchSize, i * batchSize);
-        const chunkScanner = new SitemapScanner({ ...options, urls: chunkUrls, batchIndex: i });
+        const chunkScanner = new SitemapScanner({ ...options, urls: chunkUrls });
         const chunkReport = await chunkScanner.scan();
         partialReports.push(chunkReport);
         await db.saveReport(chunkReport);

@@ -33,7 +33,9 @@ export class SitemapScanner {
     const batchIndex = Number(this.options.batchIndex ?? 0);
     let urls = allUrls;
 
-    if (batchSize > 0) {
+    const hasExplicitUrls = Array.isArray(this.options.urls);
+
+    if (batchSize > 0 && !hasExplicitUrls) {
       if (batchIndex <= 0) {
         throw new Error('When batchSize is set, batchIndex must be a positive integer');
       }
@@ -45,6 +47,16 @@ export class SitemapScanner {
       const end = Math.min(allUrls.length, start + batchSize);
       urls = allUrls.slice(start, end);
       this.options.batchInfo = { batchIndex, totalBatches, start, end, originalTotal: allUrls.length };
+    } else if (batchSize > 0 && hasExplicitUrls) {
+      // Already pre-sliced chunk from caller; avoid re-applying batch slicing.
+      const totalBatches = 1;
+      this.options.batchInfo = {
+        batchIndex: batchIndex > 0 ? batchIndex : 1,
+        totalBatches,
+        start: 0,
+        end: allUrls.length,
+        originalTotal: allUrls.length,
+      };
     }
 
     const limit = pLimit(parseInt(this.options.concurrent));
