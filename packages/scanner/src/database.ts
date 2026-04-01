@@ -99,7 +99,13 @@ export class DatabaseService {
       JSON.stringify(report)
     );
     const meta = await this.readMeta();
-    meta.summaries.push(this.summaryOf(report));
+    const summary = this.summaryOf(report);
+    const existingIndex = meta.summaries.findIndex((s) => s.id === report.id);
+    if (existingIndex !== -1) {
+      meta.summaries[existingIndex] = summary;
+    } else {
+      meta.summaries.push(summary);
+    }
     await this.writeMeta(meta);
   }
 
@@ -168,13 +174,13 @@ export class DatabaseService {
 
   async clearReports(): Promise<void> {
     await this.ensureDirs();
-    const meta = await this.readMeta();
-    await Promise.all(
-      meta.summaries.map(s =>
-        fs.unlink(path.join(this.reportsDir, `${s.id}.json`)).catch(() => { /* ignore */ })
-      )
-    );
-    await this.writeMeta({ ...meta, summaries: [] });
+
+    // Remove every file in reports directory; this avoids stale meta vs file mismatch.
+    const entries = await fs.readdir(this.reportsDir);
+    await Promise.all(entries.map((entry) => fs.unlink(path.join(this.reportsDir, entry)).catch(() => { /* ignore */ })));
+
+    // Reset full meta state so dashboard and API return empty results.
+    await this.writeMeta({ projects: [], summaries: [] });
   }
 
   // ── Projects ─────────────────────────────────────────────────────────────

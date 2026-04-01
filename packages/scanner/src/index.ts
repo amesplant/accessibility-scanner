@@ -54,8 +54,16 @@ program
           ? options.output
           : path.resolve(process.cwd(), options.output);
         await fs.writeFile(outputPath, JSON.stringify(mergedReport));
+        await db.saveReport(mergedReport);
+
         // eslint-disable-next-line no-console
-        console.log(`Merged report written to ${outputPath}`);
+        console.log(`Merged report written to ${outputPath} and saved with ID ${mergedReport.id}`);
+
+        // Remove partial chunk reports so dashboard shows only consolidated result
+        await Promise.all(partialReports.map((chunkReport) => db.deleteReport(chunkReport.id)));
+
+        // eslint-disable-next-line no-console
+        console.log(`Deleted partial chunk reports; consolidated report is now the canonical result`);
       } else {
         await db.saveReport(mergedReport);
 
@@ -76,8 +84,9 @@ program
         ? options.output
         : path.resolve(process.cwd(), options.output);
       await fs.writeFile(outputPath, JSON.stringify(report));
+      await db.saveReport(report);
       // eslint-disable-next-line no-console
-      console.log(`Scan complete; report written to ${outputPath}`);
+      console.log(`Scan complete; report written to ${outputPath} and saved with ID ${report.id}`);
       return;
     }
 
@@ -132,8 +141,9 @@ program
         ? options.output
         : path.resolve(process.cwd(), options.output);
       await fs.writeFile(outputPath, JSON.stringify(mergedReport));
+      await db.saveReport(mergedReport);
       // eslint-disable-next-line no-console
-      console.log(`Merged report written to ${outputPath}`);
+      console.log(`Merged report written to ${outputPath} and saved with ID ${mergedReport.id}`);
     } else {
       await db.saveReport(mergedReport);
       // eslint-disable-next-line no-console
