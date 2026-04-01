@@ -88,7 +88,7 @@ export function PageWindow() {
         document.title = `${page.url} — Page Detail`;
       }
     }
-    return () => { document.title = 'Fueled Access'; };
+    return () => { document.title = 'Seymour'; };
   }, [page]);
 
   if (loading) return <div className="p-6">Loading…</div>;
@@ -378,7 +378,8 @@ export function PageWindow() {
                             <div className="px-4 py-2 border-t border-dashed border-border bg-muted/20">
                               <input
                                 type="text"
-value={overrideNotesInput[v.id] ?? v.overrideNotes ?? ''}
+                                placeholder="Add a note about this override…"
+                                value={overrideNotesInput[v.id] ?? v.overrideNotes ?? ''}
                                 onChange={e => setOverrideNotesInput(prev => ({ ...prev, [v.id]: e.target.value }))}
                                 onBlur={e => updateViolationOverride(pageId!, v.id, v.overrideStatus!, e.target.value || undefined)}
                                 className="w-full text-xs border-0 border-b border-dashed border-muted-foreground/30 bg-transparent px-0 py-0.5 focus:outline-none focus:border-muted-foreground placeholder:text-muted-foreground/50"

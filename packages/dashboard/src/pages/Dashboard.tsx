@@ -83,7 +83,7 @@ export function Dashboard() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    document.title = 'Fueled Access — Reports';
+    document.title = 'Seymour — Reports';
   }, []);
 
   // Show form when "New Scan" is triggered from another page
@@ -885,7 +885,8 @@ export function Dashboard() {
               <div className="mt-1.5 flex gap-2">
                 <Input
                   id="assign-project-select"
-value={assignNewProjectName}
+                  placeholder="New project name"
+                  value={assignNewProjectName}
                   onChange={e => setAssignNewProjectName(e.target.value)}
                 />
                 <Button type="button" variant="outline" size="sm" onClick={() => { setAssignShowNewProjectInput(false); setAssignNewProjectName(''); }}>

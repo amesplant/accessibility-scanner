@@ -1,8 +1,8 @@
-# Fueled Access — Accessibility Scanner
+# Seymour — Accessibility Scanner
 
-**Fueled Access is our internal accessibility audit platform** — a purpose-built tool for the Fueled team to deliver thorough, consistent, and well-documented accessibility audits at every stage of a project.
+**Seymour is our internal accessibility audit platform** — a purpose-built tool for the Fueled team to deliver thorough, consistent, and well-documented accessibility audits at every stage of a project.
 
-Whether you're running a quick check on a staging build before launch, conducting a deep WCAG 2.2 audit mid-engagement, or validating a live production site post-delivery, Fueled Access gives you a single place to scan, review, document findings, and hand off actionable issues directly to your project management workflow.
+Whether you're running a quick check on a staging build before launch, conducting a deep WCAG 2.2 audit mid-engagement, or validating a live production site post-delivery, Seymour gives you a single place to scan, review, document findings, and hand off actionable issues directly to your project management workflow.
 
 **Three audit tiers match where you are in the project:**
 

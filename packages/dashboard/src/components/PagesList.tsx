@@ -1,7 +1,7 @@
-import { useState, useId, ChangeEvent, FormEvent, Fragment } from 'react';
+import { useState, useId, ChangeEvent, Fragment } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { buttonVariants, Button } from '@/components/ui/button';
+import { buttonVariants } from '@/components/ui/button';
 import { ScanResult } from '@accessibility-scanner/shared';
 import {
   Table,
@@ -307,16 +307,10 @@ function TreeRows({
 }
 
 export function PagesList({ results, reportId }: PagesListProps) {
-  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<'all' | 'with-violations' | 'clean' | 'audited' | 'not-audited'>('with-violations');
+  const [filter, setFilter] = useState<'all' | 'with-violations' | 'clean' | 'audited' | 'not-audited'>('all');
   const searchId = useId();
   const filterId = useId();
-
-  function handleSearchSubmit(e: FormEvent) {
-    e.preventDefault();
-    setSearch(searchInput);
-  }
 
   const tree = buildTree(results, search, filter);
   // Skip all intermediate single-branch path-only nodes (no result, one child)
@@ -332,18 +326,15 @@ export function PagesList({ results, reportId }: PagesListProps) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-4 items-end">
-        <form onSubmit={handleSearchSubmit} role="search" className="flex flex-col gap-1 flex-1 min-w-64">
+        <div className="flex flex-col gap-1">
           <Label htmlFor={searchId}>Search URLs</Label>
-          <div className="flex gap-2">
-            <Input
-              id={searchId}
-              value={searchInput}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchInput(e.target.value)}
-              type="search"
-            />
-            <Button type="submit">Search</Button>
-          </div>
-        </form>
+          <Input
+            id={searchId}
+            value={search}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
+            className="max-w-sm"
+          />
+        </div>
         <div className="flex flex-col gap-1">
           <Label htmlFor={filterId}>Filter pages</Label>
           <Select value={filter} onValueChange={(v: any) => setFilter(v)}>

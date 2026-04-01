@@ -27,7 +27,7 @@ export function Projects() {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<ProjectWithCount | null>(null);
 
-  useEffect(() => { document.title = 'Fueled Access — Projects'; }, []);
+  useEffect(() => { document.title = 'Seymour — Projects'; }, []);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();

@@ -46,8 +46,8 @@ export function ProjectDetail() {
   const [editDescription, setEditDescription] = useState('');
 
   useEffect(() => {
-    if (project) document.title = `${project.name} — Fueled Access`;
-    return () => { document.title = 'Fueled Access'; };
+    if (project) document.title = `${project.name} — Seymour`;
+    return () => { document.title = 'Seymour'; };
   }, [project]);
 
   async function load() {
