@@ -12,7 +12,7 @@ export interface CrawlOptions {
 }
 
 export async function crawlSite(rootUrl: string, options: CrawlOptions = {}): Promise<string[]> {
-  const { maxPages = 200, onProgress, signal, concurrency = 3 } = options;
+  const { maxPages = 200, onProgress, signal, concurrency = 6 } = options;
 
   const root = new URL(rootUrl);
   const origin = root.origin;

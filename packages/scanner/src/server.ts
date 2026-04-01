@@ -825,7 +825,16 @@ app.post('/api/scan', (req, res) => {
   const { user } = req as AuthenticatedRequest;
   if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
 
-  const { sitemap, xmlContent, filename, crawlUrl, maxPages = 200, concurrent = 5, auditType = 'all-inclusive', wcagLevel = 'AA', includeBestPractices = false, urls, projectId } = req.body;
+  const { sitemap, xmlContent, filename, crawlUrl, maxPages = 200, auditType = 'all-inclusive', wcagLevel = 'AA', includeBestPractices = false, urls, projectId } = req.body;
+
+  const concurrentRaw = Number(req.body.concurrent);
+  let concurrent: number;
+  if (!Number.isFinite(concurrentRaw)) {
+    concurrent = 8;
+  } else {
+    const n = Math.floor(concurrentRaw);
+    concurrent = [1, 3, 5, 8].includes(n) ? n : 8;
+  }
 
   const hasUrls = Array.isArray(urls) && urls.length > 0;
 
@@ -887,6 +896,7 @@ app.post('/api/scan', (req, res) => {
 
         const crawledUrls = await crawlSite(crawlUrl.trim(), {
           maxPages: Number(maxPages),
+          concurrency: Number(concurrent),
           onProgress: (url, count) => emitter.emit('crawl-progress', { url, count }),
           signal: abortController.signal,
         });

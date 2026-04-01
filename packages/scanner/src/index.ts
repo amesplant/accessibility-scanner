@@ -13,7 +13,7 @@ program
   .command('scan')
   .description('Scan a website using its sitemap')
   .requiredOption('-s, --sitemap <url|path>', 'Sitemap URL or local file path')
-  .option('-c, --concurrent <number>', 'Concurrent pages to scan', '5')
+  .option('-c, --concurrent <number>', 'Concurrent pages to scan', '8')
   .option('--headless', 'Run in headless mode', true)
   .action(async (options) => {
     const scanner = new SitemapScanner(options);
