@@ -192,7 +192,7 @@ export function useManualAudit(
   );
 
   const updateFailure = useCallback(
-    async (checkId: string, failureId: string, data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl'>>) => {
+    async (checkId: string, failureId: string, data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>) => {
       setAudit(prev => ({
         ...prev,
         checks: prev.checks.map(c => {

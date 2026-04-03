@@ -18,6 +18,7 @@ export interface ManualFailureInstance {
   notes?: string;
   codeSnippet?: string;
   screenshotDataUrl?: string;
+  remediationRecommendation?: string;
   createdAt: string;
 }
 

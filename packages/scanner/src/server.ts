@@ -106,9 +106,9 @@ app.post('/api/reports/:id/export/csv', async (req, res) => {
   try {
     const report = await db.getReport(req.params.id);
     if (!report) return res.status(404).json({ error: 'Report not found' });
-    const { selectedViolations, tasklistName, selectedLevels } = req.body;
+    const { selectedViolations, tasklistName, selectedLevels, exportScope } = req.body;
     const exporter = new Reporter();
-    const csvData = exporter.exportToCsv(report, selectedViolations, tasklistName, selectedLevels);
+    const csvData = exporter.exportToCsv(report, selectedViolations, tasklistName, selectedLevels, exportScope);
     res.header('Content-Type', 'text/csv');
     res.header('Content-Disposition', `attachment; filename="accessibility-export-${req.params.id}.csv"`);
     return res.send(csvData);
@@ -122,9 +122,9 @@ app.post('/api/reports/:id/export/excel', async (req, res) => {
   try {
     const report = await db.getReport(req.params.id);
     if (!report) return res.status(404).json({ error: 'Report not found' });
-    const { selectedViolations, tasklistName, selectedLevels } = req.body;
+    const { selectedViolations, tasklistName, selectedLevels, exportScope } = req.body;
     const exporter = new Reporter();
-    const buffer = await exporter.exportToExcel(report, selectedViolations, tasklistName, selectedLevels);
+    const buffer = await exporter.exportToExcel(report, selectedViolations, tasklistName, selectedLevels, exportScope);
     res.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.header('Content-Disposition', `attachment; filename="accessibility-export-${req.params.id}.xlsx"`);
     return res.send(buffer);
@@ -138,9 +138,9 @@ app.post('/api/reports/:id/export/jira', async (req, res) => {
   try {
     const report = await db.getReport(req.params.id);
     if (!report) return res.status(404).json({ error: 'Report not found' });
-    const { selectedViolations, selectedLevels } = req.body;
+    const { selectedViolations, selectedLevels, exportScope } = req.body;
     const exporter = new Reporter();
-    const csvData = exporter.exportToJiraCsv(report, selectedViolations, selectedLevels);
+    const csvData = exporter.exportToJiraCsv(report, selectedViolations, selectedLevels, exportScope);
     res.header('Content-Type', 'text/csv');
     res.header('Content-Disposition', `attachment; filename="jira-export-${req.params.id}.csv"`);
     return res.send(csvData);
@@ -438,12 +438,13 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fai
     const failure = (check.failures ?? []).find(f => f.id === req.params.failureId);
     if (!failure) return res.status(404).json({ error: 'Failure instance not found' });
 
-    const { scope, notes, codeSnippet, screenshotDataUrl, status } = req.body;
+    const { scope, notes, codeSnippet, screenshotDataUrl, status, remediationRecommendation } = req.body;
     if (scope !== undefined) failure.scope = scope;
     if (notes !== undefined) failure.notes = notes;
     if (codeSnippet !== undefined) failure.codeSnippet = codeSnippet;
     if (screenshotDataUrl !== undefined) failure.screenshotDataUrl = screenshotDataUrl;
     if (status !== undefined) failure.status = status;
+    if (remediationRecommendation !== undefined) failure.remediationRecommendation = remediationRecommendation;
 
     // Auto-derive check status from instance statuses
     const allFailures = check.failures ?? [];
@@ -484,6 +485,69 @@ app.delete('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fa
   } catch (err) {
     console.error('Delete failure instance error:', err);
     return res.status(500).json({ error: 'Failed to delete failure instance' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// AI — remediation suggestion for a manual failure instance
+// ---------------------------------------------------------------------------
+
+// POST /api/ai/remediation-suggestion
+app.post('/api/ai/remediation-suggestion', async (req, res) => {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return res.status(503).json({ error: 'AI remediation suggestions require an ANTHROPIC_API_KEY environment variable.' });
+  }
+
+  const { criterion, checkTitle, checkDescription, notes, codeSnippet } = req.body as {
+    criterion?: string;
+    checkTitle?: string;
+    checkDescription?: string;
+    notes?: string;
+    codeSnippet?: string;
+  };
+
+  const contextParts: string[] = [];
+  if (criterion && checkTitle) contextParts.push(`WCAG ${criterion}: ${checkTitle}`);
+  else if (checkTitle) contextParts.push(`Check: ${checkTitle}`);
+  if (checkDescription) contextParts.push(`Description: ${checkDescription}`);
+  if (notes) contextParts.push(`Failure notes: ${notes}`);
+  if (codeSnippet) contextParts.push(`Code snippet:\n\`\`\`html\n${codeSnippet}\n\`\`\``);
+
+  const userMessage = contextParts.length
+    ? `Given the following accessibility failure, provide a concise, actionable remediation recommendation (2-4 sentences). Focus on the specific code changes or content changes needed to fix the issue.\n\n${contextParts.join('\n\n')}`
+    : 'Provide a concise, actionable accessibility remediation recommendation.';
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 512,
+        messages: [{ role: 'user', content: userMessage }],
+        system: 'You are an accessibility expert. Provide concise, practical remediation recommendations for WCAG failures. Be specific about code changes. Do not include preamble or headers — just the recommendation text.',
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error('Anthropic API error:', errText);
+      let detail = '';
+      try { detail = (JSON.parse(errText) as { error?: { message?: string } }).error?.message ?? ''; } catch { /* not JSON */ }
+      return res.status(502).json({ error: `Anthropic API error (${response.status})${detail ? ': ' + detail : ''}` });
+    }
+
+    const data = await response.json() as { content: Array<{ type: string; text: string }> };
+    const text = data.content.find(b => b.type === 'text')?.text ?? '';
+    return res.json({ recommendation: text });
+  } catch (err) {
+    console.error('AI remediation suggestion error:', err);
+    return res.status(500).json({ error: 'Failed to generate remediation suggestion.' });
   }
 });
 

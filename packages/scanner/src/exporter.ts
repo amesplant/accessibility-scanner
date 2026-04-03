@@ -21,23 +21,22 @@ export class Reporter {
    * newlines are preserved; description text may contain Markdown and
    * will typically span multiple lines.
    */
-  exportToCsv(report: ScanReport, selectedViolations?: string[], tasklistName?: string, selectedLevels?: string[]): string {
-    const rows = this.buildRows(report, selectedViolations, tasklistName, selectedLevels);
-    const manualRows = this.buildManualAuditRows(report);
+  exportToCsv(report: ScanReport, selectedViolations?: string[], tasklistName?: string, selectedLevels?: string[], exportScope: 'all' | 'automated' | 'manual' = 'all'): string {
+    let allRows: string[][];
 
-    const allRows = manualRows.length > 0 ? [...rows, ...manualRows] : rows;
+    if (exportScope === 'manual') {
+      allRows = this.buildManualTeamworkRows(report, tasklistName);
+    } else {
+      const rows = this.buildRows(report, selectedViolations, tasklistName, selectedLevels);
+      if (exportScope === 'all') {
+        const manualRows = this.buildManualAuditRows(report);
+        allRows = manualRows.length > 0 ? [...rows, ...manualRows] : rows;
+      } else {
+        allRows = rows;
+      }
+    }
 
-    return allRows
-      .map((row: string[]) =>
-        row
-          .map((cell: string) =>
-            cell.includes(',') || cell.includes('"') || cell.includes('\n')
-              ? `"${cell.replace(/"/g, '""')}"`
-              : cell
-          )
-          .join(',')
-      )
-      .join('\n');
+    return this.rowsToCsv(allRows);
   }
 
   /**
@@ -46,33 +45,39 @@ export class Reporter {
    * as the CSV export and leaves all styling up to the caller (no fancy
    * formatting is performed).
    */
-  async exportToExcel(report: ScanReport, selectedViolations?: string[], tasklistName?: string, selectedLevels?: string[]): Promise<Buffer> {
+  async exportToExcel(report: ScanReport, selectedViolations?: string[], tasklistName?: string, selectedLevels?: string[], exportScope: 'all' | 'automated' | 'manual' = 'all'): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Accessibility');
 
-    const rows = this.buildRows(report, selectedViolations, tasklistName, selectedLevels);
-    rows.forEach((row: string[]) => {
-      sheet.addRow(row);
-    });
+    if (exportScope === 'manual') {
+      const sheet = workbook.addWorksheet('Accessibility');
+      const rows = this.buildManualTeamworkRows(report, tasklistName);
+      rows.forEach(row => sheet.addRow(row));
+    } else {
+      const sheet = workbook.addWorksheet('Accessibility');
+      const rows = this.buildRows(report, selectedViolations, tasklistName, selectedLevels);
+      rows.forEach((row: string[]) => { sheet.addRow(row); });
 
-    const manualEntries = this.collectManualChecks(report);
-    if (manualEntries.length > 0) {
-      const manualSheet = workbook.addWorksheet('Manual Audit');
-      manualSheet.addRow(['Criterion', 'Level', 'Title', 'Status', 'Notes', 'Impact', 'Last Updated']);
-      manualEntries.forEach(({ check: c, failedElements }) => {
-        const extraNotes = failedElements.length > 0
-          ? `${c.notes ?? ''}\n\nFailed elements (${failedElements.length}):\n${failedElements.map(e => `- ${e.html}${e.auditComment ? ` — ${e.auditComment}` : ''}`).join('\n')}`.trim()
-          : (c.notes ?? '');
-        manualSheet.addRow([
-          c.wcagCriterion ?? '',
-          c.level ?? '',
-          c.title,
-          c.status,
-          extraNotes,
-          c.impact ?? '',
-          c.updatedAt,
-        ]);
-      });
+      if (exportScope === 'all') {
+        const manualEntries = this.collectManualChecks(report);
+        if (manualEntries.length > 0) {
+          const manualSheet = workbook.addWorksheet('Manual Audit');
+          manualSheet.addRow(['Criterion', 'Level', 'Title', 'Status', 'Notes', 'Impact', 'Last Updated']);
+          manualEntries.forEach(({ check: c, failedElements }) => {
+            const extraNotes = failedElements.length > 0
+              ? `${c.notes ?? ''}\n\nFailed elements (${failedElements.length}):\n${failedElements.map(e => `- ${e.html}${e.auditComment ? ` — ${e.auditComment}` : ''}`).join('\n')}`.trim()
+              : (c.notes ?? '');
+            manualSheet.addRow([
+              c.wcagCriterion ?? '',
+              c.level ?? '',
+              c.title,
+              c.status,
+              extraNotes,
+              c.impact ?? '',
+              c.updatedAt,
+            ]);
+          });
+        }
+      }
     }
 
     // exceljs returns a Uint8Array/Buffer-like object; normalize to Node Buffer
@@ -201,10 +206,18 @@ export class Reporter {
    * fields Jira's CSV importer expects: Summary, Issue Type, Priority, Labels,
    * Description (Jira wiki markup).
    */
-  exportToJiraCsv(report: ScanReport, selectedViolations?: string[], selectedLevels?: string[]): string {
+  exportToJiraCsv(report: ScanReport, selectedViolations?: string[], selectedLevels?: string[], exportScope: 'all' | 'automated' | 'manual' = 'all'): string {
     const rows: string[][] = [];
 
     rows.push(['Summary', 'Issue Type', 'Priority', 'Labels', 'Description']);
+
+    if (exportScope === 'manual') {
+      const manualEntries = this.collectManualChecks(report);
+      manualEntries.forEach(({ check }) => {
+        rows.push(this.buildManualJiraRow(check));
+      });
+      return this.rowsToCsv(rows);
+    }
 
     const violationGroups = new Map<
       string,
@@ -267,6 +280,17 @@ export class Reporter {
       rows.push([summary, 'Task', priority, labels, description]);
     });
 
+    if (exportScope === 'all') {
+      const manualEntries = this.collectManualChecks(report);
+      manualEntries.forEach(({ check }) => {
+        rows.push(this.buildManualJiraRow(check));
+      });
+    }
+
+    return this.rowsToCsv(rows);
+  }
+
+  private rowsToCsv(rows: string[][]): string {
     return rows
       .map(row =>
         row
@@ -278,6 +302,179 @@ export class Reporter {
           .join(',')
       )
       .join('\n');
+  }
+
+  /** Format a single ManualCheckResult as a Jira CSV row (no header). */
+  buildManualJiraRow(check: ManualCheckResult): string[] {
+    const criterion = check.wcagCriterion ?? '';
+    const level = check.level ?? '';
+    const levelLabel = level || 'Manual';
+    const summary = criterion
+      ? `${criterion} ${check.title} | ${levelLabel}`
+      : `${check.title} | Manual`;
+
+    const impactMap: Record<string, string> = { critical: 'Highest', serious: 'High', moderate: 'Medium', minor: 'Low' };
+    const priority = check.impact ? (impactMap[check.impact] ?? 'Medium') : 'Medium';
+
+    const labelParts = ['Accessibility', 'Manual'];
+    if (level) labelParts.push(`WCAG-${level}`);
+    if (criterion) labelParts.push(`WCAG-${criterion.replace(/\./g, '')}`);
+    const labels = labelParts.join(' ');
+
+    const description = this.buildManualJiraDescription(check);
+    return [summary, 'Task', priority, labels, description];
+  }
+
+  private buildManualJiraDescription(check: ManualCheckResult): string {
+    const notes = check.notes ? `${check.notes}` : '_No description provided._';
+    const codeBlock = check.codeSnippet
+      ? `\nh3. Code Snippet\n\n{code:html}\n${check.codeSnippet}\n{code}\n`
+      : '';
+
+    const failureLines = (check.failures ?? [])
+      .map((f, i) => {
+        const parts = [`*Instance ${i + 1}*`];
+        if (f.notes) parts.push(f.notes);
+        if (f.codeSnippet) parts.push(`{code:html}\n${f.codeSnippet}\n{code}`);
+        if (f.remediationRecommendation) parts.push(`_Recommendation:_ ${f.remediationRecommendation}`);
+        return parts.join('\n');
+      })
+      .join('\n\n');
+
+    const failuresSection = failureLines
+      ? `\nh3. Failure Instances\n\n${failureLines}\n`
+      : '';
+
+    const failureRemediation2 = (check.failures ?? [])
+      .map(f => f.remediationRecommendation).filter(Boolean).join('\n\n');
+    const remediationSection = failureRemediation2
+      || '_Replace this section with the steps required to fix this issue._';
+
+    return `h3. Issue Description
+
+${notes}
+${codeBlock}${failuresSection}
+h3. Remediation
+
+${remediationSection}
+
+h3. Steps to QA
+
+_Replace this section with steps to validate the issue has been resolved._
+
+h3. Recommended Assignment
+
+* [ ] Content
+* [ ] Design
+* [ ] Engineer
+`;
+  }
+
+  /** Format a single ManualCheckResult as Teamwork-style CSV rows (header + metadata + data). */
+  buildManualTeamworkRows(report: ScanReport, tasklistName?: string): string[][] {
+    const entries = this.collectManualChecks(report);
+    if (entries.length === 0) {
+      // Return headers only so the file is still valid
+      return [[
+        'TASKLIST', 'TASK', 'DESCRIPTION', 'ASSIGN TO', 'START DATE',
+        'DUE DATE', 'PRIORITY', 'ESTIMATED TIME', 'TAGS', 'STATUS',
+      ]];
+    }
+
+    const resolvedTasklist = tasklistName?.trim() || 'Accessibility Updates';
+    const rows: string[][] = [
+      ['TASKLIST', 'TASK', 'DESCRIPTION', 'ASSIGN TO', 'START DATE', 'DUE DATE', 'PRIORITY', 'ESTIMATED TIME', 'TAGS', 'STATUS'],
+      [resolvedTasklist, '', 'Required Accessibility Updates', '', '', '', '', '', '', ''],
+    ];
+
+    for (const { check } of entries) {
+      rows.push(this.singleManualCheckTeamworkRow(check, resolvedTasklist));
+    }
+    return rows;
+  }
+
+  /** Single-row Teamwork export for one manual check (no headers). */
+  singleManualCheckTeamworkRow(check: ManualCheckResult, tasklistName = 'Accessibility Updates'): string[] {
+    const criterion = check.wcagCriterion ?? '';
+    const level = check.level ?? '';
+    const levelLabel = level || 'Manual';
+    const taskName = criterion
+      ? `${criterion} ${check.title} | ${levelLabel}`
+      : `${check.title} | Manual`;
+
+    const description = this.buildManualTeamworkDescription(check);
+
+    const tagParts = ['Accessibility', 'Manual'];
+    if (level) tagParts.push(level);
+    if (check.impact) tagParts.push(check.impact.charAt(0).toUpperCase() + check.impact.slice(1) + ' Issue');
+    const tags = tagParts.join(', ');
+
+    const impactPriorityMap: Record<string, string> = { critical: 'Urgent', serious: 'High', moderate: 'Medium', minor: 'Low' };
+    const priority = check.impact ? (impactPriorityMap[check.impact] ?? '') : '';
+
+    const row: string[] = new Array(10).fill('');
+    row[0] = tasklistName;
+    row[1] = taskName;
+    row[2] = description;
+    row[6] = priority;
+    row[8] = tags;
+    row[9] = 'Active';
+    return row;
+  }
+
+  private buildManualTeamworkDescription(check: ManualCheckResult): string {
+    const notes = check.notes ?? 'No description provided.';
+    const codeSnippet = check.codeSnippet
+      ? `\n**c. Code Snippet**\n\n\`\`\`html\n${check.codeSnippet}\n\`\`\`\n`
+      : '';
+
+    const failureLines = (check.failures ?? [])
+      .map((f, i) => {
+        const parts = [`**Instance ${i + 1}**`];
+        if (f.notes) parts.push(`> ${f.notes}`);
+        if (f.codeSnippet) parts.push(`\`\`\`html\n${f.codeSnippet}\n\`\`\``);
+        if (f.remediationRecommendation) parts.push(`> *Recommendation:* ${f.remediationRecommendation}`);
+        return parts.join('\n');
+      })
+      .join('\n\n');
+
+    const failuresSection = failureLines
+      ? `\n**d. Failure Instances**\n\n${failureLines}\n`
+      : '';
+
+    const failureRemediation = (check.failures ?? [])
+      .map(f => f.remediationRecommendation).filter(Boolean).join('\n\n');
+    const remediationText = failureRemediation || '*Replace with the steps required to fix this issue.*';
+
+    return `### 1. Describe the Issue
+
+> to be completed by the **Auditor**
+
+**a. Description of Issue**
+
+> ${notes}
+${codeSnippet}${failuresSection}
+---
+
+### 2. Remediation
+
+> ${remediationText}
+
+---
+
+### 3. Steps to QA
+
+> *Replace with steps on how to validate this issue has been resolved*
+
+---
+
+### 4. Recommend Assigning Remediation To
+
+> *Select one or more*
+> - [ ] Content
+> - [ ] Design
+> - [ ] Engineer
+`;
   }
 
   private jiraPriority(impact: AxeViolation['impact']): string {

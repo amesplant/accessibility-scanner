@@ -20,7 +20,7 @@ export function useExport(reportId: string) {
   const [tasklistName, setTasklistName] = useState('Accessibility Audit');
   const [isExporting, setIsExporting] = useState(false);
 
-  async function doExport(selectedLevels?: string[], fileName?: string) {
+  async function doExport(selectedLevels?: string[], fileName?: string, exportScope: 'all' | 'automated' | 'manual' = 'all') {
     if (!reportId) return;
     setIsExporting(true);
     const name = fileName?.trim() || `accessibility-issues-${reportId}`;
@@ -30,21 +30,21 @@ export function useExport(reportId: string) {
         const res = await fetch(`/api/reports/${reportId}/export/jira`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ selectedLevels: levels }),
+          body: JSON.stringify({ selectedLevels: levels, exportScope }),
         });
         triggerDownload(new Blob([await res.text()], { type: 'text/csv' }), `${name}-jira.csv`);
       } else if (format === 'csv') {
         const res = await fetch(`/api/reports/${reportId}/export/csv`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tasklistName: tasklistName.trim() || undefined, selectedLevels: levels }),
+          body: JSON.stringify({ tasklistName: tasklistName.trim() || undefined, selectedLevels: levels, exportScope }),
         });
         triggerDownload(new Blob([await res.text()], { type: 'text/csv' }), `${name}.csv`);
       } else {
         const res = await fetch(`/api/reports/${reportId}/export/excel`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tasklistName: tasklistName.trim() || undefined, selectedLevels: levels }),
+          body: JSON.stringify({ tasklistName: tasklistName.trim() || undefined, selectedLevels: levels, exportScope }),
         });
         triggerDownload(
           new Blob([await res.arrayBuffer()], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),

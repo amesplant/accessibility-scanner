@@ -14,6 +14,7 @@ import {
   MID_LEVEL_AUDIT_CHECK_IDS,
 } from '@accessibility-scanner/shared';
 import { cn } from '@/lib/utils';
+import { exportCheckAsTeamworkCsv, exportCheckAsJiraCsv, exportFailureAsTeamworkCsv } from '@/lib/manualExport';
 import { useCurrentReport } from '@/context/CurrentReportContext';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -49,6 +50,11 @@ import {
   RotateCcw,
   Copy,
   Check,
+  Wand2,
+  Loader2,
+  Save,
+  Lightbulb,
+  Download,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -339,36 +345,58 @@ function StatusSelect({
 function FailureInstanceItem({
   index,
   failure,
+  checkContext,
   onUpdate,
   onDelete,
 }: {
   index: number;
   failure: ManualFailureInstance;
-  onUpdate: (data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl'>>) => void;
+  checkContext?: { id: string; title: string; criterion?: string; description?: string };
+  onUpdate: (data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>) => void;
   onDelete: () => void;
 }) {
   const [localNotes, setLocalNotes] = useState(failure.notes ?? '');
   const [localCode, setLocalCode] = useState(failure.codeSnippet ?? '');
+  const [localRemediation, setLocalRemediation] = useState(failure.remediationRecommendation ?? '');
   const [screenshot, setScreenshot] = useState<string | undefined>(failure.screenshotDataUrl);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [generatingRemediation, setGeneratingRemediation] = useState(false);
+  const [remediationError, setRemediationError] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const notesId = `failure-notes-${failure.id}`;
+  const codeId = `failure-code-${failure.id}`;
+  const remediationId = `failure-remediation-${failure.id}`;
+  const statusRegionId = `failure-status-${failure.id}`;
 
-  function commitNotes(value: string) {
-    if (value !== (failure.notes ?? '')) onUpdate({ notes: value || undefined });
+  function markDirty() {
+    setDirty(true);
+    setJustSaved(false);
   }
 
-  function commitCode(value: string) {
-    if (value !== (failure.codeSnippet ?? '')) onUpdate({ codeSnippet: value || undefined, screenshotDataUrl: screenshot });
+  function handleSave() {
+    onUpdate({
+      notes: localNotes || undefined,
+      codeSnippet: localCode || undefined,
+      screenshotDataUrl: screenshot,
+      remediationRecommendation: localRemediation || undefined,
+    });
+    setDirty(false);
+    setJustSaved(true);
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = setTimeout(() => setJustSaved(false), 2500);
   }
 
   function applyScreenshot(dataUrl: string) {
     setScreenshot(dataUrl);
-    onUpdate({ codeSnippet: localCode || undefined, screenshotDataUrl: dataUrl });
+    onUpdate({ screenshotDataUrl: dataUrl });
   }
 
   function removeScreenshot() {
     setScreenshot(undefined);
-    onUpdate({ codeSnippet: localCode || undefined, screenshotDataUrl: undefined });
+    onUpdate({ screenshotDataUrl: undefined });
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -400,8 +428,45 @@ function FailureInstanceItem({
     } catch { /* clipboard unavailable */ }
   }
 
+  async function handleGenerateRemediation() {
+    setGeneratingRemediation(true);
+    setRemediationError(null);
+    try {
+      const res = await fetch('/api/ai/remediation-suggestion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          criterion: checkContext?.criterion,
+          checkTitle: checkContext?.title,
+          checkDescription: checkContext?.description,
+          notes: localNotes || undefined,
+          codeSnippet: localCode || undefined,
+        }),
+      });
+      // Parse JSON safely — a stale/unbuilt server may return HTML
+      let json: { recommendation?: string; error?: string } = {};
+      try { json = await res.json(); } catch { /* non-JSON body */ }
+
+      if (json.recommendation) {
+        setLocalRemediation(json.recommendation);
+        markDirty();
+      } else {
+        setRemediationError(
+          json.error
+            ?? (!res.ok && res.status === 404
+              ? 'Endpoint not found — rebuild the scanner server and restart it.'
+              : 'Generation failed. Please try again.')
+        );
+      }
+    } catch {
+      setRemediationError('Could not reach the scanner server on port 3003. Make sure it is running.');
+    } finally {
+      setGeneratingRemediation(false);
+    }
+  }
+
   return (
-    <div className="rounded border border-dashed border-border bg-muted/20 p-3 space-y-2">
+    <div className="rounded border border-dashed border-border bg-muted/20 p-3 space-y-3">
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1">
           <span className="text-xs font-medium text-muted-foreground mr-1">Instance {index}</span>
@@ -455,86 +520,168 @@ function FailureInstanceItem({
         </button>
       </div>
 
-      <input
-        type="text"
-        placeholder="Describe what failed…"
-        value={localNotes}
-        onChange={e => setLocalNotes(e.target.value)}
-        onBlur={() => commitNotes(localNotes)}
-        className="w-full text-sm border-0 border-b border-dashed border-muted-foreground/30 bg-transparent px-0 py-0.5 focus:outline-none focus:border-muted-foreground placeholder:text-muted-foreground/50"
-      />
+      {/* Issue description */}
+      <div className="space-y-1">
+        <Label htmlFor={notesId} className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          <AlignLeft className="h-3 w-3" aria-hidden="true" /> Describe the issue
+        </Label>
+        <Textarea
+          id={notesId}
+          value={localNotes}
+          onChange={e => { setLocalNotes(e.target.value); markDirty(); }}
+          rows={3}
+          className="text-sm resize-y"
+        />
+      </div>
 
-      <div className="space-y-3 pl-1">
-        <div className="space-y-1">
-          <label className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-            <Code2 className="h-3 w-3" aria-hidden="true" /> Code snippet
-          </label>
-          <textarea
-            value={localCode}
-            onChange={e => setLocalCode(e.target.value)}
-            onBlur={() => commitCode(localCode)}
-            placeholder="Paste relevant HTML or code here…"
-            rows={3}
-            spellCheck={false}
-            className="w-full font-mono text-xs rounded border border-border bg-muted/40 px-2 py-1.5 resize-y focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
-          />
-        </div>
-        <div className="space-y-1.5">
-          <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-            <ImageIcon className="h-3 w-3" aria-hidden="true" /> Screenshot
-          </span>
-          {screenshot ? (
-            <div className="relative inline-block">
-              {lightboxOpen && (
-                <div
-                  className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
-                  onClick={() => setLightboxOpen(false)}
-                  role="dialog"
-                  aria-modal="true"
-                  aria-label="Screenshot preview"
-                >
-                  <button
-                    type="button"
-                    onClick={() => setLightboxOpen(false)}
-                    aria-label="Close screenshot preview"
-                    className="absolute top-4 right-4 text-white hover:text-white/70 transition-colors"
-                  >
-                    <X className="h-6 w-6" aria-hidden="true" />
-                  </button>
-                  <img
-                    src={screenshot}
-                    alt="Full-size screenshot"
-                    className="max-w-full max-h-full rounded shadow-2xl object-contain"
-                    onClick={e => e.stopPropagation()}
-                  />
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={() => setLightboxOpen(true)}
-                aria-label="View full-size screenshot"
-                className="block rounded border border-border hover:opacity-80 transition-opacity focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+      {/* Code snippet */}
+      <div className="space-y-1">
+        <Label htmlFor={codeId} className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          <Code2 className="h-3 w-3" aria-hidden="true" /> Code snippet
+        </Label>
+        <textarea
+          id={codeId}
+          value={localCode}
+          onChange={e => { setLocalCode(e.target.value); markDirty(); }}
+          rows={3}
+          spellCheck={false}
+          className="w-full font-mono text-xs rounded border border-border bg-muted/40 px-2 py-1.5 resize-y focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+      </div>
+
+      {/* Screenshot */}
+      <div className="space-y-1.5">
+        <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          <ImageIcon className="h-3 w-3" aria-hidden="true" /> Screenshot
+        </span>
+        {screenshot ? (
+          <div className="relative inline-block">
+            {lightboxOpen && (
+              <div
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+                onClick={() => setLightboxOpen(false)}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Screenshot preview"
               >
-                <img src={screenshot} alt="Screenshot of failure" className="max-w-full max-h-48 rounded object-contain" />
-              </button>
-              <button type="button" onClick={removeScreenshot} aria-label="Remove screenshot" className="absolute -top-1.5 -right-1.5 h-6 w-6 flex items-center justify-center rounded-full bg-transparent">
-                <span aria-hidden="true" className="h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center hover:bg-destructive/80">
-                  <X className="h-3 w-3" aria-hidden="true" />
-                </span>
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <Button type="button" variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => fileInputRef.current?.click()}>
-                <Upload className="h-3 w-3" /> Upload
-              </Button>
-              <Button type="button" variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={handlePaste}>
-                <Clipboard className="h-3 w-3" /> Paste
-              </Button>
-              <input ref={fileInputRef} type="file" accept="image/*" className="sr-only" aria-hidden="true" tabIndex={-1} onChange={handleFileChange} />
-            </div>
-          )}
+                <button
+                  type="button"
+                  onClick={() => setLightboxOpen(false)}
+                  aria-label="Close screenshot preview"
+                  className="absolute top-4 right-4 text-white hover:text-white/70 transition-colors"
+                >
+                  <X className="h-6 w-6" aria-hidden="true" />
+                </button>
+                <img
+                  src={screenshot}
+                  alt="Full-size screenshot"
+                  className="max-w-full max-h-full rounded shadow-2xl object-contain"
+                  onClick={e => e.stopPropagation()}
+                />
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setLightboxOpen(true)}
+              aria-label="View full-size screenshot"
+              className="block rounded border border-border hover:opacity-80 transition-opacity focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+            >
+              <img src={screenshot} alt="Screenshot of failure" className="max-w-full max-h-48 rounded object-contain" />
+            </button>
+            <button type="button" onClick={removeScreenshot} aria-label="Remove screenshot" className="absolute -top-1.5 -right-1.5 h-6 w-6 flex items-center justify-center rounded-full bg-transparent">
+              <span aria-hidden="true" className="h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center hover:bg-destructive/80">
+                <X className="h-3 w-3" aria-hidden="true" />
+              </span>
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => fileInputRef.current?.click()}>
+              <Upload className="h-3 w-3" aria-hidden="true" /> Upload
+            </Button>
+            <Button type="button" variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={handlePaste}>
+              <Clipboard className="h-3 w-3" aria-hidden="true" /> Paste
+            </Button>
+            <input ref={fileInputRef} type="file" accept="image/*" className="sr-only" aria-hidden="true" tabIndex={-1} onChange={handleFileChange} />
+          </div>
+        )}
+      </div>
+
+      {/* Remediation recommendation */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor={remediationId} className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+            <Lightbulb className="h-3 w-3" aria-hidden="true" /> Remediation recommendation
+          </Label>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 text-xs gap-1 px-2 text-muted-foreground hover:text-foreground"
+            onClick={handleGenerateRemediation}
+            disabled={generatingRemediation}
+            aria-label="Generate remediation recommendation with AI"
+          >
+            {generatingRemediation
+              ? <><Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> Generating…</>
+              : <><Wand2 className="h-3 w-3" aria-hidden="true" /> Generate with AI</>
+            }
+          </Button>
         </div>
+        {remediationError && (
+          <p role="alert" className="text-xs text-destructive mt-0.5">{remediationError}</p>
+        )}
+        <Textarea
+          id={remediationId}
+          value={localRemediation}
+          onChange={e => { setLocalRemediation(e.target.value); markDirty(); }}
+          rows={3}
+          className="text-sm resize-y"
+        />
+      </div>
+
+      {/* Save + Export buttons */}
+      <div className="flex items-center justify-end gap-2 pt-1">
+        {/* Polite live region — announces save confirmation to screen readers */}
+        <div
+          id={statusRegionId}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="sr-only"
+        >
+          {justSaved ? 'Changes saved.' : ''}
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs gap-1.5"
+          onClick={() => exportFailureAsTeamworkCsv({
+            notes: localNotes || undefined,
+            codeSnippet: localCode || undefined,
+            remediationRecommendation: localRemediation || undefined,
+            checkContext,
+          })}
+        >
+          <Download className="h-3.5 w-3.5" aria-hidden="true" /> Export issue
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          className={cn(
+            'h-7 text-xs gap-1.5 transition-colors',
+            justSaved && 'text-green-700 dark:text-green-400',
+          )}
+          onClick={handleSave}
+          disabled={!dirty}
+          aria-describedby={statusRegionId}
+        >
+          {justSaved
+            ? <><CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> Saved</>
+            : <><Save className="h-3.5 w-3.5" aria-hidden="true" /> Save</>
+          }
+        </Button>
       </div>
     </div>
   );
@@ -815,6 +962,65 @@ function NonTextElementsPanel({
 }
 
 // ---------------------------------------------------------------------------
+// ExportCheckMenu — small export dropdown for a single manual check
+// ---------------------------------------------------------------------------
+
+function ExportCheckMenu({ check }: { check: ManualCheckResult }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  return (
+    <div ref={menuRef} className="relative">
+      <button
+        type="button"
+        onClick={e => { e.stopPropagation(); setOpen(v => !v); }}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Export "${check.title}"`}
+        className="inline-flex items-center gap-1 rounded border border-dashed border-muted-foreground/30 text-xs h-5 px-1.5 text-muted-foreground hover:border-muted-foreground/60 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      >
+        <Download className="h-3 w-3" aria-hidden="true" />
+        Export
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full mt-1 z-20 min-w-[10rem] rounded border border-border bg-popover shadow-md py-1"
+          onClick={() => setOpen(false)}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted transition-colors text-left"
+            onClick={() => exportCheckAsTeamworkCsv(check)}
+          >
+            Teamwork (.csv)
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted transition-colors text-left"
+            onClick={() => exportCheckAsJiraCsv(check)}
+          >
+            Jira (.csv)
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // CheckRow — a single predefined WCAG check row
 // ---------------------------------------------------------------------------
 
@@ -833,96 +1039,86 @@ function CheckRow({
   showMeta?: boolean;
   onStatusChange: (status: ManualAuditStatus) => void;
   onAddFailure: () => void;
-  onUpdateFailure: (failureId: string, data: Partial<Pick<ManualFailureInstance, 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl'>>) => void;
+  onUpdateFailure: (failureId: string, data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>) => void;
   onDeleteFailure: (failureId: string) => void;
   smartElements?: DetectedElement[];
   onUpdateSmartElement?: (elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [autoExpanded, setAutoExpanded] = useState(false);
   const [showQuestions, setShowQuestions] = useState(false);
   const meta = check.wcagCriterion ? PREDEFINED_MAP[check.wcagCriterion] : undefined;
   const bodyId = `check-body-${check.id}`;
   const howToTestId = `check-howtotest-${check.id}`;
   const questions = meta?.questions ?? [];
 
-  // Auto-expand the row when detected elements arrive (data loads asynchronously)
-  useEffect(() => {
-    if (smartElements?.length && !autoExpanded) {
-      setExpanded(true);
-      setAutoExpanded(true);
-    }
-  }, [smartElements]);
-
   const failCount = (check.failures ?? []).length;
   const elementFailCount = smartElements?.filter(e => e.auditStatus === 'fail').length ?? 0;
 
   return (
     <div className="border-b last:border-b-0">
-      {/* Always-visible header: chevron + criterion + title + badges + status */}
-      <button
-        type="button"
-        onClick={() => setExpanded(v => !v)}
-        aria-expanded={expanded}
-        aria-controls={bodyId}
-        className="w-full flex items-center gap-2 py-2.5 px-4 text-left hover:bg-muted/30 transition-colors group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-      >
-        <ChevronDown
-          className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', expanded && 'rotate-180')}
-          aria-hidden="true"
-        />
-        <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
-          {check.wcagCriterion && (
-            <span className="font-mono text-sm text-muted-foreground shrink-0">{check.wcagCriterion}</span>
-          )}
-          <span className="text-sm font-medium">{check.title}</span>
-          {showMeta && (
-            <>
-              {check.level && (
-                <Badge variant="outline" className={cn('text-xs h-5 px-1.5 py-0', LEVEL_COLORS[check.level])}>
-                  {check.level}
-                </Badge>
-              )}
-              {meta?.category && (() => {
-                const Icon = CATEGORY_ICONS[meta.category];
-                return (
-                  <Badge variant="outline" className={cn('text-xs h-5 px-1.5 py-0 font-normal gap-1', CATEGORY_COLORS[meta.category])}>
-                    {Icon && <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />}
-                    {meta.category}
-                  </Badge>
-                );
-              })()}
-            </>
-          )}
-          {/* Summary badges shown when collapsed */}
-          {!expanded && (
-            <>
-              {check.status === 'fail' && (
-                <span className="text-xs text-red-700 dark:text-red-400 font-medium">✗ Fail</span>
-              )}
-              {check.status === 'pass' && (
-                <span className="text-xs text-green-700 dark:text-green-400 font-medium">✓ Pass</span>
-              )}
-              {check.status === 'na' && (
-                <span className="text-xs text-muted-foreground">— N/A</span>
-              )}
-              {(failCount > 0 || elementFailCount > 0) && (
-                <span className="text-xs text-red-700 dark:text-red-400">
-                  {failCount + elementFailCount} issue{failCount + elementFailCount !== 1 ? 's' : ''}
-                </span>
-              )}
-            </>
-          )}
-        </div>
-        {/* Status select — stop propagation so clicking it doesn't toggle collapse */}
-        <div
-          className="shrink-0"
-          onClick={e => e.stopPropagation()}
-          onKeyDown={e => e.stopPropagation()}
+      {/* Always-visible header: toggle button (left) + actions (right, outside the button) */}
+      <div className="flex items-center pr-3 hover:bg-muted/30 transition-colors group">
+        <button
+          type="button"
+          onClick={() => setExpanded(v => !v)}
+          aria-expanded={expanded}
+          aria-controls={bodyId}
+          className="flex-1 min-w-0 flex items-center gap-2 py-2.5 pl-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
         >
+          <ChevronDown
+            className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', expanded && 'rotate-180')}
+            aria-hidden="true"
+          />
+          <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+            {check.wcagCriterion && (
+              <span className="font-mono text-sm text-muted-foreground shrink-0">{check.wcagCriterion}</span>
+            )}
+            <span className="text-sm font-medium">{check.title}</span>
+            {showMeta && (
+              <>
+                {check.level && (
+                  <Badge variant="outline" className={cn('text-xs h-5 px-1.5 py-0', LEVEL_COLORS[check.level])}>
+                    {check.level}
+                  </Badge>
+                )}
+                {meta?.category && (() => {
+                  const Icon = CATEGORY_ICONS[meta.category];
+                  return (
+                    <Badge variant="outline" className={cn('text-xs h-5 px-1.5 py-0 font-normal gap-1', CATEGORY_COLORS[meta.category])}>
+                      {Icon && <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />}
+                      {meta.category}
+                    </Badge>
+                  );
+                })()}
+              </>
+            )}
+            {/* Summary badges shown when collapsed */}
+            {!expanded && (
+              <>
+                {check.status === 'fail' && (
+                  <span className="text-xs text-red-700 dark:text-red-400 font-medium">✗ Fail</span>
+                )}
+                {check.status === 'pass' && (
+                  <span className="text-xs text-green-700 dark:text-green-400 font-medium">✓ Pass</span>
+                )}
+                {check.status === 'na' && (
+                  <span className="text-xs text-muted-foreground">— N/A</span>
+                )}
+                {(failCount > 0 || elementFailCount > 0) && (
+                  <span className="text-xs text-red-700 dark:text-red-400">
+                    {failCount + elementFailCount} issue{failCount + elementFailCount !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+        </button>
+        {/* Actions sit outside the toggle button — no nested <button> */}
+        <div className="flex items-center gap-1.5 shrink-0 pl-2">
+          <ExportCheckMenu check={check} />
           <StatusSelect value={check.status} onChange={onStatusChange} />
         </div>
-      </button>
+      </div>
 
       {/* Expandable body */}
       {expanded && (
@@ -983,6 +1179,7 @@ function CheckRow({
                   key={failure.id}
                   index={i + 1}
                   failure={failure}
+                  checkContext={{ id: check.id, title: check.title, criterion: check.wcagCriterion, description: check.description }}
                   onUpdate={data => onUpdateFailure(failure.id, data)}
                   onDelete={() => onDeleteFailure(failure.id)}
                 />
@@ -1040,15 +1237,18 @@ function CustomCheckItem({
             <p className="text-xs text-muted-foreground">{check.description}</p>
           )}
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0"
-          onClick={onDelete}
-          aria-label={`Delete custom issue: ${check.title}`}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
+        <div className="flex items-center gap-1 shrink-0">
+          <ExportCheckMenu check={check} />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+            onClick={onDelete}
+            aria-label={`Delete custom issue: ${check.title}`}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       </div>
       <div className="flex items-center gap-3 flex-wrap">
         {check.impact && (
@@ -1094,7 +1294,7 @@ function CheckGroupSection({
   onNotesChange: (checkId: string, notes: string) => void;
   onDeleteCustomCheck: (checkId: string) => void;
   onAddFailure: (checkId: string) => void;
-  onUpdateFailure: (checkId: string, failureId: string, data: Partial<Pick<ManualFailureInstance, 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl'>>) => void;
+  onUpdateFailure: (checkId: string, failureId: string, data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>) => void;
   onDeleteFailure: (checkId: string, failureId: string) => void;
   detectedElements?: DetectedCriteriaElements;
   onUpdateDetectedElement?: (criterionId: string, elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => void;
@@ -1362,7 +1562,7 @@ interface ManualAuditTabProps {
   onAuditorNotesChange: (notes: string) => void;
   onToggleComplete?: (completed: boolean) => void;
   onAddFailure: (checkId: string) => void;
-  onUpdateFailure: (checkId: string, failureId: string, data: Partial<Pick<ManualFailureInstance, 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl'>>) => void;
+  onUpdateFailure: (checkId: string, failureId: string, data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>) => void;
   onDeleteFailure: (checkId: string, failureId: string) => void;
   onUpdateDetectedElement?: (criterionId: string, elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => void;
 }

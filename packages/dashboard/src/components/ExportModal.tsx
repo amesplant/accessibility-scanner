@@ -1,5 +1,13 @@
 import { useEffect, useId, useState } from 'react';
 import type { ReportListItem } from '@/hooks/useReports';
+import type { ManualCheckResult } from '@accessibility-scanner/shared';
+import type { FailureExportData } from '@/lib/manualExport';
+import {
+  exportCheckAsTeamworkCsv,
+  exportCheckAsJiraCsv,
+  exportFailureAsTeamworkCsv,
+  exportFailureAsJiraCsv,
+} from '@/lib/manualExport';
 import { Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,6 +30,18 @@ import {
 } from '@/components/ui/dialog';
 import { useExport, EXPORT_FORMAT_LABELS } from '@/hooks/useExport';
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export type SingleIssueData =
+  | { kind: 'check'; check: ManualCheckResult }
+  | { kind: 'failure'; data: FailureExportData };
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
 const LEVELS = [
   { value: 'A', label: 'Level A' },
   { value: 'AA', label: 'Level AA' },
@@ -29,30 +49,110 @@ const LEVELS = [
   { value: 'best-practice', label: 'Best Practice' },
 ] as const;
 
+const SCOPE_OPTIONS: { value: 'all' | 'automated' | 'manual'; label: string; description: string }[] = [
+  { value: 'all',       label: 'All issues',      description: 'Automated violations + manual audit checks' },
+  { value: 'automated', label: 'Automated only',   description: 'Only axe-detected violations' },
+  { value: 'manual',    label: 'Manual only',      description: 'Only manually added checks' },
+];
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function reportDisplayName(report: ReportListItem | null): string {
+  return report?.pageTitle || report?.sitemap?.replace(/https?:\/\//, '') || 'Report';
+}
+
+function makeDefaultTasklistName(report: ReportListItem | null): string {
+  const year = new Date().getFullYear();
+  return `Accessibility Audit ${year} | ${reportDisplayName(report)}`;
+}
+
+function makeDefaultFileName(report: ReportListItem | null): string {
+  const year = new Date().getFullYear();
+  const name = reportDisplayName(report);
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 60);
+  return `accessibility-audit-${year}-${slug}`;
+}
+
+function makeSingleIssueFileName(singleIssue: SingleIssueData): string {
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  if (singleIssue.kind === 'check') {
+    const { check } = singleIssue;
+    const criterion = check.wcagCriterion?.replace(/\./g, '-') ?? '';
+    const titleSlug = check.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+    return criterion ? `${criterion}-${titleSlug}-${today}` : `${titleSlug}-${today}`;
+  } else {
+    const ctx = singleIssue.data.checkContext;
+    const criterion = ctx?.criterion?.replace(/\./g, '-') ?? '';
+    const titleSlug = (ctx?.title ?? 'issue').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+    return criterion ? `${criterion}-${titleSlug}-${today}` : `${titleSlug}-${today}`;
+  }
+}
+
+function singleIssueDescription(singleIssue: SingleIssueData): string {
+  if (singleIssue.kind === 'check') {
+    const { check } = singleIssue;
+    return check.wcagCriterion ? `${check.wcagCriterion} ${check.title}` : check.title;
+  }
+  const ctx = singleIssue.data.checkContext;
+  return ctx?.criterion ? `${ctx.criterion} ${ctx.title ?? 'Failure instance'}` : (ctx?.title ?? 'Failure instance');
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
 interface ExportModalProps {
   report: ReportListItem | null;
   onClose: () => void;
+  /** When set the modal exports a single issue; hides scope + WCAG level controls */
+  singleIssue?: SingleIssueData;
 }
 
-export function ExportModal({ report, onClose }: ExportModalProps) {
+export function ExportModal({ report, onClose, singleIssue }: ExportModalProps) {
   const id = useId();
   const formatLabelId = `${id}-format`;
+  const scopeId = `${id}-scope`;
   const tasklistId = `${id}-tasklist`;
   const fileNameId = `${id}-filename`;
 
   const { format, setFormat, tasklistName, setTasklistName, isExporting, doExport } = useExport(report?.id ?? '');
   const [selectedLevels, setSelectedLevels] = useState<string[]>(['A', 'AA', 'AAA', 'best-practice']);
+  const [exportScope, setExportScope] = useState<'all' | 'automated' | 'manual'>('all');
   const [fileName, setFileName] = useState('');
 
-  // Reset fields whenever a new report is opened
+  const isSingleIssue = !!singleIssue;
+
+  // Reset fields when modal opens
   useEffect(() => {
-    if (report) {
-      setFileName(`accessibility-issues-${report.id}`);
-      setTasklistName('Accessibility Audit');
+    if (report && !singleIssue) {
+      setFileName(makeDefaultFileName(report));
+      setTasklistName(makeDefaultTasklistName(report));
       setFormat('excel');
       setSelectedLevels(['A', 'AA', 'AAA', 'best-practice']);
+      setExportScope('all');
     }
   }, [report?.id]);
+
+  useEffect(() => {
+    if (singleIssue) {
+      setFileName(makeSingleIssueFileName(singleIssue));
+      setFormat('excel');
+      // Derive a sensible tasklist name from check context
+      const year = new Date().getFullYear();
+      const ctx = singleIssue.kind === 'check'
+        ? { criterion: singleIssue.check.wcagCriterion, title: singleIssue.check.title }
+        : singleIssue.data.checkContext;
+      const issueLabel = ctx?.criterion ? `${ctx.criterion} ${ctx.title ?? ''}`.trim() : (ctx?.title ?? 'Issue');
+      setTasklistName(`Accessibility Audit ${year} | ${issueLabel}`);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!singleIssue]);
 
   function toggleLevel(value: string) {
     setSelectedLevels(prev =>
@@ -60,20 +160,42 @@ export function ExportModal({ report, onClose }: ExportModalProps) {
     );
   }
 
+  function handleSingleIssueExport() {
+    if (!singleIssue) return;
+    if (singleIssue.kind === 'check') {
+      if (format === 'jira') {
+        exportCheckAsJiraCsv(singleIssue.check, fileName);
+      } else {
+        exportCheckAsTeamworkCsv(singleIssue.check, tasklistName, fileName);
+      }
+    } else {
+      if (format === 'jira') {
+        exportFailureAsJiraCsv(singleIssue.data, fileName);
+      } else {
+        exportFailureAsTeamworkCsv({ ...singleIssue.data, tasklistName }, fileName);
+      }
+    }
+    onClose();
+  }
+
+  const isOpen = isSingleIssue ? true : !!report;
+  const dialogTitle = isSingleIssue ? 'Export Issue' : 'Export Report';
+  const dialogDesc = isSingleIssue
+    ? singleIssueDescription(singleIssue!)
+    : (report?.pageTitle || report?.sitemap || 'This report');
+
   return (
-    <Dialog open={!!report} onOpenChange={open => { if (!open) onClose(); }}>
+    <Dialog open={isOpen} onOpenChange={open => { if (!open) onClose(); }}>
       {/* p-0 + overflow-hidden so the scrollbar stays inside the rounded border */}
       <DialogContent className="text-foreground flex flex-col max-h-[90dvh] overflow-hidden p-0">
         <div className="px-6 pt-6 pb-4 border-b border-border">
           <DialogHeader>
-            <DialogTitle>Export Report</DialogTitle>
-            <DialogDescription>
-              {report?.pageTitle || report?.sitemap || 'This report'}
-            </DialogDescription>
+            <DialogTitle>{dialogTitle}</DialogTitle>
+            <DialogDescription>{dialogDesc}</DialogDescription>
           </DialogHeader>
         </div>
 
-        {/* Scrollable body — scrollbar is clipped by the outer overflow-hidden */}
+        {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto px-6 py-4 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
@@ -89,6 +211,34 @@ export function ExportModal({ report, onClose }: ExportModalProps) {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* What to export — hidden for single-issue exports */}
+            {!isSingleIssue && (
+              <fieldset className="flex flex-col gap-1.5">
+                <legend id={scopeId} className="text-sm font-medium mb-2">What to export</legend>
+                <div className="border rounded-md p-3 space-y-2">
+                  {SCOPE_OPTIONS.map(opt => (
+                    <div key={opt.value} className="flex items-start gap-2">
+                      <input
+                        id={`${id}-scope-${opt.value}`}
+                        type="radio"
+                        name={`${id}-scope`}
+                        value={opt.value}
+                        checked={exportScope === opt.value}
+                        onChange={() => setExportScope(opt.value)}
+                        className="mt-0.5 h-4 w-4 cursor-pointer accent-primary"
+                      />
+                      <div>
+                        <Label htmlFor={`${id}-scope-${opt.value}`} className="cursor-pointer font-normal leading-tight">
+                          {opt.label}
+                        </Label>
+                        <p className="text-xs text-muted-foreground">{opt.description}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </fieldset>
+            )}
 
             {format !== 'jira' && (
               <div className="flex flex-col gap-1.5">
@@ -110,25 +260,28 @@ export function ExportModal({ report, onClose }: ExportModalProps) {
               />
             </div>
 
-            <fieldset className="flex flex-col gap-1.5">
-              <legend className="text-sm font-medium mb-2">WCAG Levels to Export</legend>
-              <div className="border rounded-md p-3 space-y-2">
-                {LEVELS.map(({ value, label }) => (
-                  <div key={value} className="flex items-center gap-2">
-                    <input
-                      id={`${id}-level-${value}`}
-                      type="checkbox"
-                      className="h-4 w-4 appearance-none rounded border-2 border-muted-foreground bg-transparent transition-colors cursor-pointer checked:border-primary checked:bg-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                      checked={selectedLevels.includes(value)}
-                      onChange={() => toggleLevel(value)}
-                    />
-                    <Label htmlFor={`${id}-level-${value}`} className="cursor-pointer font-normal">
-                      {label}
-                    </Label>
-                  </div>
-                ))}
-              </div>
-            </fieldset>
+            {/* WCAG levels — hidden for single-issue exports and manual-only scope */}
+            {!isSingleIssue && exportScope !== 'manual' && (
+              <fieldset className="flex flex-col gap-1.5">
+                <legend className="text-sm font-medium mb-2">WCAG Levels to Export</legend>
+                <div className="border rounded-md p-3 space-y-2">
+                  {LEVELS.map(({ value, label }) => (
+                    <div key={value} className="flex items-center gap-2">
+                      <input
+                        id={`${id}-level-${value}`}
+                        type="checkbox"
+                        className="h-4 w-4 appearance-none rounded border-2 border-muted-foreground bg-transparent transition-colors cursor-pointer checked:border-primary checked:bg-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                        checked={selectedLevels.includes(value)}
+                        onChange={() => toggleLevel(value)}
+                      />
+                      <Label htmlFor={`${id}-level-${value}`} className="cursor-pointer font-normal">
+                        {label}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+              </fieldset>
+            )}
           </div>
         </div>
 
@@ -139,11 +292,14 @@ export function ExportModal({ report, onClose }: ExportModalProps) {
             </DialogClose>
             <Button
               type="button"
-              disabled={isExporting || selectedLevels.length === 0}
-              onClick={() => doExport(selectedLevels, fileName)}
+              disabled={!isSingleIssue && (isExporting || (exportScope !== 'manual' && selectedLevels.length === 0))}
+              onClick={isSingleIssue
+                ? handleSingleIssueExport
+                : () => doExport(exportScope !== 'manual' ? selectedLevels : undefined, fileName, exportScope)
+              }
             >
               <Download className="h-4 w-4" aria-hidden="true" />
-              {isExporting ? 'Exporting…' : 'Export Issues'}
+              {!isSingleIssue && isExporting ? 'Exporting…' : 'Export'}
             </Button>
           </DialogFooter>
         </div>
