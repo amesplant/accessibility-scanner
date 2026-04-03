@@ -6,7 +6,7 @@ import pLimit from 'p-limit';
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { ScanResult, ScanReport, DetectedElement } from '@accessibility-scanner/shared';
+import { ScanResult, ScanReport, DetectedElement } from '../../shared/dist/index.js';
 
 export class SitemapScanner {
   private browser: Browser | null = null;

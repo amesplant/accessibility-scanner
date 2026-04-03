@@ -1,8 +1,73 @@
 import { Command } from 'commander';
 import { promises as fs } from 'fs';
+import { randomUUID } from 'crypto';
 import path from 'path';
 import { SitemapScanner } from './scanner.js';
-import { DatabaseService } from './database.js';
+import { DatabaseService, type ReportBundleManifest, type ReportShardRef } from './database.js';
+import type { ScanReport } from '../../shared/dist/index.js';
+
+type BundleSummary = {
+  totalPages: number;
+  totalViolations: number;
+  violationsByImpact: Record<string, number>;
+  violationsByType: Record<string, number>;
+  violationsByLevel: Record<string, number>;
+  manualFailCount: number;
+  auditedPages: number;
+};
+
+function createBundleSummary(): BundleSummary {
+  return {
+    totalPages: 0,
+    totalViolations: 0,
+    violationsByImpact: {},
+    violationsByType: {},
+    violationsByLevel: {},
+    manualFailCount: 0,
+    auditedPages: 0,
+  };
+}
+
+function accumulateBundleSummary(summary: BundleSummary, report: ScanReport): void {
+  summary.totalPages += report.summary.totalPages;
+  summary.totalViolations += report.summary.totalViolations;
+  summary.manualFailCount += report.summary.manualFailCount ?? 0;
+  summary.auditedPages += report.summary.auditedPages ?? 0;
+
+  for (const [impact, count] of Object.entries(report.summary.violationsByImpact)) {
+    summary.violationsByImpact[impact] = (summary.violationsByImpact[impact] ?? 0) + count;
+  }
+
+  for (const [type, count] of Object.entries(report.summary.violationsByType)) {
+    summary.violationsByType[type] = (summary.violationsByType[type] ?? 0) + count;
+  }
+
+  for (const [level, count] of Object.entries(report.summary.violationsByLevel)) {
+    summary.violationsByLevel[level] = (summary.violationsByLevel[level] ?? 0) + count;
+  }
+}
+
+function buildBundleManifest(
+  bundleId: string,
+  metadata: Pick<ScanReport, 'sitemap' | 'pageTitle' | 'startTime' | 'endTime' | 'auditType' | 'wcagLevel' | 'includeBestPractices' | 'projectId'>,
+  summary: BundleSummary,
+  shards: ReportShardRef[],
+): ReportBundleManifest {
+  return {
+    id: bundleId,
+    sitemap: metadata.sitemap,
+    pageTitle: metadata.pageTitle,
+    startTime: metadata.startTime,
+    endTime: metadata.endTime,
+    auditType: metadata.auditType,
+    wcagLevel: metadata.wcagLevel,
+    includeBestPractices: metadata.includeBestPractices,
+    projectId: metadata.projectId,
+    summary,
+    kind: 'bundle',
+    shards,
+  };
+}
 
 const program = new Command();
 
@@ -29,66 +94,58 @@ program
     if (batchSize > 0 && !options.batchIndex) {
       const allUrls = await scanner.getUrls();
       const totalBatches = Math.ceil(allUrls.length / batchSize);
-      const partialReports = [];
+      const bundleId = randomUUID();
+      const shards: ReportShardRef[] = [];
+      const summary = createBundleSummary();
+      let firstReport: ScanReport | undefined;
+      let startTime: ScanReport['startTime'] | undefined;
+      let endTime: ScanReport['endTime'] | undefined;
 
       for (let i = 1; i <= totalBatches; i++) {
         // run each batch with explicit URLs so scanner does not re-slice the same batch
         const chunkUrls = allUrls.slice((i - 1) * batchSize, i * batchSize);
         const chunkScanner = new SitemapScanner({ ...options, urls: chunkUrls });
         const chunkReport = await chunkScanner.scan();
-        partialReports.push(chunkReport);
+
+        if (!firstReport) {
+          firstReport = chunkReport;
+        }
+
+        startTime = !startTime || new Date(chunkReport.startTime).getTime() < new Date(startTime).getTime()
+          ? chunkReport.startTime
+          : startTime;
+        endTime = !endTime || new Date(chunkReport.endTime).getTime() > new Date(endTime).getTime()
+          ? chunkReport.endTime
+          : endTime;
+
+        const shardRef = await db.saveReportBundleShard(bundleId, chunkReport);
+        shards.push(shardRef);
+        accumulateBundleSummary(summary, chunkReport);
+
+        const maybeGc = (globalThis as { gc?: () => void }).gc;
+        if (typeof maybeGc === 'function') {
+          maybeGc();
+        }
 
         // eslint-disable-next-line no-console
         console.log(`Batch ${i}/${totalBatches} complete; report ID ${chunkReport.id}`);
       }
 
-      // Persist all batch shards under a single bundle id so the dashboard
-      // exposes one scan entry instead of one entry per batch file.
-      const bundleId = await db.saveReportBundle(partialReports, {
-        sitemap: options.sitemap,
-      });
+      if (!firstReport) {
+        throw new Error('No reports were generated for the requested batches');
+      }
 
-      const bundleManifest = {
-        id: bundleId,
+      const bundleManifest = buildBundleManifest(bundleId, {
         sitemap: options.sitemap,
-        pageTitle: partialReports[0]?.pageTitle,
-        startTime: partialReports.reduce((earliest, report) =>
-          new Date(report.startTime).getTime() < new Date(earliest).getTime() ? report.startTime : earliest,
-        partialReports[0]?.startTime ?? new Date().toISOString()),
-        endTime: partialReports.reduce((latest, report) =>
-          new Date(report.endTime).getTime() > new Date(latest).getTime() ? report.endTime : latest,
-        partialReports[0]?.endTime ?? new Date().toISOString()),
-        auditType: partialReports[0]?.auditType,
-        wcagLevel: partialReports[0]?.wcagLevel,
-        includeBestPractices: partialReports[0]?.includeBestPractices,
-        projectId: partialReports[0]?.projectId,
-        summary: partialReports.reduce((acc, report) => {
-          acc.totalPages += report.summary.totalPages;
-          acc.totalViolations += report.summary.totalViolations;
-          for (const [impact, count] of Object.entries(report.summary.violationsByImpact)) {
-            acc.violationsByImpact[impact] = (acc.violationsByImpact[impact] ?? 0) + count;
-          }
-          for (const [type, count] of Object.entries(report.summary.violationsByType)) {
-            acc.violationsByType[type] = (acc.violationsByType[type] ?? 0) + count;
-          }
-          for (const [level, count] of Object.entries(report.summary.violationsByLevel)) {
-            acc.violationsByLevel[level] = (acc.violationsByLevel[level] ?? 0) + count;
-          }
-          return acc;
-        }, {
-          totalPages: 0,
-          totalViolations: 0,
-          violationsByImpact: {} as Record<string, number>,
-          violationsByType: {} as Record<string, number>,
-          violationsByLevel: {} as Record<string, number>,
-        }),
-        kind: 'bundle',
-        shards: partialReports.map((report) => ({
-          id: report.id,
-          file: path.join('shards', `${report.id}.json`),
-          count: report.results.length,
-        })),
-      };
+        pageTitle: firstReport.pageTitle,
+        startTime: startTime ?? firstReport.startTime,
+        endTime: endTime ?? firstReport.endTime,
+        auditType: firstReport.auditType,
+        wcagLevel: firstReport.wcagLevel,
+        includeBestPractices: firstReport.includeBestPractices,
+        projectId: firstReport.projectId,
+      }, summary, shards);
+      await db.saveReportBundleManifest(bundleId, bundleManifest);
 
       if (options.output) {
         const outputPath = path.isAbsolute(options.output)
@@ -145,10 +202,15 @@ program
   .option('-o, --output <path>', 'Output path (JSON) for bundled report manifest')
   .action(async (options) => {
     const db = new DatabaseService();
-    const reports = [];
+    const bundleId = randomUUID();
+    const shards: ReportShardRef[] = [];
+    const summary = createBundleSummary();
+    let firstReport: ScanReport | undefined;
+    let startTime: ScanReport['startTime'] | undefined;
+    let endTime: ScanReport['endTime'] | undefined;
 
     for (const item of options.input) {
-      let report;
+      let report: ScanReport | undefined;
       if (item.endsWith('.json') || item.includes('/') || item.includes('\\')) {
         const absolute = path.isAbsolute(item) ? item : path.resolve(process.cwd(), item);
         const raw = await fs.readFile(absolute, 'utf-8');
@@ -160,52 +222,38 @@ program
       if (!report) {
         throw new Error(`Report not found: ${item}`);
       }
-      reports.push(report);
+
+      if (!firstReport) {
+        firstReport = report;
+      }
+
+      startTime = !startTime || new Date(report.startTime).getTime() < new Date(startTime).getTime()
+        ? report.startTime
+        : startTime;
+      endTime = !endTime || new Date(report.endTime).getTime() > new Date(endTime).getTime()
+        ? report.endTime
+        : endTime;
+
+      const shardRef = await db.saveReportBundleShard(bundleId, report);
+      shards.push(shardRef);
+      accumulateBundleSummary(summary, report);
     }
 
-    const bundleId = await db.saveReportBundle(reports);
+    if (!firstReport) {
+      throw new Error('No reports were provided to merge');
+    }
 
-    const bundleManifest = {
-      id: bundleId,
-      sitemap: reports[0]?.sitemap,
-      pageTitle: reports[0]?.pageTitle,
-      startTime: reports.reduce((earliest, report) =>
-        new Date(report.startTime).getTime() < new Date(earliest).getTime() ? report.startTime : earliest,
-      reports[0]?.startTime ?? new Date().toISOString()),
-      endTime: reports.reduce((latest, report) =>
-        new Date(report.endTime).getTime() > new Date(latest).getTime() ? report.endTime : latest,
-      reports[0]?.endTime ?? new Date().toISOString()),
-      auditType: reports[0]?.auditType,
-      wcagLevel: reports[0]?.wcagLevel,
-      includeBestPractices: reports[0]?.includeBestPractices,
-      projectId: reports[0]?.projectId,
-      summary: reports.reduce((acc, report) => {
-        acc.totalPages += report.summary.totalPages;
-        acc.totalViolations += report.summary.totalViolations;
-        for (const [impact, count] of Object.entries(report.summary.violationsByImpact)) {
-          acc.violationsByImpact[impact] = (acc.violationsByImpact[impact] ?? 0) + count;
-        }
-        for (const [type, count] of Object.entries(report.summary.violationsByType)) {
-          acc.violationsByType[type] = (acc.violationsByType[type] ?? 0) + count;
-        }
-        for (const [level, count] of Object.entries(report.summary.violationsByLevel)) {
-          acc.violationsByLevel[level] = (acc.violationsByLevel[level] ?? 0) + count;
-        }
-        return acc;
-      }, {
-        totalPages: 0,
-        totalViolations: 0,
-        violationsByImpact: {} as Record<string, number>,
-        violationsByType: {} as Record<string, number>,
-        violationsByLevel: {} as Record<string, number>,
-      }),
-      kind: 'bundle',
-      shards: reports.map((report) => ({
-        id: report.id,
-        file: path.join('shards', `${report.id}.json`),
-        count: report.results.length,
-      })),
-    };
+    const bundleManifest = buildBundleManifest(bundleId, {
+      sitemap: firstReport.sitemap,
+      pageTitle: firstReport.pageTitle,
+      startTime: startTime ?? firstReport.startTime,
+      endTime: endTime ?? firstReport.endTime,
+      auditType: firstReport.auditType,
+      wcagLevel: firstReport.wcagLevel,
+      includeBestPractices: firstReport.includeBestPractices,
+      projectId: firstReport.projectId,
+    }, summary, shards);
+    await db.saveReportBundleManifest(bundleId, bundleManifest);
 
     if (options.output) {
       const outputPath = path.isAbsolute(options.output)

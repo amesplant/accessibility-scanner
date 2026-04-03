@@ -1,4 +1,4 @@
-import { ScanReport, AxeViolation, ManualCheckResult, DetectedElement } from '@accessibility-scanner/shared';
+import { ScanReport, AxeViolation, ManualCheckResult, DetectedElement } from '../../shared/dist/index.js';
 import ExcelJS from 'exceljs';
 import type { Stream } from 'stream';
 

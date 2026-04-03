@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
-import { ScanReport, Project, AxeViolation } from '@accessibility-scanner/shared';
+import { ScanReport, Project, AxeViolation } from '../../shared/dist/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_DATA_DIR = path.join(__dirname, '..', 'data');
@@ -26,13 +26,13 @@ export type ReportSummary = Omit<ScanReport, 'results'> & {
   summary: SummaryStats;
 };
 
-interface ReportShardRef {
+export interface ReportShardRef {
   id: string;
   file: string;
   count: number;
 }
 
-interface ReportBundleManifest extends ReportSummary {
+export interface ReportBundleManifest extends ReportSummary {
   kind: 'bundle';
   shards: ReportShardRef[];
 }
@@ -360,6 +360,26 @@ export class DatabaseService {
     await fs.writeFile(this.bundleManifestFile(id), JSON.stringify(manifest));
   }
 
+  async saveReportBundleShard(bundleId: string, report: ScanReport): Promise<ReportShardRef> {
+    await this.ensureDirs();
+    await fs.mkdir(this.bundleShardsDir(bundleId), { recursive: true });
+
+    const shard: ReportShardRef = {
+      id: report.id,
+      file: path.join('shards', `${report.id}.json`),
+      count: report.results.length,
+    };
+
+    await fs.writeFile(path.join(this.bundleShardsDir(bundleId), `${report.id}.json`), JSON.stringify(report));
+    return shard;
+  }
+
+  async saveReportBundleManifest(bundleId: string, manifest: ReportBundleManifest): Promise<void> {
+    await this.writeBundleManifest(bundleId, manifest);
+    const { kind: _kind, shards: _shards, ...summary } = manifest;
+    await this.upsertSummary(summary);
+  }
+
   // ── Reports ──────────────────────────────────────────────────────────────
 
   async saveReport(report: ScanReport): Promise<void> {
@@ -381,10 +401,10 @@ export class DatabaseService {
     const bundleId = options.id ?? randomUUID();
     const manifest = this.bundleManifestFromReports(bundleId, reports, options);
 
-    await this.writeBundleManifest(bundleId, manifest);
-    await Promise.all(reports.map((report) => fs.writeFile(path.join(this.bundleShardsDir(bundleId), `${report.id}.json`), JSON.stringify(report))));
-    const { kind: _kind, shards: _shards, ...summary } = manifest;
-    await this.upsertSummary(summary);
+    for (const report of reports) {
+      await this.saveReportBundleShard(bundleId, report);
+    }
+    await this.saveReportBundleManifest(bundleId, manifest);
 
     return bundleId;
   }

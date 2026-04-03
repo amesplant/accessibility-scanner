@@ -10,7 +10,7 @@ import { DatabaseService } from './database.js';
 import { Reporter } from './exporter.js';
 import { SitemapScanner } from './scanner.js';
 import { crawlSite } from './crawler.js';
-import { AuditType, createDefaultChecks, ManualAudit, ManualAuditStatus, ManualCheckResult, ManualFailureInstance, Project } from '@accessibility-scanner/shared';
+import { AuditType, createDefaultChecks, ManualAudit, ManualAuditStatus, ManualCheckResult, ManualFailureInstance, Project } from '../../shared/dist/index.js';
 
 const app = express();
 const db = new DatabaseService();

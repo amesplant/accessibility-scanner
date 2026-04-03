@@ -23,12 +23,6 @@
     "allowSyntheticDefaultImports": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
-    "baseUrl": ".",
-    "paths": {
-      "@accessibility-scanner/shared": ["packages/shared/dist"],
-      "@accessibility-scanner/shared/*": ["packages/shared/dist/*"],
-      "@/*": ["./*"]
-    }
   },
   "exclude": [
     "node_modules",
