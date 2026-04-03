@@ -69,12 +69,83 @@ app.get('/api/reports', async (_req, res) => {
   }
 });
 
+app.get('/api/reports/:id/summary', async (req, res) => {
+  const report = await db.getReportSummary(req.params.id);
+  if (!report) {
+    return res.status(404).json({ error: 'Report not found' });
+  }
+  return res.json(report);
+});
+
 app.get('/api/reports/:id', async (req, res) => {
   const report = await db.getReport(req.params.id);
   if (!report) {
     return res.status(404).json({ error: 'Report not found' });
   }
   return res.json(report);
+});
+
+app.get('/api/reports/:id/pages', async (req, res) => {
+  try {
+    const offset = Math.max(0, Number(req.query.offset ?? 0));
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 25)));
+    const slice = await db.listReportPages(req.params.id, offset, limit);
+    return res.json(slice);
+  } catch (err) {
+    console.error('Error listing pages:', err);
+    return res.status(500).json({ error: 'Failed to list pages' });
+  }
+});
+
+app.get('/api/reports/:id/pages/:pageId', async (req, res) => {
+  try {
+    const page = await db.getReportPage(req.params.id, req.params.pageId);
+    if (!page) return res.status(404).json({ error: 'Page not found' });
+    return res.json(page);
+  } catch (err) {
+    console.error('Error fetching page:', err);
+    return res.status(500).json({ error: 'Failed to fetch page' });
+  }
+});
+
+app.get('/api/reports/:id/violations', async (req, res) => {
+  try {
+    const offset = Math.max(0, Number(req.query.offset ?? 0));
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 25)));
+    const groups = await db.listViolationGroups(req.params.id);
+    return res.json({
+      items: groups.slice(offset, offset + limit),
+      total: groups.length,
+      offset,
+      limit,
+    });
+  } catch (err) {
+    console.error('Error listing violations:', err);
+    return res.status(500).json({ error: 'Failed to list violations' });
+  }
+});
+
+app.get('/api/reports/:id/violations/:violationId', async (req, res) => {
+  try {
+    const group = await db.getViolationGroup(req.params.id, req.params.violationId);
+    if (!group) return res.status(404).json({ error: 'Violation not found' });
+    return res.json(group);
+  } catch (err) {
+    console.error('Error fetching violation:', err);
+    return res.status(500).json({ error: 'Failed to fetch violation' });
+  }
+});
+
+app.get('/api/reports/:id/violations/:violationId/pages', async (req, res) => {
+  try {
+    const offset = Math.max(0, Number(req.query.offset ?? 0));
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 25)));
+    const slice = await db.listViolationPages(req.params.id, req.params.violationId, offset, limit);
+    return res.json(slice);
+  } catch (err) {
+    console.error('Error listing violation pages:', err);
+    return res.status(500).json({ error: 'Failed to list violation pages' });
+  }
 });
 
 app.delete('/api/reports/:id', async (req, res) => {
@@ -124,10 +195,11 @@ app.post('/api/reports/:id/export/excel', async (req, res) => {
     if (!report) return res.status(404).json({ error: 'Report not found' });
     const { selectedViolations, tasklistName, selectedLevels } = req.body;
     const exporter = new Reporter();
-    const buffer = await exporter.exportToExcel(report, selectedViolations, tasklistName, selectedLevels);
     res.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.header('Content-Disposition', `attachment; filename="accessibility-export-${req.params.id}.xlsx"`);
-    return res.send(buffer);
+    res.flushHeaders();
+    await exporter.streamToExcel(report, res, selectedViolations, tasklistName, selectedLevels);
+    return;
   } catch (error) {
     console.error('Excel export error:', error);
     return res.status(500).json({ error: 'Excel export failed' });

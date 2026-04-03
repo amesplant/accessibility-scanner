@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-import { useReport } from '@/hooks/useReport';
+import { useReportPage } from '@/hooks/useReportPage';
 import { useManualAudit } from '@/hooks/useManualAudit';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,12 +12,10 @@ import { X, ArrowLeft, ChevronDown, Image as ImageIcon, Upload, Clipboard } from
 
 export function PageWindow() {
   const { id, pageId } = useParams<{ id: string; pageId: string }>();
-  const { report, loading, error, updateViolationOverride, updateViolationNode } = useReport(id);
+  const { page, loading, error, updateViolationOverride, updateViolationNode } = useReportPage(id, pageId);
   const navigate = useNavigate();
   const location = useLocation();
   const initialTab = (location.state as { tab?: string } | null)?.tab ?? 'automated';
-
-  const page = report?.results.find(r => r.id === pageId) ?? null;
 
   const { audit, detectedElements, updateCheck, updateNotes, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement } =
     useManualAudit(id ?? '', pageId ?? '', page?.manualAudit, page?.detectedElements);
@@ -93,7 +91,6 @@ export function PageWindow() {
 
   if (loading) return <div className="p-6">Loading…</div>;
   if (error)   return <div className="p-6">Error: {error}</div>;
-  if (!report) return <div className="p-6">Report not found.</div>;
   if (!page)   return <div className="p-6">Page not found in this report.</div>;
 
   const impactColors = {

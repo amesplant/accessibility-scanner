@@ -1058,11 +1058,18 @@ export class SitemapScanner {
       totalViolations: results.reduce((sum, r) => sum + r.violations.length, 0),
       violationsByImpact: {} as Record<string, number>,
       violationsByType: {} as Record<string, number>,
-      violationsByLevel: {} as Record<string, number>
+      violationsByLevel: {} as Record<string, number>,
+      manualFailCount: 0,
+      auditedPages: 0,
     };
 
     // Calculate violations by impact, type, and level
     results.forEach(result => {
+      if (result.manualAudit?.completed) {
+        summary.auditedPages += 1;
+      }
+      summary.manualFailCount += result.manualAudit?.checks.filter(c => c.status === 'fail').length ?? 0;
+
       result.violations.forEach(violation => {
         summary.violationsByImpact[violation.impact] = 
           (summary.violationsByImpact[violation.impact] || 0) + 1;
@@ -1110,10 +1117,17 @@ export class SitemapScanner {
       totalViolations: combinedResults.reduce((sum, r) => sum + r.violations.length, 0),
       violationsByImpact: {} as Record<string, number>,
       violationsByType: {} as Record<string, number>,
-      violationsByLevel: {} as Record<string, number>
+      violationsByLevel: {} as Record<string, number>,
+      manualFailCount: 0,
+      auditedPages: 0,
     };
 
     combinedResults.forEach(result => {
+      if (result.manualAudit?.completed) {
+        summary.auditedPages += 1;
+      }
+      summary.manualFailCount += result.manualAudit?.checks.filter(c => c.status === 'fail').length ?? 0;
+
       result.violations.forEach(violation => {
         summary.violationsByImpact[violation.impact] = (summary.violationsByImpact[violation.impact] || 0) + 1;
         summary.violationsByType[violation.id] = (summary.violationsByType[violation.id] || 0) + 1;

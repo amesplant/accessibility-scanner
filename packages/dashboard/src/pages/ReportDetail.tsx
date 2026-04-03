@@ -29,7 +29,6 @@ export function ReportDetail() {
   const [exportOpen, setExportOpen] = useState(false);
 
   const activeTab = searchParams.get('tab') || 'overview';
-  const activeImpact = searchParams.get('impact') || '';
 
   function handleTabChange(tab: string) {
     setSearchParams(prev => {
@@ -57,12 +56,8 @@ export function ReportDetail() {
   if (error) return <div>Error: {error}</div>;
   if (!report) return <div>Report not found</div>;
 
-  const manualFailCount = report.results.reduce(
-    (sum, r) => sum + (r.manualAudit?.checks.filter(c => c.status === 'fail').length ?? 0),
-    0,
-  );
-
-  const auditedCount = report.results.filter(r => r.manualAudit?.completed).length;
+  const manualFailCount = report.summary.manualFailCount ?? 0;
+  const auditedCount = report.summary.auditedPages ?? 0;
   const auditCoveragePct = report.summary.totalPages > 0
     ? Math.round((auditedCount / report.summary.totalPages) * 100)
     : 0;
@@ -70,20 +65,6 @@ export function ReportDetail() {
   const impactData = Object.entries(report.summary.violationsByImpact || {}).map(
     ([impact, count]) => ({ impact, count })
   );
-
-  // Build a lookup from violation ID → violation object for display enrichment
-  const violationMeta = report.results
-    .flatMap(r => r.violations)
-    .reduce((acc, v) => {
-      if (!acc[v.id]) acc[v.id] = v;
-      return acc;
-    }, {} as Record<string, import('@accessibility-scanner/shared').AxeViolation>);
-
-  function wcagCriteria(tags: string[]): string[] {
-    return tags
-      .filter(t => /^wcag\d{3,}$/.test(t))
-      .map(t => { const d = t.replace('wcag', ''); return `${d[0]}.${d[1]}.${d.slice(2)}`; });
-  }
 
   return (
     <div className="container mx-auto p-6">
@@ -256,24 +237,17 @@ export function ReportDetail() {
                   .sort(([, a], [, b]) => b - a)
                   .slice(0, 10)
                   .map(([type, count]) => {
-                    const meta = violationMeta[type];
-                    const criteria = meta ? wcagCriteria(meta.tags) : [];
-                    const level = meta?.level ?? null;
-                    const label = meta ? meta.help : type;
-                    const suffix = criteria.length > 0
-                      ? `${criteria.join(', ')} ${level && level !== 'best-practice' ? level : 'Best Practice'}`
-                      : level && level !== 'best-practice' ? level : 'Best Practice';
                     return (
                       <div key={type} className="flex items-center gap-2">
                         <div className="flex-1">
                           <div className="flex items-baseline gap-2 mb-0.5">
-                            <p className="text-sm font-medium">{label}</p>
-                            <span className="text-xs text-muted-foreground font-mono shrink-0">{suffix}</span>
+                            <p className="text-sm font-medium">{type}</p>
+                            <span className="text-xs text-muted-foreground font-mono shrink-0">{count}</span>
                           </div>
                           <Progress
                             value={(count / report.summary.totalViolations) * 100}
                             className="h-2"
-                            aria-label={`${label}: ${count} of ${report.summary.totalViolations} violations`}
+                            aria-label={`${type}: ${count} of ${report.summary.totalViolations} violations`}
                           />
                         </div>
                         <span className="text-sm w-12 text-right">{count}</span>
@@ -286,14 +260,11 @@ export function ReportDetail() {
         </TabsContent>
         
         <TabsContent value="violations">
-          <ViolationsTable
-            report={report}
-            initialImpactFilter={activeImpact}
-          />
+          <ViolationsTable reportId={report.id} />
         </TabsContent>
 
         <TabsContent value="pages">
-          <PagesList results={report.results} reportId={report.id} />
+          <PagesList reportId={report.id} />
         </TabsContent>
 
       </Tabs>
