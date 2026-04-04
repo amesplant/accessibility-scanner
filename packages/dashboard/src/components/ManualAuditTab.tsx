@@ -1244,15 +1244,17 @@ function CheckRow({
             />
           )}
 
-          {/* Failure instances */}
-          <FailureInstancesSection
-            failures={check.failures}
-            checkContext={{ id: check.id, title: check.title, criterion: check.wcagCriterion, description: check.description }}
-            onAdd={onAddFailure}
-            onUpdate={(fid, data) => onUpdateFailure(fid, data)}
-            onDelete={onDeleteFailure}
-            className="mt-2 pt-0"
-          />
+          {/* Failure instances — only shown when check is marked fail or has existing failures */}
+          {(check.status === 'fail' || (check.failures ?? []).length > 0) && (
+            <FailureInstancesSection
+              failures={check.failures}
+              checkContext={{ id: check.id, title: check.title, criterion: check.wcagCriterion, description: check.description }}
+              onAdd={onAddFailure}
+              onUpdate={(fid, data) => onUpdateFailure(fid, data)}
+              onDelete={onDeleteFailure}
+              className="mt-2 pt-0"
+            />
+          )}
         </div>
       )}
     </div>
