@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   ManualAudit,
   ManualAuditStatus,
@@ -56,6 +56,7 @@ import {
   Save,
   Lightbulb,
   Download,
+  Info,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -947,6 +948,7 @@ function NonTextElementsPanel({
   onUpdateElementFailure,
   onDeleteElementFailure,
   onAutoPass,
+  onAddCriterionFailure,
   emptyLabel = 'No non-text elements detected on this page — nothing to audit for 1.1.1.',
 }: {
   elements: DetectedElement[];
@@ -956,6 +958,7 @@ function NonTextElementsPanel({
   onUpdateElementFailure?: (elementId: string, failureId: string, data: FailureUpdateData) => void;
   onDeleteElementFailure?: (elementId: string, failureId: string) => void;
   onAutoPass?: () => void;
+  onAddCriterionFailure?: () => void;
   emptyLabel?: string;
 }) {
   const reviewed = elements.filter(e => e.auditStatus !== 'not-reviewed').length;
@@ -992,6 +995,22 @@ function NonTextElementsPanel({
             <span className="text-red-700 dark:text-red-400 ml-2">· {failed} failed</span>
           )}
         </span>
+      </div>
+      <div className="px-3 py-3 bg-muted/20 border-b flex items-start gap-2">
+        <Info className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" aria-hidden="true" />
+        <p className="text-sm text-muted-foreground leading-snug">
+          Detection is automated — also review the live page directly for issues not captured below.{' '}
+          {onAddCriterionFailure && (
+            <button
+              type="button"
+              onClick={onAddCriterionFailure}
+              className="font-medium underline hover:no-underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
+            >
+              Add a failure instance
+            </button>
+          )}{' '}
+          for anything found manually.
+        </p>
       </div>
       <div className="divide-y">
         {elements.map(el => (
@@ -1105,6 +1124,22 @@ function CheckRow({
 
   const failCount = (check.failures ?? []).length;
   const elementFailCount = smartElements?.filter(e => e.auditStatus === 'fail').length ?? 0;
+
+  // Wrap element updates to auto-derive criterion status when all elements are reviewed
+  const handleSmartElementUpdate = useCallback(
+    (elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => {
+      onUpdateSmartElement?.(elementId, status, comment);
+      if (smartElements && smartElements.length > 0) {
+        const projected = smartElements.map(e => e.id === elementId ? { ...e, auditStatus: status } : e);
+        const allReviewed = projected.every(e => e.auditStatus !== 'not-reviewed');
+        if (allReviewed) {
+          const anyFailed = projected.some(e => e.auditStatus === 'fail' || (e.failures ?? []).length > 0);
+          onStatusChange(anyFailed ? 'fail' : 'pass');
+        }
+      }
+    },
+    [onUpdateSmartElement, smartElements, onStatusChange],
+  );
 
   return (
     <div className="border-b last:border-b-0">
@@ -1225,11 +1260,12 @@ function CheckRow({
             <NonTextElementsPanel
               elements={smartElements}
               criterionId={check.wcagCriterion}
-              onUpdate={onUpdateSmartElement}
+              onUpdate={handleSmartElementUpdate}
               onAddElementFailure={onAddElementFailure}
               onUpdateElementFailure={onUpdateElementFailure}
               onDeleteElementFailure={onDeleteElementFailure}
               onAutoPass={smartElements.length === 0 ? () => onStatusChange('pass') : undefined}
+              onAddCriterionFailure={() => { onAddFailure(); if (check.status !== 'fail') onStatusChange('fail'); }}
               emptyLabel={
                 check.wcagCriterion === '1.2.1'
                   ? 'No audio or video-only elements detected on this page — nothing to audit for 1.2.1.'
