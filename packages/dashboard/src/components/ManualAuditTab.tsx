@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   ManualAudit,
   ManualAuditStatus,
@@ -14,7 +14,7 @@ import {
   MID_LEVEL_AUDIT_CHECK_IDS,
 } from '@accessibility-scanner/shared';
 import { cn } from '@/lib/utils';
-import { exportCheckAsTeamworkCsv, exportCheckAsJiraCsv, exportFailureAsTeamworkCsv } from '@/lib/manualExport';
+import { ExportModal } from '@/components/ExportModal';
 import { useCurrentReport } from '@/context/CurrentReportContext';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -364,6 +364,7 @@ function FailureInstanceItem({
   const [remediationError, setRemediationError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const notesId = `failure-notes-${failure.id}`;
@@ -657,15 +658,27 @@ function FailureInstanceItem({
           variant="outline"
           size="sm"
           className="h-7 text-xs gap-1.5"
-          onClick={() => exportFailureAsTeamworkCsv({
-            notes: localNotes || undefined,
-            codeSnippet: localCode || undefined,
-            remediationRecommendation: localRemediation || undefined,
-            checkContext,
-          })}
+          onClick={() => setExportOpen(true)}
         >
           <Download className="h-3.5 w-3.5" aria-hidden="true" /> Export issue
         </Button>
+        {exportOpen && (
+          <ExportModal
+            report={null}
+            singleIssue={{
+              kind: 'failure',
+              data: {
+                notes: localNotes || undefined,
+                codeSnippet: localCode || undefined,
+                remediationRecommendation: localRemediation || undefined,
+                checkContext: checkContext
+                  ? { criterion: checkContext.criterion, title: checkContext.title, description: checkContext.description }
+                  : undefined,
+              },
+            }}
+            onClose={() => setExportOpen(false)}
+          />
+        )}
         <Button
           type="button"
           size="sm"
@@ -962,65 +975,6 @@ function NonTextElementsPanel({
 }
 
 // ---------------------------------------------------------------------------
-// ExportCheckMenu — small export dropdown for a single manual check
-// ---------------------------------------------------------------------------
-
-function ExportCheckMenu({ check }: { check: ManualCheckResult }) {
-  const [open, setOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  // Close on outside click
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [open]);
-
-  return (
-    <div ref={menuRef} className="relative">
-      <button
-        type="button"
-        onClick={e => { e.stopPropagation(); setOpen(v => !v); }}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={`Export "${check.title}"`}
-        className="inline-flex items-center gap-1 rounded border border-dashed border-muted-foreground/30 text-xs h-5 px-1.5 text-muted-foreground hover:border-muted-foreground/60 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-      >
-        <Download className="h-3 w-3" aria-hidden="true" />
-        Export
-      </button>
-      {open && (
-        <div
-          role="menu"
-          className="absolute right-0 top-full mt-1 z-20 min-w-[10rem] rounded border border-border bg-popover shadow-md py-1"
-          onClick={() => setOpen(false)}
-        >
-          <button
-            type="button"
-            role="menuitem"
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted transition-colors text-left"
-            onClick={() => exportCheckAsTeamworkCsv(check)}
-          >
-            Teamwork (.csv)
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted transition-colors text-left"
-            onClick={() => exportCheckAsJiraCsv(check)}
-          >
-            Jira (.csv)
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // CheckRow — a single predefined WCAG check row
 // ---------------------------------------------------------------------------
 
@@ -1046,6 +1000,7 @@ function CheckRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showQuestions, setShowQuestions] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const meta = check.wcagCriterion ? PREDEFINED_MAP[check.wcagCriterion] : undefined;
   const bodyId = `check-body-${check.id}`;
   const howToTestId = `check-howtotest-${check.id}`;
@@ -1115,7 +1070,22 @@ function CheckRow({
         </button>
         {/* Actions sit outside the toggle button — no nested <button> */}
         <div className="flex items-center gap-1.5 shrink-0 pl-2">
-          <ExportCheckMenu check={check} />
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); setExportOpen(true); }}
+            aria-label={`Export "${check.title}"`}
+            className="inline-flex items-center gap-1 rounded border border-dashed border-muted-foreground/30 text-xs h-5 px-1.5 text-muted-foreground hover:border-muted-foreground/60 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <Download className="h-3 w-3" aria-hidden="true" />
+            Export
+          </button>
+          {exportOpen && (
+            <ExportModal
+              report={null}
+              singleIssue={{ kind: 'check', check }}
+              onClose={() => setExportOpen(false)}
+            />
+          )}
           <StatusSelect value={check.status} onChange={onStatusChange} />
         </div>
       </div>
@@ -1220,6 +1190,7 @@ function CustomCheckItem({
   onDelete: () => void;
 }) {
   const [localNotes, setLocalNotes] = useState(check.notes ?? '');
+  const [exportOpen, setExportOpen] = useState(false);
 
   return (
     <div className="border rounded p-3 space-y-2">
@@ -1238,7 +1209,22 @@ function CustomCheckItem({
           )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <ExportCheckMenu check={check} />
+          <button
+            type="button"
+            onClick={() => setExportOpen(true)}
+            aria-label={`Export "${check.title}"`}
+            className="inline-flex items-center gap-1 rounded border border-dashed border-muted-foreground/30 text-xs h-5 px-1.5 text-muted-foreground hover:border-muted-foreground/60 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <Download className="h-3 w-3" aria-hidden="true" />
+            Export
+          </button>
+          {exportOpen && (
+            <ExportModal
+              report={null}
+              singleIssue={{ kind: 'check', check }}
+              onClose={() => setExportOpen(false)}
+            />
+          )}
           <Button
             variant="ghost"
             size="icon"

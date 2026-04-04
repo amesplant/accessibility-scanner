@@ -3,9 +3,9 @@ import type { ReportListItem } from '@/hooks/useReports';
 import type { ManualCheckResult } from '@accessibility-scanner/shared';
 import type { FailureExportData } from '@/lib/manualExport';
 import {
-  exportCheckAsTeamworkCsv,
+  exportCheckAsTeamworkXlsx,
   exportCheckAsJiraCsv,
-  exportFailureAsTeamworkCsv,
+  exportFailureAsTeamworkXlsx,
   exportFailureAsJiraCsv,
 } from '@/lib/manualExport';
 import { Download } from 'lucide-react';
@@ -29,6 +29,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useExport, EXPORT_FORMAT_LABELS } from '@/hooks/useExport';
+import { useCurrentReport } from '@/context/CurrentReportContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -122,6 +123,7 @@ export function ExportModal({ report, onClose, singleIssue }: ExportModalProps) 
   const fileNameId = `${id}-filename`;
 
   const { format, setFormat, tasklistName, setTasklistName, isExporting, doExport } = useExport(report?.id ?? '');
+  const { reportLabel } = useCurrentReport();
   const [selectedLevels, setSelectedLevels] = useState<string[]>(['A', 'AA', 'AAA', 'best-practice']);
   const [exportScope, setExportScope] = useState<'all' | 'automated' | 'manual'>('all');
   const [fileName, setFileName] = useState('');
@@ -143,13 +145,9 @@ export function ExportModal({ report, onClose, singleIssue }: ExportModalProps) 
     if (singleIssue) {
       setFileName(makeSingleIssueFileName(singleIssue));
       setFormat('excel');
-      // Derive a sensible tasklist name from check context
       const year = new Date().getFullYear();
-      const ctx = singleIssue.kind === 'check'
-        ? { criterion: singleIssue.check.wcagCriterion, title: singleIssue.check.title }
-        : singleIssue.data.checkContext;
-      const issueLabel = ctx?.criterion ? `${ctx.criterion} ${ctx.title ?? ''}`.trim() : (ctx?.title ?? 'Issue');
-      setTasklistName(`Accessibility Audit ${year} | ${issueLabel}`);
+      const name = report ? reportDisplayName(report) : (reportLabel ?? null);
+      setTasklistName(name ? `Accessibility Audit ${year} | ${name}` : `Accessibility Audit ${year}`);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!singleIssue]);
@@ -166,13 +164,13 @@ export function ExportModal({ report, onClose, singleIssue }: ExportModalProps) 
       if (format === 'jira') {
         exportCheckAsJiraCsv(singleIssue.check, fileName);
       } else {
-        exportCheckAsTeamworkCsv(singleIssue.check, tasklistName, fileName);
+        exportCheckAsTeamworkXlsx(singleIssue.check, tasklistName, fileName);
       }
     } else {
       if (format === 'jira') {
         exportFailureAsJiraCsv(singleIssue.data, fileName);
       } else {
-        exportFailureAsTeamworkCsv({ ...singleIssue.data, tasklistName }, fileName);
+        exportFailureAsTeamworkXlsx({ ...singleIssue.data, tasklistName }, fileName);
       }
     }
     onClose();
@@ -200,14 +198,13 @@ export function ExportModal({ report, onClose, singleIssue }: ExportModalProps) 
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
               <Label id={formatLabelId}>Format</Label>
-              <Select value={format} onValueChange={v => setFormat(v as 'csv' | 'excel' | 'jira')}>
+              <Select value={format} onValueChange={v => setFormat(v as 'excel' | 'jira')}>
                 <SelectTrigger aria-labelledby={formatLabelId}>
                   <SelectValue>{EXPORT_FORMAT_LABELS[format]}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="excel">{EXPORT_FORMAT_LABELS.excel}</SelectItem>
                   <SelectItem value="jira">{EXPORT_FORMAT_LABELS.jira}</SelectItem>
-                  <SelectItem value="csv">{EXPORT_FORMAT_LABELS.csv}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

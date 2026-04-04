@@ -102,21 +102,6 @@ app.delete('/api/reports', async (_req, res) => {
 // Exports
 // ---------------------------------------------------------------------------
 
-app.post('/api/reports/:id/export/csv', async (req, res) => {
-  try {
-    const report = await db.getReport(req.params.id);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
-    const { selectedViolations, tasklistName, selectedLevels, exportScope } = req.body;
-    const exporter = new Reporter();
-    const csvData = exporter.exportToCsv(report, selectedViolations, tasklistName, selectedLevels, exportScope);
-    res.header('Content-Type', 'text/csv');
-    res.header('Content-Disposition', `attachment; filename="accessibility-export-${req.params.id}.csv"`);
-    return res.send(csvData);
-  } catch (error) {
-    console.error('CSV export error:', error);
-    return res.status(500).json({ error: 'CSV export failed' });
-  }
-});
 
 app.post('/api/reports/:id/export/excel', async (req, res) => {
   try {
@@ -650,6 +635,22 @@ app.delete('/api/projects/:id', async (req, res) => {
   } catch (err) {
     console.error('Delete project error:', err);
     return res.status(500).json({ error: 'Failed to delete project' });
+  }
+});
+
+app.patch('/api/reports/:id', async (req, res) => {
+  try {
+    const report = await db.getReport(req.params.id);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const { pageTitle } = req.body;
+    if (typeof pageTitle === 'string') {
+      report.pageTitle = pageTitle.trim() || undefined;
+    }
+    await db.updateReport(report);
+    return res.json(report);
+  } catch (err) {
+    console.error('Update report error:', err);
+    return res.status(500).json({ error: 'Failed to update report' });
   }
 });
 

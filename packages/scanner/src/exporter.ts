@@ -2,43 +2,20 @@ import { ScanReport, AxeViolation, ManualCheckResult, DetectedElement } from '@a
 import ExcelJS from 'exceljs';
 
 /**
- * Export helpers that produce CSV/Excel payloads matching the layout
- * expected by the customer.  The sheet/CSV is deliberately modeled after
- * the sample that was attached to the original request:
+ * Export helpers that produce Excel/CSV payloads matching the Teamwork
+ * import format:
  *
  *   TASKLIST,TASK,DESCRIPTION,ASSIGN TO,START DATE,DUE DATE,PRIORITY,
  *   ESTIMATED TIME,TAGS,STATUS
  *
- * The exporter will produce one row per violation type; each row contains
- * markdown-friendly text in the description column so that callers can
- * import the file into a system that understands markdown (Teamwork, etc.)
- *
  */
+function defaultTasklistName(report: ScanReport): string {
+  const year = new Date().getFullYear();
+  const name = report.pageTitle || report.sitemap.replace(/https?:\/\//, '') || 'Report';
+  return `Accessibility Audit ${year} | ${name}`;
+}
+
 export class Reporter {
-  /**
-   * Return a CSV string that can be written to disk or streamed to the
-   * client.  The output is quoted so that fields containing commas or
-   * newlines are preserved; description text may contain Markdown and
-   * will typically span multiple lines.
-   */
-  exportToCsv(report: ScanReport, selectedViolations?: string[], tasklistName?: string, selectedLevels?: string[], exportScope: 'all' | 'automated' | 'manual' = 'all'): string {
-    let allRows: string[][];
-
-    if (exportScope === 'manual') {
-      allRows = this.buildManualTeamworkRows(report, tasklistName);
-    } else {
-      const rows = this.buildRows(report, selectedViolations, tasklistName, selectedLevels);
-      if (exportScope === 'all') {
-        const manualRows = this.buildManualAuditRows(report);
-        allRows = manualRows.length > 0 ? [...rows, ...manualRows] : rows;
-      } else {
-        allRows = rows;
-      }
-    }
-
-    return this.rowsToCsv(allRows);
-  }
-
   /**
    * Produce an xlsx workbook buffer suitable for writing to disk or
    * streaming back to an HTTP client.  The sheet uses the same headers
@@ -104,7 +81,7 @@ export class Reporter {
 
     // metadata row (row 2 in spreadsheet)
     rows.push([
-      tasklistName?.trim() || 'Accessibility Updates',
+      tasklistName?.trim() || defaultTasklistName(report),
       '',
       'Required Accessibility Updates',
       '',
@@ -175,7 +152,7 @@ export class Reporter {
         firstSnippet
       );
 
-      const resolvedTasklist = tasklistName?.trim() || 'Accessibility Updates';
+      const resolvedTasklist = tasklistName?.trim() || defaultTasklistName(report);
       const wcagTags = this.wcagCriteriaTags(violation.tags);
       const severityTag = this.severityTag(violation.impact);
       const level = violation.level ?? 'best-practice';
@@ -381,7 +358,7 @@ h3. Recommended Assignment
       ]];
     }
 
-    const resolvedTasklist = tasklistName?.trim() || 'Accessibility Updates';
+    const resolvedTasklist = tasklistName?.trim() || defaultTasklistName(report);
     const rows: string[][] = [
       ['TASKLIST', 'TASK', 'DESCRIPTION', 'ASSIGN TO', 'START DATE', 'DUE DATE', 'PRIORITY', 'ESTIMATED TIME', 'TAGS', 'STATUS'],
       [resolvedTasklist, '', 'Required Accessibility Updates', '', '', '', '', '', '', ''],
@@ -394,7 +371,7 @@ h3. Recommended Assignment
   }
 
   /** Single-row Teamwork export for one manual check (no headers). */
-  singleManualCheckTeamworkRow(check: ManualCheckResult, tasklistName = 'Accessibility Updates'): string[] {
+  singleManualCheckTeamworkRow(check: ManualCheckResult, tasklistName = 'Accessibility Audit'): string[] {
     const criterion = check.wcagCriterion ?? '';
     const level = check.level ?? '';
     const levelLabel = level || 'Manual';
@@ -553,28 +530,6 @@ h3. Recommended Assignment
     return result;
   }
 
-  private buildManualAuditRows(report: ScanReport): string[][] {
-    const entries = this.collectManualChecks(report);
-    if (entries.length === 0) return [];
-
-    const rows: string[][] = [];
-    rows.push(['--- MANUAL AUDIT ---']);
-    rows.push(['Criterion', 'Level', 'Title', 'Status', 'Notes', 'Impact']);
-    for (const { check, failedElements } of entries) {
-      const extraNotes = failedElements.length > 0
-        ? `${check.notes ?? ''}\n\nFailed elements (${failedElements.length}):\n${failedElements.map(e => `- ${e.html}${e.auditComment ? ` — ${e.auditComment}` : ''}`).join('\n')}`.trim()
-        : (check.notes ?? '');
-      rows.push([
-        check.wcagCriterion ?? '',
-        check.level ?? '',
-        check.title,
-        check.status,
-        extraNotes,
-        check.impact ?? '',
-      ]);
-    }
-    return rows;
-  }
 
   private wcagCriteriaTags(tags: string[]): string[] {
     return tags

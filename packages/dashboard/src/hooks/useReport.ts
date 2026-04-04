@@ -63,5 +63,15 @@ export function useReport(id: string | undefined) {
     applyViolationUpdate(pageId, violations);
   }
 
-  return { report, loading, error, updateViolationOverride, updateViolationNode };
+  async function renameReport(pageTitle: string): Promise<void> {
+    if (!id) return;
+    await apiFetch(`/api/reports/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pageTitle }),
+    });
+    setReport(r => r ? { ...r, pageTitle: pageTitle.trim() || undefined } : r);
+  }
+
+  return { report, loading, error, updateViolationOverride, updateViolationNode, renameReport };
 }

@@ -49,13 +49,13 @@ export function ExportData({ report }: ExportDataProps) {
       <div className="space-y-4">
         <div>
           <Label id={formatLabelId}>Export Format</Label>
-          <Select value={format} onValueChange={v => setFormat(v as 'csv' | 'excel')}>
+          <Select value={format} onValueChange={v => setFormat(v as 'excel' | 'jira')}>
             <SelectTrigger aria-labelledby={formatLabelId}>
               <SelectValue>{EXPORT_FORMAT_LABELS[format]}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="excel">{EXPORT_FORMAT_LABELS.excel}</SelectItem>
-              <SelectItem value="csv">{EXPORT_FORMAT_LABELS.csv}</SelectItem>
+              <SelectItem value="jira">{EXPORT_FORMAT_LABELS.jira}</SelectItem>
             </SelectContent>
           </Select>
         </div>

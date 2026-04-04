@@ -1,3 +1,4 @@
+import * as XLSX from 'xlsx';
 import type { ManualCheckResult } from '@accessibility-scanner/shared';
 
 // ---------------------------------------------------------------------------
@@ -40,6 +41,20 @@ function triggerCsvDownload(content: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function triggerXlsxDownload(rows: string[][], filename: string) {
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Issues');
+  const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function toSlug(text: string, maxLen = 50): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, maxLen);
 }
@@ -64,7 +79,7 @@ function failureSlug(data: FailureExportData): string {
 }
 
 // ---------------------------------------------------------------------------
-// Teamwork / CSV — check level
+// Teamwork / XLSX — check level
 // ---------------------------------------------------------------------------
 
 function buildTeamworkDescription(check: ManualCheckResult): string {
@@ -119,7 +134,7 @@ ${codeSnippet}${failuresSection}
 `;
 }
 
-export function exportCheckAsTeamworkCsv(check: ManualCheckResult, tasklistName = 'Accessibility Audit', fileName?: string) {
+export function exportCheckAsTeamworkXlsx(check: ManualCheckResult, tasklistName = 'Accessibility Audit', fileName?: string) {
   const criterion = check.wcagCriterion ?? '';
   const level = check.level ?? '';
   const levelLabel = level || 'Manual';
@@ -146,7 +161,7 @@ export function exportCheckAsTeamworkCsv(check: ManualCheckResult, tasklistName 
     dataRow,
   ];
 
-  triggerCsvDownload(rowsToCsv(rows), fileName || checkSlug(check));
+  triggerXlsxDownload(rows, fileName || checkSlug(check));
 }
 
 // ---------------------------------------------------------------------------
@@ -213,10 +228,10 @@ export function exportCheckAsJiraCsv(check: ManualCheckResult, fileName?: string
 }
 
 // ---------------------------------------------------------------------------
-// Teamwork / CSV — failure instance level
+// Teamwork / XLSX — failure instance level
 // ---------------------------------------------------------------------------
 
-export function exportFailureAsTeamworkCsv(data: FailureExportData, fileName?: string) {
+export function exportFailureAsTeamworkXlsx(data: FailureExportData, fileName?: string) {
   const { notes, codeSnippet, remediationRecommendation, checkContext, tasklistName = 'Accessibility Audit' } = data;
   const criterion = checkContext?.criterion ?? '';
   const level = checkContext?.level ?? '';
@@ -275,7 +290,7 @@ ${codeBlock}
     dataRow,
   ];
 
-  triggerCsvDownload(rowsToCsv(rows), fileName || failureSlug(data));
+  triggerXlsxDownload(rows, fileName || failureSlug(data));
 }
 
 // ---------------------------------------------------------------------------
