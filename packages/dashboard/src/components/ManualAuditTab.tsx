@@ -16,6 +16,7 @@ import {
 import { cn } from '@/lib/utils';
 import { ExportModal } from '@/components/ExportModal';
 import { useCurrentReport } from '@/context/CurrentReportContext';
+import { useAIProviders } from '@/hooks/useAIProviders';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -362,6 +363,7 @@ function FailureInstanceItem({
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [generatingRemediation, setGeneratingRemediation] = useState(false);
   const [remediationError, setRemediationError] = useState<string | null>(null);
+  const aiProviders = useAIProviders();
   const [dirty, setDirty] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -429,7 +431,7 @@ function FailureInstanceItem({
     } catch { /* clipboard unavailable */ }
   }
 
-  async function handleGenerateRemediation() {
+  async function handleGenerateRemediation(provider: string) {
     setGeneratingRemediation(true);
     setRemediationError(null);
     try {
@@ -442,6 +444,7 @@ function FailureInstanceItem({
           checkDescription: checkContext?.description,
           notes: localNotes || undefined,
           codeSnippet: localCode || undefined,
+          provider,
         }),
       });
       // Parse JSON safely — a stale/unbuilt server may return HTML
@@ -614,20 +617,24 @@ function FailureInstanceItem({
           <Label htmlFor={remediationId} className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
             <Lightbulb className="h-3 w-3" aria-hidden="true" /> Remediation recommendation
           </Label>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-6 text-xs gap-1 px-2 text-muted-foreground hover:text-foreground"
-            onClick={handleGenerateRemediation}
-            disabled={generatingRemediation}
-            aria-label="Generate remediation recommendation with AI"
-          >
-            {generatingRemediation
-              ? <><Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> Generating…</>
-              : <><Wand2 className="h-3 w-3" aria-hidden="true" /> Generate with AI</>
-            }
-          </Button>
+          {aiProviders.length > 0 && (
+            <Select
+              value=""
+              onValueChange={provider => { if (!generatingRemediation) handleGenerateRemediation(provider); }}
+            >
+              <SelectTrigger className="h-6 text-xs px-2 w-auto gap-1 border-0 shadow-none bg-transparent text-muted-foreground hover:text-foreground focus:ring-0" aria-label="Generate remediation recommendation with AI">
+                {generatingRemediation
+                  ? <><Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /><span>Generating…</span></>
+                  : <><Wand2 className="h-3 w-3" aria-hidden="true" /><span>Generate with AI</span></>
+                }
+              </SelectTrigger>
+              <SelectContent>
+                {aiProviders.map(p => (
+                  <SelectItem key={p.id} value={p.id} className="text-xs">{p.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
         {remediationError && (
           <p role="alert" className="text-xs text-destructive mt-0.5">{remediationError}</p>

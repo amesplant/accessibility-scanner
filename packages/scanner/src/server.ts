@@ -477,20 +477,78 @@ app.delete('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fa
 // AI — remediation suggestion for a manual failure instance
 // ---------------------------------------------------------------------------
 
+// GET /api/ai/providers — returns which AI providers are configured
+app.get('/api/ai/providers', (_req, res) => {
+  const providers: Array<{ id: string; label: string }> = [];
+  if (process.env.ANTHROPIC_API_KEY) providers.push({ id: 'anthropic', label: 'Claude (Anthropic)' });
+  if (process.env.OPENAI_API_KEY)    providers.push({ id: 'openai',    label: 'GPT-4o mini (OpenAI)' });
+  if (process.env.GEMINI_API_KEY)    providers.push({ id: 'gemini',    label: 'Gemini Flash (Google)' });
+  if (process.env.GROQ_API_KEY)      providers.push({ id: 'groq',      label: 'Llama 3.1 (Groq)' });
+  return res.json({ providers });
+});
+
+// Helper: call an OpenAI-compatible chat endpoint (OpenAI, Groq, etc.)
+async function callOpenAICompatible(
+  endpoint: string,
+  apiKey: string,
+  model: string,
+  systemPrompt: string,
+  userMessage: string,
+): Promise<{ recommendation?: string; error?: string }> {
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      max_tokens: 512,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user',   content: userMessage },
+      ],
+    }),
+  });
+  if (!response.ok) {
+    const errText = await response.text();
+    let detail = '';
+    try { detail = (JSON.parse(errText) as { error?: { message?: string } }).error?.message ?? ''; } catch { /* not JSON */ }
+    return { error: `API error (${response.status})${detail ? ': ' + detail : ''}` };
+  }
+  const data = await response.json() as { choices: Array<{ message: { content: string } }> };
+  return { recommendation: data.choices[0]?.message?.content ?? '' };
+}
+
 // POST /api/ai/remediation-suggestion
 app.post('/api/ai/remediation-suggestion', async (req, res) => {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return res.status(503).json({ error: 'AI remediation suggestions require an ANTHROPIC_API_KEY environment variable.' });
-  }
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const openaiKey    = process.env.OPENAI_API_KEY;
+  const geminiKey    = process.env.GEMINI_API_KEY;
+  const groqKey      = process.env.GROQ_API_KEY;
 
-  const { criterion, checkTitle, checkDescription, notes, codeSnippet } = req.body as {
+  const configuredIds = [
+    anthropicKey && 'anthropic',
+    openaiKey    && 'openai',
+    geminiKey    && 'gemini',
+    groqKey      && 'groq',
+  ].filter(Boolean) as string[];
+
+  const { criterion, checkTitle, checkDescription, notes, codeSnippet, provider: requestedProvider } = req.body as {
     criterion?: string;
     checkTitle?: string;
     checkDescription?: string;
     notes?: string;
     codeSnippet?: string;
+    provider?: string;
   };
+
+  const provider = (requestedProvider && configuredIds.includes(requestedProvider))
+    ? requestedProvider
+    : configuredIds[0] ?? null;
+
+  if (!provider) {
+    return res.status(503).json({ error: 'No AI provider configured. Add ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, or GROQ_API_KEY to your .env file.' });
+  }
+
+  const systemPrompt = 'You are an accessibility expert. Provide concise, practical remediation recommendations for WCAG failures. Be specific about code changes. Do not include preamble or headers — just the recommendation text.';
 
   const contextParts: string[] = [];
   if (criterion && checkTitle) contextParts.push(`WCAG ${criterion}: ${checkTitle}`);
@@ -504,32 +562,64 @@ app.post('/api/ai/remediation-suggestion', async (req, res) => {
     : 'Provide a concise, actionable accessibility remediation recommendation.';
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 512,
-        messages: [{ role: 'user', content: userMessage }],
-        system: 'You are an accessibility expert. Provide concise, practical remediation recommendations for WCAG failures. Be specific about code changes. Do not include preamble or headers — just the recommendation text.',
-      }),
-    });
+    let recommendation = '';
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error('Anthropic API error:', errText);
-      let detail = '';
-      try { detail = (JSON.parse(errText) as { error?: { message?: string } }).error?.message ?? ''; } catch { /* not JSON */ }
-      return res.status(502).json({ error: `Anthropic API error (${response.status})${detail ? ': ' + detail : ''}` });
+    if (provider === 'anthropic') {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': anthropicKey!,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 512,
+          messages: [{ role: 'user', content: userMessage }],
+          system: systemPrompt,
+        }),
+      });
+      if (!response.ok) {
+        const errText = await response.text();
+        let detail = '';
+        try { detail = (JSON.parse(errText) as { error?: { message?: string } }).error?.message ?? ''; } catch { /* not JSON */ }
+        return res.status(502).json({ error: `Anthropic API error (${response.status})${detail ? ': ' + detail : ''}` });
+      }
+      const data = await response.json() as { content: Array<{ type: string; text: string }> };
+      recommendation = data.content.find(b => b.type === 'text')?.text ?? '';
+
+    } else if (provider === 'gemini') {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+          generationConfig: { maxOutputTokens: 512 },
+        }),
+      });
+      if (!response.ok) {
+        const errText = await response.text();
+        let detail = '';
+        try { detail = (JSON.parse(errText) as { error?: { message?: string } }).error?.message ?? ''; } catch { /* not JSON */ }
+        return res.status(502).json({ error: `Gemini API error (${response.status})${detail ? ': ' + detail : ''}` });
+      }
+      const data = await response.json() as { candidates: Array<{ content: { parts: Array<{ text: string }> } }> };
+      recommendation = data.candidates[0]?.content?.parts[0]?.text ?? '';
+
+    } else if (provider === 'openai') {
+      const result = await callOpenAICompatible('https://api.openai.com/v1/chat/completions', openaiKey!, 'gpt-4o-mini', systemPrompt, userMessage);
+      if (result.error) return res.status(502).json({ error: `OpenAI ${result.error}` });
+      recommendation = result.recommendation ?? '';
+
+    } else if (provider === 'groq') {
+      const result = await callOpenAICompatible('https://api.groq.com/openai/v1/chat/completions', groqKey!, 'llama-3.1-8b-instant', systemPrompt, userMessage);
+      if (result.error) return res.status(502).json({ error: `Groq ${result.error}` });
+      recommendation = result.recommendation ?? '';
     }
 
-    const data = await response.json() as { content: Array<{ type: string; text: string }> };
-    const text = data.content.find(b => b.type === 'text')?.text ?? '';
-    return res.json({ recommendation: text });
+    return res.json({ recommendation });
   } catch (err) {
     console.error('AI remediation suggestion error:', err);
     return res.status(500).json({ error: 'Failed to generate remediation suggestion.' });
