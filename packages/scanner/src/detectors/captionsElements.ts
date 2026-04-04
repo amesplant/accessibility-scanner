@@ -25,31 +25,7 @@ export function processElements(raw: Omit<DetectedElement, 'id'>[]): DetectedEle
 
 export async function extract(page: any): Promise<Omit<DetectedElement, 'id'>[]> {
   return page.evaluate(() => {
-    function truncHtml(html: string): string {
-      return html.length > 500 ? html.slice(0, 500) + '…' : html;
-    }
-
-    function getSelector(el: Element): string {
-      if ((el as HTMLElement).id) return `#${CSS.escape((el as HTMLElement).id)}`;
-      const parts: string[] = [];
-      let cur: Element | null = el;
-      while (cur && cur !== document.body && cur !== document.documentElement) {
-        let seg = cur.tagName.toLowerCase();
-        if ((cur as HTMLElement).id) {
-          seg = `#${CSS.escape((cur as HTMLElement).id)}`;
-          parts.unshift(seg);
-          break;
-        }
-        const parent = cur.parentElement;
-        if (parent) {
-          const sameTag = Array.from(parent.children).filter(c => c.tagName === cur!.tagName);
-          if (sameTag.length > 1) seg += `:nth-of-type(${sameTag.indexOf(cur as HTMLElement) + 1})`;
-        }
-        parts.unshift(seg);
-        cur = cur.parentElement;
-      }
-      return parts.join(' > ');
-    }
+    const { truncHtml, getSelector } = window.__a11yScanUtils;
 
     const elements: any[] = [];
 

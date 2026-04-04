@@ -8,6 +8,7 @@ import { resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { ScanResult, ScanReport, DetectedElement } from '@accessibility-scanner/shared';
 import { DETECTORS, captureElementScreenshots, DetectorModule } from './detectors/index.js';
+import { BROWSER_UTILS_SCRIPT } from './detectors/browserUtils.js';
 
 export class SitemapScanner {
   private browser: Browser | null = null;
@@ -151,6 +152,10 @@ export class SitemapScanner {
         axeTags.push('best-practice');
       }
       axe.withTags(axeTags);
+
+      // Inject shared browser-side utilities once so all detectors can use them
+      await page.addScriptTag({ content: BROWSER_UTILS_SCRIPT });
+
       const [axeResults, pageTitle, ...rawDetected] = await Promise.all([
         axe.analyze(),
         page.title(),

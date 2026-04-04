@@ -11,6 +11,7 @@ import { Reporter } from './exporter.js';
 import { SitemapScanner } from './scanner.js';
 import { crawlSite } from './crawler.js';
 import { AuditType, createDefaultChecks, ManualAudit, ManualAuditStatus, ManualCheckResult, ManualFailureInstance, Project } from '@accessibility-scanner/shared';
+import { captureViewportScreenshot, ViewportLabel } from './detectors/focusOrder.js';
 
 const app = express();
 const db = new DatabaseService();
@@ -645,9 +646,18 @@ app.patch('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId
     const element = elements.find(e => e.id === req.params.elementId);
     if (!element) return res.status(404).json({ error: 'Element not found' });
 
-    const { auditStatus, auditComment } = req.body as { auditStatus?: 'pass' | 'fail' | 'not-reviewed'; auditComment?: string };
+    const { auditStatus, auditComment, screenshotDataUrl, darkScreenshotDataUrl } = req.body as {
+      auditStatus?: 'pass' | 'fail' | 'not-reviewed';
+      auditComment?: string;
+      screenshotDataUrl?: string | null;
+      darkScreenshotDataUrl?: string | null;
+    };
     if (auditStatus) element.auditStatus = auditStatus;
     if (auditComment !== undefined) element.auditComment = auditComment || undefined;
+    if (screenshotDataUrl === null) delete element.screenshotDataUrl;
+    else if (screenshotDataUrl !== undefined) element.screenshotDataUrl = screenshotDataUrl;
+    if (darkScreenshotDataUrl === null) delete element.darkScreenshotDataUrl;
+    else if (darkScreenshotDataUrl !== undefined) element.darkScreenshotDataUrl = darkScreenshotDataUrl;
 
     await db.updateReport(report);
     return res.json({ detectedElements: page.detectedElements });
@@ -720,6 +730,56 @@ app.delete('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementI
   } catch (err) {
     console.error('Delete element failure error:', err);
     return res.status(500).json({ error: 'Failed to delete element failure' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Focus Order — on-demand screenshot generation (WCAG 2.4.3)
+// ---------------------------------------------------------------------------
+
+// POST /api/reports/:reportId/pages/:pageId/elements/2.4.3/:elementId/focus-order-screenshot
+app.post('/api/reports/:reportId/pages/:pageId/elements/2.4.3/:elementId/focus-order-screenshot', async (req, res) => {
+  try {
+    const report = await db.getReport(req.params.reportId);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+
+    const page = report.results.find(r => r.id === req.params.pageId);
+    if (!page) return res.status(404).json({ error: 'Page not found' });
+
+    const elements = page.detectedElements?.['2.4.3'];
+    if (!elements) return res.status(404).json({ error: 'No focus-order elements for this page' });
+
+    const element = elements.find(e => e.id === req.params.elementId);
+    if (!element) return res.status(404).json({ error: 'Element not found' });
+
+    const { colorScheme, viewport } = req.body as {
+      colorScheme: 'light' | 'dark';
+      viewport: ViewportLabel;
+    };
+    if (!colorScheme || !viewport) {
+      return res.status(400).json({ error: 'colorScheme and viewport are required' });
+    }
+
+    const { screenshotDataUrl, focusableCount } = await captureViewportScreenshot(
+      page.url,
+      viewport,
+      colorScheme,
+    );
+
+    // Persist the screenshot to the element
+    if (colorScheme === 'dark') {
+      element.darkScreenshotDataUrl = screenshotDataUrl;
+    } else {
+      element.screenshotDataUrl = screenshotDataUrl;
+    }
+    // Update the focusable count in the text alternative
+    element.textAlternative = `${viewport} — ${focusableCount} focusable element${focusableCount !== 1 ? 's' : ''}`;
+
+    await db.updateReport(report);
+    return res.json({ screenshotDataUrl, focusableCount, element });
+  } catch (err) {
+    console.error('Focus order screenshot error:', err);
+    return res.status(500).json({ error: 'Failed to capture focus order screenshot' });
   }
 });
 

@@ -45,60 +45,7 @@ export function processElements(raw: Omit<DetectedElement, 'id'>[]): DetectedEle
 
 export async function extract(page: any): Promise<Omit<DetectedElement, 'id'>[]> {
   return page.evaluate(() => {
-    function truncHtml(html: string): string {
-      return html.length > 500 ? html.slice(0, 500) + '…' : html;
-    }
-
-    function getSelector(el: Element): string {
-      if ((el as HTMLElement).id) return `#${CSS.escape((el as HTMLElement).id)}`;
-      const parts: string[] = [];
-      let cur: Element | null = el;
-      while (cur && cur !== document.body && cur !== document.documentElement) {
-        let seg = cur.tagName.toLowerCase();
-        if ((cur as HTMLElement).id) {
-          seg = `#${CSS.escape((cur as HTMLElement).id)}`;
-          parts.unshift(seg);
-          break;
-        }
-        const parent = cur.parentElement;
-        if (parent) {
-          const sameTag = Array.from(parent.children).filter(c => c.tagName === cur!.tagName);
-          if (sameTag.length > 1) seg += `:nth-of-type(${sameTag.indexOf(cur as HTMLElement) + 1})`;
-        }
-        parts.unshift(seg);
-        cur = cur.parentElement;
-      }
-      return parts.join(' > ');
-    }
-
-    function resolveAriaLabelledby(el: Element): string | null {
-      const ids = el.getAttribute('aria-labelledby');
-      if (!ids) return null;
-      const text = ids.split(/\s+/)
-        .map(id => document.getElementById(id)?.textContent?.trim())
-        .filter(Boolean)
-        .join(' ');
-      return text || null;
-    }
-
-    function getTextAlt(el: Element): string | null {
-      const labelledby = resolveAriaLabelledby(el);
-      if (labelledby) return labelledby;
-      const ariaLabel = el.getAttribute('aria-label')?.trim();
-      if (ariaLabel) return ariaLabel;
-      const alt = el.getAttribute('alt');
-      if (alt !== null) return alt;
-      const title = el.getAttribute('title')?.trim();
-      if (title) return title;
-      return null;
-    }
-
-    function checkDecorative(el: Element): boolean {
-      const alt = el.getAttribute('alt');
-      const role = el.getAttribute('role');
-      return alt === '' || role === 'presentation' || role === 'none';
-    }
-
+    const { truncHtml, getSelector, resolveAriaLabelledby, getTextAlt, checkDecorative } = window.__a11yScanUtils;
     const elements: any[] = [];
 
     function tag(el: Element, data: any) {

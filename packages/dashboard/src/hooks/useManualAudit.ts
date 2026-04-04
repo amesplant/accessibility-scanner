@@ -359,5 +359,33 @@ export function useManualAudit(
     [reportId, pageId],
   );
 
-  return { audit, detectedElements, updateCheck, updateNotes, updateEvidence, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement, addElementFailure, updateElementFailure, deleteElementFailure };
+  const generateFocusOrderScreenshot = useCallback(
+    async (elementId: string, colorScheme: 'light' | 'dark', viewportLabel: string) => {
+      try {
+        const res = await fetch(
+          `/api/reports/${reportId}/pages/${pageId}/elements/2.4.3/${elementId}/focus-order-screenshot`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ colorScheme, viewport: viewportLabel }),
+          },
+        );
+        const json = await res.json();
+        if (json.element) {
+          setDetectedElements(prev => {
+            if (!prev?.['2.4.3']) return prev;
+            return {
+              ...prev,
+              '2.4.3': prev['2.4.3'].map(el => el.id === elementId ? { ...el, ...json.element } : el),
+            };
+          });
+        }
+      } catch (err) {
+        console.error('Failed to generate focus order screenshot:', err);
+      }
+    },
+    [reportId, pageId],
+  );
+
+  return { audit, detectedElements, updateCheck, updateNotes, updateEvidence, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement, addElementFailure, updateElementFailure, deleteElementFailure, generateFocusOrderScreenshot };
 }

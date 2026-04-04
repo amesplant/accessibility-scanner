@@ -19,7 +19,7 @@ export function PageWindow() {
 
   const page = report?.results.find(r => r.id === pageId) ?? null;
 
-  const { audit, detectedElements, updateCheck, updateNotes, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement, addElementFailure, updateElementFailure, deleteElementFailure } =
+  const { audit, detectedElements, updateCheck, updateNotes, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement, addElementFailure, updateElementFailure, deleteElementFailure, generateFocusOrderScreenshot } =
     useManualAudit(id ?? '', pageId ?? '', page?.manualAudit, page?.detectedElements);
 
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -77,6 +77,14 @@ export function PageWindow() {
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
+  }
+
+  async function handleGenerateFocusOrderScreenshot(elementId: string, colorScheme: 'light' | 'dark') {
+    // Derive viewport label from element's textAlternative (e.g. "Desktop (1280px) — 5 focusable elements")
+    const focusElements = detectedElements?.['2.4.3'] ?? [];
+    const el = focusElements.find(e => e.id === elementId);
+    const viewportLabel = el?.textAlternative?.split(' ')[0] ?? 'Desktop';
+    await generateFocusOrderScreenshot(elementId, colorScheme, viewportLabel);
   }
 
   useEffect(() => {
@@ -485,6 +493,7 @@ export function PageWindow() {
             onAddElementFailure={addElementFailure}
             onUpdateElementFailure={updateElementFailure}
             onDeleteElementFailure={deleteElementFailure}
+            onGenerateFocusOrderScreenshot={handleGenerateFocusOrderScreenshot}
           />
         </TabsContent>
       </Tabs>

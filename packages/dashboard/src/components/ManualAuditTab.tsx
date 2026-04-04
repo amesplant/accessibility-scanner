@@ -57,6 +57,8 @@ import {
   Lightbulb,
   Download,
   Info,
+  Sun,
+  Moon,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -728,6 +730,7 @@ const ELEMENT_TYPE_LABELS: Record<DetectedElement['elementType'], string> = {
   'form-field': 'Form Field',
   'data-table': 'Table',
   'heading': 'Heading',
+  'focus-order-map': 'Focus Order',
 };
 
 function CopyButton({ text }: { text: string }) {
@@ -750,6 +753,190 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// FocusOrderRow — compact row with light/dark modal for WCAG 2.4.3
+// ---------------------------------------------------------------------------
+
+function FocusOrderRow({
+  element,
+  elementTitle,
+  criterionId,
+  showFailures,
+  toggleStatus,
+  onAddFailure,
+  onUpdateFailure,
+  onDeleteFailure,
+  onGenerateScreenshot,
+}: {
+  element: DetectedElement;
+  elementTitle: string;
+  criterionId?: string;
+  showFailures: boolean;
+  toggleStatus: (s: 'pass' | 'fail') => void;
+  onAddFailure?: () => void;
+  onUpdateFailure?: (failureId: string, data: FailureUpdateData) => void;
+  onDeleteFailure?: (failureId: string) => void;
+  onGenerateScreenshot?: (colorScheme: 'light' | 'dark') => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [isDark, setIsDark] = useState(false);
+  const [generating, setGenerating] = useState<'light' | 'dark' | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  const lightUrl = element.screenshotDataUrl;
+  const darkUrl  = element.darkScreenshotDataUrl;
+  const activeUrl = isDark && darkUrl ? darkUrl : lightUrl;
+
+  async function handleGenerate(colorScheme: 'light' | 'dark') {
+    if (!onGenerateScreenshot) return;
+    setGenerating(colorScheme);
+    try {
+      await onGenerateScreenshot(colorScheme);
+    } finally {
+      setGenerating(null);
+    }
+  }
+
+  async function handleViewMap() {
+    // Generate light mode first if we don't have it yet
+    if (!lightUrl && onGenerateScreenshot) {
+      await handleGenerate('light');
+    }
+    setOpen(true);
+  }
+
+  return (
+    <div className="px-3 py-3 space-y-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-medium">{element.textAlternative}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            ref={triggerRef}
+            type="button"
+            onClick={handleViewMap}
+            disabled={generating !== null}
+            aria-label={`View focus order map for ${element.textAlternative}`}
+            className="flex items-center gap-1.5 px-2 py-0.5 text-xs rounded border border-input text-muted-foreground hover:text-foreground hover:border-foreground font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            {generating === 'light' ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> : null}
+            View map
+          </button>
+          <Dialog open={open} onOpenChange={(o) => {
+            setOpen(o);
+            if (!o) { setIsDark(false); setTimeout(() => triggerRef.current?.focus(), 0); }
+          }}>
+            <DialogContent className="max-w-5xl flex flex-col" style={{ maxHeight: '90vh' }}>
+              <DialogHeader>
+                <DialogTitle>Focus Order — {element.textAlternative}</DialogTitle>
+                <DialogDescription>
+                  Tab-order sequence annotated with numbered badges. Review that the visual order matches a logical reading sequence.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex items-center justify-between gap-3">
+                {(lightUrl || darkUrl) && (
+                  <div
+                    className="flex items-center rounded-md bg-muted p-0.5 gap-0.5"
+                    role="group"
+                    aria-label="Color scheme"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setIsDark(false)}
+                      aria-pressed={!isDark}
+                      className={cn(
+                        'flex items-center gap-1.5 px-3 py-1.5 text-xs rounded font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+                        !isDark
+                          ? 'bg-background text-foreground shadow-sm ring-1 ring-border'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      <Sun className="h-3.5 w-3.5" aria-hidden="true" />
+                      Light
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!darkUrl) await handleGenerate('dark');
+                        setIsDark(true);
+                      }}
+                      disabled={generating !== null}
+                      aria-pressed={isDark}
+                      className={cn(
+                        'flex items-center gap-1.5 px-3 py-1.5 text-xs rounded font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed',
+                        isDark
+                          ? 'bg-foreground text-background shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      {generating === 'dark'
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                        : <Moon className="h-3.5 w-3.5" aria-hidden="true" />}
+                      {darkUrl ? 'Dark' : 'Generate dark'}
+                    </button>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 ml-auto">
+                  <button
+                    type="button"
+                    onClick={() => toggleStatus('pass')}
+                    aria-pressed={element.auditStatus === 'pass'}
+                    aria-label="Mark focus order as pass"
+                    className={cn(
+                      'px-2 py-0.5 text-xs rounded border font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                      element.auditStatus === 'pass'
+                        ? 'bg-green-600 text-white border-green-600'
+                        : 'border-input text-muted-foreground hover:text-green-700 hover:border-green-700',
+                    )}
+                  >
+                    Pass
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleStatus('fail')}
+                    aria-pressed={element.auditStatus === 'fail'}
+                    aria-label="Mark focus order as fail"
+                    className={cn(
+                      'px-2 py-0.5 text-xs rounded border font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                      element.auditStatus === 'fail'
+                        ? 'bg-red-600 text-white border-red-600'
+                        : 'border-input text-muted-foreground hover:text-red-700 hover:border-red-700',
+                    )}
+                  >
+                    Fail
+                  </button>
+                </div>
+              </div>
+              <div className={cn('flex-1 overflow-auto rounded border min-h-0', isDark ? 'bg-zinc-950' : 'bg-white')}>
+                {activeUrl ? (
+                  <img
+                    src={activeUrl}
+                    alt={`Focus order map — ${element.textAlternative}${isDark ? ' (dark mode)' : ' (light mode)'}`}
+                    className="w-full"
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-40 text-sm text-muted-foreground">
+                    No screenshot available.
+                  </div>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
+      {showFailures && onAddFailure && (
+        <FailureInstancesSection
+          failures={element.failures}
+          checkContext={{ id: element.id, title: elementTitle, criterion: criterionId }}
+          onAdd={onAddFailure}
+          onUpdate={(fid, data) => onUpdateFailure?.(fid, data)}
+          onDelete={fid => onDeleteFailure?.(fid)}
+          className="pt-1"
+        />
+      )}
+    </div>
+  );
+}
+
 function NonTextElementRow({
   element,
   criterionId,
@@ -757,6 +944,7 @@ function NonTextElementRow({
   onAddFailure,
   onUpdateFailure,
   onDeleteFailure,
+  onGenerateFocusOrderScreenshot,
 }: {
   element: DetectedElement;
   criterionId?: string;
@@ -764,6 +952,7 @@ function NonTextElementRow({
   onAddFailure?: () => void;
   onUpdateFailure?: (failureId: string, data: FailureUpdateData) => void;
   onDeleteFailure?: (failureId: string) => void;
+  onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
 }) {
   const [contextOpen, setContextOpen] = useState(false);
   const screenshotTriggerRef = useRef<HTMLButtonElement>(null);
@@ -783,6 +972,25 @@ function NonTextElementRow({
   const showFailures = element.auditStatus === 'fail' || (element.failures ?? []).length > 0;
 
   const hasScreenshot = !!(element.screenshotDataUrl || element.contextScreenshotDataUrl);
+
+  // Focus order maps are full-page annotated screenshots — compact row with modal viewer
+  if (element.elementType === 'focus-order-map') {
+    return (
+      <FocusOrderRow
+        element={element}
+        elementTitle={elementTitle}
+        criterionId={criterionId}
+        showFailures={showFailures}
+        toggleStatus={toggleStatus}
+        onAddFailure={onAddFailure}
+        onUpdateFailure={onUpdateFailure}
+        onDeleteFailure={onDeleteFailure}
+        onGenerateScreenshot={onGenerateFocusOrderScreenshot
+          ? (colorScheme) => onGenerateFocusOrderScreenshot(element.id, colorScheme)
+          : undefined}
+      />
+    );
+  }
 
   return (
     <>
@@ -950,6 +1158,7 @@ function NonTextElementsPanel({
   onAutoPass,
   onAddCriterionFailure,
   emptyLabel = 'No non-text elements detected on this page — nothing to audit for 1.1.1.',
+  onGenerateFocusOrderScreenshot,
 }: {
   elements: DetectedElement[];
   criterionId?: string;
@@ -960,6 +1169,7 @@ function NonTextElementsPanel({
   onAutoPass?: () => void;
   onAddCriterionFailure?: () => void;
   emptyLabel?: string;
+  onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
 }) {
   const reviewed = elements.filter(e => e.auditStatus !== 'not-reviewed').length;
   const failed = elements.filter(e => e.auditStatus === 'fail').length;
@@ -1022,6 +1232,7 @@ function NonTextElementsPanel({
             onAddFailure={onAddElementFailure ? () => onAddElementFailure(el.id) : undefined}
             onUpdateFailure={onUpdateElementFailure ? (fid, data) => onUpdateElementFailure(el.id, fid, data) : undefined}
             onDeleteFailure={onDeleteElementFailure ? (fid) => onDeleteElementFailure(el.id, fid) : undefined}
+            onGenerateFocusOrderScreenshot={onGenerateFocusOrderScreenshot}
           />
         ))}
       </div>
@@ -1100,6 +1311,7 @@ function CheckRow({
   onAddElementFailure,
   onUpdateElementFailure,
   onDeleteElementFailure,
+  onGenerateFocusOrderScreenshot,
 }: {
   check: ManualCheckResult;
   /** show level + category badges (used when the group doesn't already convey this) */
@@ -1113,6 +1325,7 @@ function CheckRow({
   onAddElementFailure?: (elementId: string) => void;
   onUpdateElementFailure?: (elementId: string, failureId: string, data: FailureUpdateData) => void;
   onDeleteElementFailure?: (elementId: string, failureId: string) => void;
+  onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showQuestions, setShowQuestions] = useState(false);
@@ -1266,6 +1479,7 @@ function CheckRow({
               onDeleteElementFailure={onDeleteElementFailure}
               onAutoPass={smartElements.length === 0 ? () => onStatusChange('pass') : undefined}
               onAddCriterionFailure={() => { onAddFailure(); if (check.status !== 'fail') onStatusChange('fail'); }}
+              onGenerateFocusOrderScreenshot={onGenerateFocusOrderScreenshot}
               emptyLabel={
                 check.wcagCriterion === '1.2.1'
                   ? 'No audio or video-only elements detected on this page — nothing to audit for 1.2.1.'
@@ -1275,6 +1489,8 @@ function CheckRow({
                   ? 'No ambiguous links detected on this page — nothing to audit for 2.4.4.'
                   : check.wcagCriterion === '1.3.1'
                   ? 'No form fields, tables, or headings detected on this page — nothing to audit for 1.3.1.'
+                  : check.wcagCriterion === '2.4.3'
+                  ? 'No focus order data found — rescan this page to detect focusable elements.'
                   : undefined
               }
             />
@@ -1420,6 +1636,7 @@ function CheckGroupSection({
   onAddElementFailure,
   onUpdateElementFailure,
   onDeleteElementFailure,
+  onGenerateFocusOrderScreenshot,
 }: {
   group: CheckGroup;
   onStatusChange: (checkId: string, status: ManualAuditStatus) => void;
@@ -1433,6 +1650,7 @@ function CheckGroupSection({
   onAddElementFailure?: (criterionId: string, elementId: string) => void;
   onUpdateElementFailure?: (criterionId: string, elementId: string, failureId: string, data: FailureUpdateData) => void;
   onDeleteElementFailure?: (criterionId: string, elementId: string, failureId: string) => void;
+  onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
 }) {
   const headingId = `group-${group.id}`;
   const contentId = `group-${group.id}-content`;
@@ -1519,6 +1737,7 @@ function CheckGroupSection({
                       onDeleteElementFailure={check.wcagCriterion && onDeleteElementFailure
                         ? (eid, fid) => onDeleteElementFailure!(check.wcagCriterion!, eid, fid)
                         : undefined}
+                      onGenerateFocusOrderScreenshot={onGenerateFocusOrderScreenshot}
                     />
                   </div>
                 ),
@@ -1548,6 +1767,7 @@ function CheckGroupSection({
                   onDeleteElementFailure={check.wcagCriterion && onDeleteElementFailure
                     ? (eid, fid) => onDeleteElementFailure!(check.wcagCriterion!, eid, fid)
                     : undefined}
+                  onGenerateFocusOrderScreenshot={onGenerateFocusOrderScreenshot}
                 />
               ))}
             </div>
@@ -1724,6 +1944,7 @@ interface ManualAuditTabProps {
   onAddElementFailure?: (criterionId: string, elementId: string) => void;
   onUpdateElementFailure?: (criterionId: string, elementId: string, failureId: string, data: FailureUpdateData) => void;
   onDeleteElementFailure?: (criterionId: string, elementId: string, failureId: string) => void;
+  onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
 }
 
 export function ManualAuditTab({
@@ -1742,6 +1963,7 @@ export function ManualAuditTab({
   onAddElementFailure,
   onUpdateElementFailure,
   onDeleteElementFailure,
+  onGenerateFocusOrderScreenshot,
 }: ManualAuditTabProps) {
   const { auditType } = useCurrentReport();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -1916,6 +2138,7 @@ export function ManualAuditTab({
           onAddElementFailure={onAddElementFailure}
           onUpdateElementFailure={onUpdateElementFailure}
           onDeleteElementFailure={onDeleteElementFailure}
+          onGenerateFocusOrderScreenshot={onGenerateFocusOrderScreenshot}
         />
       ))}
 

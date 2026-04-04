@@ -61,7 +61,8 @@ export type DetectedElementType =
   | 'link'
   | 'form-field'
   | 'data-table'
-  | 'heading';
+  | 'heading'
+  | 'focus-order-map';
 
 export interface DetectedElement {
   id: string;
@@ -81,6 +82,8 @@ export interface DetectedElement {
   screenshotDataUrl?: string;
   /** Base64 data URL of the viewport with the element highlighted in red */
   contextScreenshotDataUrl?: string;
+  /** Dark-mode variant of screenshotDataUrl (used for focus-order-map dark/light toggle) */
+  darkScreenshotDataUrl?: string;
   /** What a screen reader would announce for this element (computed accessible name) */
   screenReaderText?: string;
 }

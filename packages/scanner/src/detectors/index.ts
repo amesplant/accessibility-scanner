@@ -18,6 +18,7 @@ import * as mediaElements from './mediaElements.js';
 import * as captionsElements from './captionsElements.js';
 import * as linkPurpose from './linkPurpose.js';
 import * as infoRelationships from './infoRelationships.js';
+import * as focusOrder from './focusOrder.js';
 
 /**
  * All element detectors in execution order.
@@ -29,4 +30,5 @@ export const DETECTORS: DetectorModule[] = [
   captionsElements,
   linkPurpose,
   infoRelationships,
+  focusOrder,
 ];
