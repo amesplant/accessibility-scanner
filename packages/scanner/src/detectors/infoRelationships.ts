@@ -114,9 +114,15 @@ export async function extract(page: any): Promise<Omit<DetectedElement, 'id'>[]>
         if (EXCLUDED_INPUT_TYPES.has(type)) return;
       }
       const label = getFormLabel(el);
-      const inputType = el.tagName === 'SELECT' ? 'select'
+      const rawType = el.tagName === 'SELECT' ? 'select'
         : el.tagName === 'TEXTAREA' ? 'textarea'
         : ((el as HTMLInputElement).type || 'text').toLowerCase();
+      const roleDesc = rawType === 'select' ? 'combo box'
+        : rawType === 'textarea' ? 'multi-line text'
+        : rawType === 'checkbox' ? 'checkbox'
+        : rawType === 'radio' ? 'radio button'
+        : rawType === 'range' ? 'slider'
+        : 'text field';
       tag(el, {
         elementType: 'form-field',
         html: truncHtml(el.outerHTML),
@@ -124,7 +130,7 @@ export async function extract(page: any): Promise<Omit<DetectedElement, 'id'>[]>
         textAlternative: label,
         isDecorative: false,
         auditStatus: 'not-reviewed',
-        screenReaderText: label ? `${inputType}: ${label}` : `${inputType}: (no label)`,
+        screenReaderText: label ? `"${label}", ${roleDesc}` : `(unlabeled), ${roleDesc}`,
       });
     });
 
@@ -182,7 +188,11 @@ export async function extract(page: any): Promise<Omit<DetectedElement, 'id'>[]>
         textAlternative: isHidden ? null : text,
         isDecorative: isHidden,
         auditStatus: 'not-reviewed',
-        screenReaderText: isHidden ? 'Hidden from assistive technology' : `Heading level ${level}`,
+        screenReaderText: isHidden
+          ? 'Hidden from assistive technology'
+          : text
+          ? `"${text}", heading level ${level}`
+          : `(empty heading), heading level ${level}`,
       });
     });
 
