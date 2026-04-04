@@ -657,6 +657,72 @@ app.patch('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId
   }
 });
 
+// POST /api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/failures
+app.post('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/failures', async (req, res) => {
+  try {
+    const report = await db.getReport(req.params.reportId);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const page = report.results.find(r => r.id === req.params.pageId);
+    if (!page) return res.status(404).json({ error: 'Page not found' });
+    const elements = page.detectedElements?.[req.params.criterionId];
+    if (!elements) return res.status(404).json({ error: 'No detected elements for this criterion' });
+    const element = elements.find(e => e.id === req.params.elementId);
+    if (!element) return res.status(404).json({ error: 'Element not found' });
+
+    const failure = { id: `ef_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, createdAt: new Date().toISOString() };
+    element.failures = [...(element.failures ?? []), failure];
+    await db.updateReport(report);
+    return res.json({ detectedElements: page.detectedElements });
+  } catch (err) {
+    console.error('Add element failure error:', err);
+    return res.status(500).json({ error: 'Failed to add element failure' });
+  }
+});
+
+// PATCH /api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/failures/:failureId
+app.patch('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/failures/:failureId', async (req, res) => {
+  try {
+    const report = await db.getReport(req.params.reportId);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const page = report.results.find(r => r.id === req.params.pageId);
+    if (!page) return res.status(404).json({ error: 'Page not found' });
+    const elements = page.detectedElements?.[req.params.criterionId];
+    if (!elements) return res.status(404).json({ error: 'No detected elements for this criterion' });
+    const element = elements.find(e => e.id === req.params.elementId);
+    if (!element) return res.status(404).json({ error: 'Element not found' });
+    const failure = (element.failures ?? []).find(f => f.id === req.params.failureId);
+    if (!failure) return res.status(404).json({ error: 'Failure not found' });
+
+    Object.assign(failure, req.body);
+    await db.updateReport(report);
+    return res.json({ detectedElements: page.detectedElements });
+  } catch (err) {
+    console.error('Update element failure error:', err);
+    return res.status(500).json({ error: 'Failed to update element failure' });
+  }
+});
+
+// DELETE /api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/failures/:failureId
+app.delete('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/failures/:failureId', async (req, res) => {
+  try {
+    const report = await db.getReport(req.params.reportId);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const page = report.results.find(r => r.id === req.params.pageId);
+    if (!page) return res.status(404).json({ error: 'Page not found' });
+    const elements = page.detectedElements?.[req.params.criterionId];
+    if (!elements) return res.status(404).json({ error: 'No detected elements for this criterion' });
+    const element = elements.find(e => e.id === req.params.elementId);
+    if (!element) return res.status(404).json({ error: 'Element not found' });
+
+    element.failures = (element.failures ?? []).filter(f => f.id !== req.params.failureId);
+    await db.updateReport(report);
+    return res.json({ detectedElements: page.detectedElements });
+  } catch (err) {
+    console.error('Delete element failure error:', err);
+    return res.status(500).json({ error: 'Failed to delete element failure' });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Projects
 // ---------------------------------------------------------------------------

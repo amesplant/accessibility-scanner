@@ -73,6 +73,7 @@ export interface DetectedElement {
   isDecorative: boolean;
   auditStatus: 'pass' | 'fail' | 'not-reviewed';
   auditComment?: string;
+  failures?: ManualFailureInstance[];
   /** Base64 data URL screenshot of the element (cropped to element bounds) */
   screenshotDataUrl?: string;
   /** Base64 data URL of the viewport with the element highlighted in red */

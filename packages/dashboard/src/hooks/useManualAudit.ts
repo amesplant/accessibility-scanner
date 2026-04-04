@@ -238,6 +238,71 @@ export function useManualAudit(
     [reportId, pageId],
   );
 
+  const addElementFailure = useCallback(
+    async (criterionId: string, elementId: string) => {
+      try {
+        const res = await fetch(
+          `/api/reports/${reportId}/pages/${pageId}/elements/${criterionId}/${elementId}/failures`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) },
+        );
+        const json = await res.json();
+        if (json.detectedElements) setDetectedElements(json.detectedElements);
+      } catch (err) {
+        console.error('Failed to add element failure:', err);
+      }
+    },
+    [reportId, pageId],
+  );
+
+  const updateElementFailure = useCallback(
+    async (criterionId: string, elementId: string, failureId: string, data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>) => {
+      setDetectedElements(prev => {
+        if (!prev?.[criterionId]) return prev;
+        return {
+          ...prev,
+          [criterionId]: prev[criterionId].map(el => {
+            if (el.id !== elementId) return el;
+            return { ...el, failures: (el.failures ?? []).map(f => f.id === failureId ? { ...f, ...data } : f) };
+          }),
+        };
+      });
+      try {
+        await fetch(
+          `/api/reports/${reportId}/pages/${pageId}/elements/${criterionId}/${elementId}/failures/${failureId}`,
+          { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) },
+        );
+      } catch (err) {
+        console.error('Failed to update element failure:', err);
+      }
+    },
+    [reportId, pageId],
+  );
+
+  const deleteElementFailure = useCallback(
+    async (criterionId: string, elementId: string, failureId: string) => {
+      setDetectedElements(prev => {
+        if (!prev?.[criterionId]) return prev;
+        return {
+          ...prev,
+          [criterionId]: prev[criterionId].map(el =>
+            el.id === elementId
+              ? { ...el, failures: (el.failures ?? []).filter(f => f.id !== failureId) }
+              : el,
+          ),
+        };
+      });
+      try {
+        await fetch(
+          `/api/reports/${reportId}/pages/${pageId}/elements/${criterionId}/${elementId}/failures/${failureId}`,
+          { method: 'DELETE' },
+        );
+      } catch (err) {
+        console.error('Failed to delete element failure:', err);
+      }
+    },
+    [reportId, pageId],
+  );
+
   const toggleComplete = useCallback(
     async (completed: boolean) => {
       setAudit(prev => ({
@@ -294,5 +359,5 @@ export function useManualAudit(
     [reportId, pageId],
   );
 
-  return { audit, detectedElements, updateCheck, updateNotes, updateEvidence, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement };
+  return { audit, detectedElements, updateCheck, updateNotes, updateEvidence, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement, addElementFailure, updateElementFailure, deleteElementFailure };
 }

@@ -19,7 +19,7 @@ export function PageWindow() {
 
   const page = report?.results.find(r => r.id === pageId) ?? null;
 
-  const { audit, detectedElements, updateCheck, updateNotes, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement } =
+  const { audit, detectedElements, updateCheck, updateNotes, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement, addElementFailure, updateElementFailure, deleteElementFailure } =
     useManualAudit(id ?? '', pageId ?? '', page?.manualAudit, page?.detectedElements);
 
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -482,6 +482,9 @@ export function PageWindow() {
             onUpdateFailure={updateFailure}
             onDeleteFailure={deleteFailure}
             onUpdateDetectedElement={updateDetectedElement}
+            onAddElementFailure={addElementFailure}
+            onUpdateElementFailure={updateElementFailure}
+            onDeleteElementFailure={deleteElementFailure}
           />
         </TabsContent>
       </Tabs>

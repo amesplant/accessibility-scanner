@@ -353,7 +353,7 @@ function FailureInstanceItem({
   index: number;
   failure: ManualFailureInstance;
   checkContext?: { id: string; title: string; criterion?: string; description?: string };
-  onUpdate: (data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>) => void;
+  onUpdate: (data: FailureUpdateData) => void;
   onDelete: () => void;
 }) {
   const [localNotes, setLocalNotes] = useState(failure.notes ?? '');
@@ -748,25 +748,35 @@ function CopyButton({ text }: { text: string }) {
 
 function NonTextElementRow({
   element,
+  criterionId,
   onUpdate,
+  onAddFailure,
+  onUpdateFailure,
+  onDeleteFailure,
 }: {
   element: DetectedElement;
+  criterionId?: string;
   onUpdate: (elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => void;
+  onAddFailure?: () => void;
+  onUpdateFailure?: (failureId: string, data: FailureUpdateData) => void;
+  onDeleteFailure?: (failureId: string) => void;
 }) {
-  const [comment, setComment] = useState(element.auditComment ?? '');
   const [contextOpen, setContextOpen] = useState(false);
   const screenshotTriggerRef = useRef<HTMLButtonElement>(null);
 
+  const elementLabel = ELEMENT_TYPE_LABELS[element.elementType];
+  const elementTitle = element.textAlternative
+    ? `${elementLabel}: "${element.textAlternative}"`
+    : element.isDecorative
+    ? `${elementLabel}: (decorative)`
+    : elementLabel;
+
   function toggleStatus(toggled: 'pass' | 'fail') {
     const next = element.auditStatus === toggled ? 'not-reviewed' : toggled;
-    onUpdate(element.id, next, comment || undefined);
+    onUpdate(element.id, next);
   }
 
-  function commitComment() {
-    if (comment !== (element.auditComment ?? '')) {
-      onUpdate(element.id, element.auditStatus, comment || undefined);
-    }
-  }
+  const showFailures = element.auditStatus === 'fail' || (element.failures ?? []).length > 0;
 
   const hasScreenshot = !!(element.screenshotDataUrl || element.contextScreenshotDataUrl);
 
@@ -911,14 +921,14 @@ function NonTextElementRow({
           </button>
         </div>
       </div>
-      {element.auditStatus === 'fail' && (
-        <Textarea
-          aria-label="Comment on this failure"
-          placeholder="Comment on this failure…"
-          value={comment}
-          onChange={e => setComment(e.target.value)}
-          onBlur={commitComment}
-          className="text-xs min-h-[48px]"
+      {showFailures && onAddFailure && (
+        <FailureInstancesSection
+          failures={element.failures}
+          checkContext={{ id: element.id, title: elementTitle, criterion: criterionId, description: undefined }}
+          onAdd={onAddFailure}
+          onUpdate={(fid, data) => onUpdateFailure?.(fid, data)}
+          onDelete={fid => onDeleteFailure?.(fid)}
+          className="pt-1"
         />
       )}
     </div>
@@ -928,12 +938,20 @@ function NonTextElementRow({
 
 function NonTextElementsPanel({
   elements,
+  criterionId,
   onUpdate,
+  onAddElementFailure,
+  onUpdateElementFailure,
+  onDeleteElementFailure,
   onAutoPass,
   emptyLabel = 'No non-text elements detected on this page — nothing to audit for 1.1.1.',
 }: {
   elements: DetectedElement[];
+  criterionId?: string;
   onUpdate?: (elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => void;
+  onAddElementFailure?: (elementId: string) => void;
+  onUpdateElementFailure?: (elementId: string, failureId: string, data: FailureUpdateData) => void;
+  onDeleteElementFailure?: (elementId: string, failureId: string) => void;
   onAutoPass?: () => void;
   emptyLabel?: string;
 }) {
@@ -974,9 +992,72 @@ function NonTextElementsPanel({
       </div>
       <div className="divide-y">
         {elements.map(el => (
-          <NonTextElementRow key={el.id} element={el} onUpdate={onUpdate!} />
+          <NonTextElementRow
+            key={el.id}
+            element={el}
+            criterionId={criterionId}
+            onUpdate={onUpdate!}
+            onAddFailure={onAddElementFailure ? () => onAddElementFailure(el.id) : undefined}
+            onUpdateFailure={onUpdateElementFailure ? (fid, data) => onUpdateElementFailure(el.id, fid, data) : undefined}
+            onDeleteFailure={onDeleteElementFailure ? (fid) => onDeleteElementFailure(el.id, fid) : undefined}
+          />
         ))}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// FailureUpdateData — shared type for failure instance patch payloads
+// ---------------------------------------------------------------------------
+
+type FailureUpdateData = Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>;
+
+// ---------------------------------------------------------------------------
+// FailureInstancesSection — reused in CheckRow, CustomCheckItem, NonTextElementRow
+// ---------------------------------------------------------------------------
+
+function FailureInstancesSection({
+  failures,
+  checkContext,
+  onAdd,
+  onUpdate,
+  onDelete,
+  className,
+}: {
+  failures?: ManualFailureInstance[];
+  checkContext: { id: string; title: string; criterion?: string; description?: string };
+  onAdd: () => void;
+  onUpdate: (failureId: string, data: FailureUpdateData) => void;
+  onDelete: (failureId: string) => void;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      {(failures ?? []).length > 0 && (
+        <div className="space-y-2 mb-2">
+          {failures!.map((failure, i) => (
+            <FailureInstanceItem
+              key={failure.id}
+              index={i + 1}
+              failure={failure}
+              checkContext={checkContext}
+              onUpdate={data => onUpdate(failure.id, data)}
+              onDelete={() => onDelete(failure.id)}
+            />
+          ))}
+        </div>
+      )}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={onAdd}
+        className="h-7 text-xs gap-1.5 border-dashed"
+      >
+        <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+        Add failure instance
+      </Button>
     </div>
   );
 }
@@ -994,16 +1075,22 @@ function CheckRow({
   onDeleteFailure,
   smartElements,
   onUpdateSmartElement,
+  onAddElementFailure,
+  onUpdateElementFailure,
+  onDeleteElementFailure,
 }: {
   check: ManualCheckResult;
   /** show level + category badges (used when the group doesn't already convey this) */
   showMeta?: boolean;
   onStatusChange: (status: ManualAuditStatus) => void;
   onAddFailure: () => void;
-  onUpdateFailure: (failureId: string, data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>) => void;
+  onUpdateFailure: (failureId: string, data: FailureUpdateData) => void;
   onDeleteFailure: (failureId: string) => void;
   smartElements?: DetectedElement[];
   onUpdateSmartElement?: (elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => void;
+  onAddElementFailure?: (elementId: string) => void;
+  onUpdateElementFailure?: (elementId: string, failureId: string, data: FailureUpdateData) => void;
+  onDeleteElementFailure?: (elementId: string, failureId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showQuestions, setShowQuestions] = useState(false);
@@ -1134,7 +1221,11 @@ function CheckRow({
           {smartElements !== undefined && (
             <NonTextElementsPanel
               elements={smartElements}
+              criterionId={check.wcagCriterion}
               onUpdate={onUpdateSmartElement}
+              onAddElementFailure={onAddElementFailure}
+              onUpdateElementFailure={onUpdateElementFailure}
+              onDeleteElementFailure={onDeleteElementFailure}
               onAutoPass={smartElements.length === 0 ? () => onStatusChange('pass') : undefined}
               emptyLabel={
                 check.wcagCriterion === '1.2.1'
@@ -1149,30 +1240,14 @@ function CheckRow({
           )}
 
           {/* Failure instances */}
-          {(check.failures ?? []).length > 0 && (
-            <div className="mt-3 space-y-2">
-              {check.failures!.map((failure, i) => (
-                <FailureInstanceItem
-                  key={failure.id}
-                  index={i + 1}
-                  failure={failure}
-                  checkContext={{ id: check.id, title: check.title, criterion: check.wcagCriterion, description: check.description }}
-                  onUpdate={data => onUpdateFailure(failure.id, data)}
-                  onDelete={() => onDeleteFailure(failure.id)}
-                />
-              ))}
-            </div>
-          )}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onAddFailure}
-            className="mt-2 h-7 text-xs gap-1.5 border-dashed"
-          >
-            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-            Add failure instance
-          </Button>
+          <FailureInstancesSection
+            failures={check.failures}
+            checkContext={{ id: check.id, title: check.title, criterion: check.wcagCriterion, description: check.description }}
+            onAdd={onAddFailure}
+            onUpdate={(fid, data) => onUpdateFailure(fid, data)}
+            onDelete={onDeleteFailure}
+            className="mt-2 pt-0"
+          />
         </div>
       )}
     </div>
@@ -1189,15 +1264,23 @@ function CustomCheckItem({
   onStatusChange,
   onNotesChange,
   onDelete,
+  onAddFailure,
+  onUpdateFailure,
+  onDeleteFailure,
 }: {
   check: ManualCheckResult;
   showMeta?: boolean;
   onStatusChange: (status: ManualAuditStatus) => void;
   onNotesChange: (notes: string) => void;
   onDelete: () => void;
+  onAddFailure?: () => void;
+  onUpdateFailure?: (failureId: string, data: FailureUpdateData) => void;
+  onDeleteFailure?: (failureId: string) => void;
 }) {
   const [localNotes, setLocalNotes] = useState(check.notes ?? '');
   const [exportOpen, setExportOpen] = useState(false);
+
+  const showFailures = check.status === 'fail' || (check.failures ?? []).length > 0;
 
   return (
     <div className="border rounded p-3 space-y-2">
@@ -1263,6 +1346,16 @@ function CustomCheckItem({
         }}
         className="w-full text-xs border-0 border-b border-dashed border-muted-foreground/30 bg-transparent px-0 py-0.5 focus:outline-none focus:border-muted-foreground placeholder:text-muted-foreground/50"
       />
+      {showFailures && onAddFailure && (
+        <FailureInstancesSection
+          failures={check.failures}
+          checkContext={{ id: check.id, title: check.title, criterion: check.wcagCriterion, description: check.description }}
+          onAdd={onAddFailure}
+          onUpdate={(fid, data) => onUpdateFailure?.(fid, data)}
+          onDelete={fid => onDeleteFailure?.(fid)}
+          className="pt-1"
+        />
+      )}
     </div>
   );
 }
@@ -1281,16 +1374,22 @@ function CheckGroupSection({
   onDeleteFailure,
   detectedElements,
   onUpdateDetectedElement,
+  onAddElementFailure,
+  onUpdateElementFailure,
+  onDeleteElementFailure,
 }: {
   group: CheckGroup;
   onStatusChange: (checkId: string, status: ManualAuditStatus) => void;
   onNotesChange: (checkId: string, notes: string) => void;
   onDeleteCustomCheck: (checkId: string) => void;
   onAddFailure: (checkId: string) => void;
-  onUpdateFailure: (checkId: string, failureId: string, data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>) => void;
+  onUpdateFailure: (checkId: string, failureId: string, data: FailureUpdateData) => void;
   onDeleteFailure: (checkId: string, failureId: string) => void;
   detectedElements?: DetectedCriteriaElements;
   onUpdateDetectedElement?: (criterionId: string, elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => void;
+  onAddElementFailure?: (criterionId: string, elementId: string) => void;
+  onUpdateElementFailure?: (criterionId: string, elementId: string, failureId: string, data: FailureUpdateData) => void;
+  onDeleteElementFailure?: (criterionId: string, elementId: string, failureId: string) => void;
 }) {
   const headingId = `group-${group.id}`;
   const contentId = `group-${group.id}-content`;
@@ -1351,6 +1450,9 @@ function CheckGroupSection({
                     onStatusChange={status => onStatusChange(check.id, status)}
                     onNotesChange={notes => onNotesChange(check.id, notes)}
                     onDelete={() => onDeleteCustomCheck(check.id)}
+                    onAddFailure={() => onAddFailure(check.id)}
+                    onUpdateFailure={(fid, data) => onUpdateFailure(check.id, fid, data)}
+                    onDeleteFailure={fid => onDeleteFailure(check.id, fid)}
                   />
                 ) : (
                   <div key={check.id} className="border rounded">
@@ -1364,6 +1466,15 @@ function CheckGroupSection({
                       smartElements={check.wcagCriterion ? detectedElements?.[check.wcagCriterion] : undefined}
                       onUpdateSmartElement={check.wcagCriterion && onUpdateDetectedElement
                         ? (eid, status, comment) => onUpdateDetectedElement!(check.wcagCriterion!, eid, status, comment)
+                        : undefined}
+                      onAddElementFailure={check.wcagCriterion && onAddElementFailure
+                        ? (eid) => onAddElementFailure!(check.wcagCriterion!, eid)
+                        : undefined}
+                      onUpdateElementFailure={check.wcagCriterion && onUpdateElementFailure
+                        ? (eid, fid, data) => onUpdateElementFailure!(check.wcagCriterion!, eid, fid, data)
+                        : undefined}
+                      onDeleteElementFailure={check.wcagCriterion && onDeleteElementFailure
+                        ? (eid, fid) => onDeleteElementFailure!(check.wcagCriterion!, eid, fid)
                         : undefined}
                     />
                   </div>
@@ -1384,6 +1495,15 @@ function CheckGroupSection({
                   smartElements={check.wcagCriterion ? detectedElements?.[check.wcagCriterion] : undefined}
                   onUpdateSmartElement={check.wcagCriterion && onUpdateDetectedElement
                     ? (eid, status, comment) => onUpdateDetectedElement!(check.wcagCriterion!, eid, status, comment)
+                    : undefined}
+                  onAddElementFailure={check.wcagCriterion && onAddElementFailure
+                    ? (eid) => onAddElementFailure!(check.wcagCriterion!, eid)
+                    : undefined}
+                  onUpdateElementFailure={check.wcagCriterion && onUpdateElementFailure
+                    ? (eid, fid, data) => onUpdateElementFailure!(check.wcagCriterion!, eid, fid, data)
+                    : undefined}
+                  onDeleteElementFailure={check.wcagCriterion && onDeleteElementFailure
+                    ? (eid, fid) => onDeleteElementFailure!(check.wcagCriterion!, eid, fid)
                     : undefined}
                 />
               ))}
@@ -1555,9 +1675,12 @@ interface ManualAuditTabProps {
   onAuditorNotesChange: (notes: string) => void;
   onToggleComplete?: (completed: boolean) => void;
   onAddFailure: (checkId: string) => void;
-  onUpdateFailure: (checkId: string, failureId: string, data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>) => void;
+  onUpdateFailure: (checkId: string, failureId: string, data: FailureUpdateData) => void;
   onDeleteFailure: (checkId: string, failureId: string) => void;
   onUpdateDetectedElement?: (criterionId: string, elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => void;
+  onAddElementFailure?: (criterionId: string, elementId: string) => void;
+  onUpdateElementFailure?: (criterionId: string, elementId: string, failureId: string, data: FailureUpdateData) => void;
+  onDeleteElementFailure?: (criterionId: string, elementId: string, failureId: string) => void;
 }
 
 export function ManualAuditTab({
@@ -1573,6 +1696,9 @@ export function ManualAuditTab({
   onUpdateFailure,
   onDeleteFailure,
   onUpdateDetectedElement,
+  onAddElementFailure,
+  onUpdateElementFailure,
+  onDeleteElementFailure,
 }: ManualAuditTabProps) {
   const { auditType } = useCurrentReport();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -1744,6 +1870,9 @@ export function ManualAuditTab({
           onDeleteFailure={onDeleteFailure}
           detectedElements={detectedElements}
           onUpdateDetectedElement={onUpdateDetectedElement}
+          onAddElementFailure={onAddElementFailure}
+          onUpdateElementFailure={onUpdateElementFailure}
+          onDeleteElementFailure={onDeleteElementFailure}
         />
       ))}
 
@@ -1776,6 +1905,9 @@ export function ManualAuditTab({
                   onStatusChange={status => onStatusChange(check.id, status)}
                   onNotesChange={notes => onNotesChange(check.id, notes)}
                   onDelete={() => onDeleteCustomCheck(check.id)}
+                  onAddFailure={() => onAddFailure(check.id)}
+                  onUpdateFailure={(fid, data) => onUpdateFailure(check.id, fid, data)}
+                  onDeleteFailure={fid => onDeleteFailure(check.id, fid)}
                 />
               ))}
             </div>
