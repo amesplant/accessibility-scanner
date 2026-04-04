@@ -724,6 +724,9 @@ const ELEMENT_TYPE_LABELS: Record<DetectedElement['elementType'], string> = {
   'audio': 'Audio',
   'video-only': 'Video',
   'link': 'Link',
+  'form-field': 'Form Field',
+  'data-table': 'Table',
+  'heading': 'Heading',
 };
 
 function CopyButton({ text }: { text: string }) {
@@ -1234,6 +1237,8 @@ function CheckRow({
                   ? 'No video elements with audio detected on this page — nothing to audit for 1.2.2.'
                   : check.wcagCriterion === '2.4.4'
                   ? 'No ambiguous links detected on this page — nothing to audit for 2.4.4.'
+                  : check.wcagCriterion === '1.3.1'
+                  ? 'No form fields, tables, or headings detected on this page — nothing to audit for 1.3.1.'
                   : undefined
               }
             />

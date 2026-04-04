@@ -58,7 +58,10 @@ export type DetectedElementType =
   | 'object'
   | 'audio'
   | 'video-only'
-  | 'link';
+  | 'link'
+  | 'form-field'
+  | 'data-table'
+  | 'heading';
 
 export interface DetectedElement {
   id: string;

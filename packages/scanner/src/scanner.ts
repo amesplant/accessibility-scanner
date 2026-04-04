@@ -150,13 +150,14 @@ export class SitemapScanner {
         axeTags.push('best-practice');
       }
       axe.withTags(axeTags);
-      const [results, pageTitle, rawElements, rawMedia, rawCaptions, rawLinks] = await Promise.all([
+      const [results, pageTitle, rawElements, rawMedia, rawCaptions, rawLinks, rawInfoRel] = await Promise.all([
         axe.analyze(),
         page.title(),
         this.extractNonTextElements(page),
         this.extractMediaElements(page),
         this.extractCaptionsElements(page),
         this.extractLinkPurposeElements(page),
+        this.extractInfoRelationshipsElements(page),
       ]);
 
       const processElements = (raw: Omit<DetectedElement, 'id'>[]): DetectedElement[] =>
@@ -190,6 +191,22 @@ export class SitemapScanner {
           ? `Descriptive accessible name: \u201c${el.textAlternative}\u201d`
           : 'Link text is ambiguous — the purpose cannot be determined from the link text alone.',
       }));
+
+      const detectedInfoRel: DetectedElement[] = rawInfoRel.map(el => {
+        const base = { ...el, id: uuidv4() };
+        if (base.isDecorative) {
+          return { ...base, auditStatus: 'pass' as const, auditComment: 'Marked as presentational — hidden from assistive technology.' };
+        }
+        if (base.textAlternative === null) {
+          const comment = base.elementType === 'form-field'
+            ? 'No programmatic label — screen readers will not announce the purpose of this field.'
+            : base.elementType === 'data-table'
+            ? 'No <th> header cells detected — screen readers cannot associate data cells with their headers.'
+            : 'No accessible name — verify structure is conveyed programmatically.';
+          return { ...base, auditStatus: 'fail' as const, auditComment: comment };
+        }
+        return base;
+      });
 
       // Add highlight + label styles once for all context screenshots
       await page.addStyleTag({
@@ -284,6 +301,7 @@ export class SitemapScanner {
                 'canvas': 'Canvas', 'video': 'Video', 'button-icon': 'Icon Button',
                 'role-img': 'Role=img', 'area': 'Image Map Area', 'object': 'Object',
                 'audio': 'Audio', 'video-only': 'Video', 'link': 'Link',
+                'form-field': 'Form Field', 'data-table': 'Table', 'heading': 'Heading',
               };
               const label = typeLabel[el.elementType] ?? el.elementType;
               return el.textAlternative
@@ -516,6 +534,81 @@ export class SitemapScanner {
         }
       }
 
+      // Screenshots for 1.3.1 info & relationships elements
+      const structTypeLabels: Record<string, string> = {
+        'form-field': 'Form Field',
+        'data-table': 'Table',
+        'heading': 'Heading',
+      };
+      for (let i = 0; i < Math.min(detectedInfoRel.length, 30); i++) {
+        const el = detectedInfoRel[i];
+        const scanAttr = `a11y-struct-${i}`;
+        try {
+          const visible = await page.evaluate((idx: string) => {
+            const node = document.querySelector(`[data-a11y-struct-scan-id="${idx}"]`) as HTMLElement | null;
+            if (!node) return false;
+            node.scrollIntoView({ behavior: 'instant', block: 'center' });
+            const r = node.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+          }, scanAttr);
+
+          if (!visible) continue;
+
+          const handle = await page.$(`[data-a11y-struct-scan-id="${scanAttr}"]`);
+          if (!handle) continue;
+
+          const box = await handle.boundingBox();
+          if (!box || box.width === 0 || box.height === 0) { await handle.dispose(); continue; }
+
+          const pad = 8;
+          const clip = {
+            x: Math.max(0, box.x - pad),
+            y: Math.max(0, box.y - pad),
+            width: Math.min(box.width + pad * 2, viewportWidth),
+            height: Math.min(box.height + pad * 2, viewportHeight),
+          };
+
+          const elBuf = await page.screenshot({ clip, type: 'jpeg', quality: 80 });
+          el.screenshotDataUrl = `data:image/jpeg;base64,${Buffer.from(elBuf as Uint8Array).toString('base64')}`;
+
+          await handle.evaluate(
+            (node: Element, labelText: string) => {
+              node.setAttribute('data-a11y-highlight', 'true');
+              const rect = node.getBoundingClientRect();
+              const vw = window.innerWidth;
+              const vh = window.innerHeight;
+              const label = document.createElement('div');
+              label.setAttribute('data-a11y-label', 'true');
+              label.textContent = labelText;
+              document.body.appendChild(label);
+              const approxLabelH = 36;
+              const top = rect.top > approxLabelH + 8
+                ? rect.top - approxLabelH - 6
+                : Math.min(rect.bottom + 6, vh - approxLabelH - 4);
+              label.style.top = `${Math.max(4, top)}px`;
+              label.style.left = `${Math.max(4, Math.min(rect.left, vw - 324))}px`;
+            },
+            (() => {
+              const typeLabel = structTypeLabels[el.elementType] ?? el.elementType;
+              return el.textAlternative
+                ? `${typeLabel}: \u201c${el.textAlternative}\u201d`
+                : `${typeLabel}: No label`;
+            })(),
+          );
+
+          const ctxBuf = await page.screenshot({ type: 'jpeg', quality: 75 });
+          el.contextScreenshotDataUrl = `data:image/jpeg;base64,${Buffer.from(ctxBuf as Uint8Array).toString('base64')}`;
+
+          await handle.evaluate((node: Element) => {
+            node.removeAttribute('data-a11y-highlight');
+            document.querySelector('[data-a11y-label]')?.remove();
+          });
+          await handle.dispose();
+        } catch {
+          // skip — element hidden, detached, or viewport issue
+        }
+      }
+
       const detectedElementsMap: NonNullable<ScanResult['detectedElements']> = {
         '1.1.1': detectedElements,
       };
@@ -527,6 +620,9 @@ export class SitemapScanner {
       }
       if (detectedLinks.length > 0) {
         detectedElementsMap['2.4.4'] = detectedLinks;
+      }
+      if (detectedInfoRel.length > 0) {
+        detectedElementsMap['1.3.1'] = detectedInfoRel;
       }
 
       // Build violations array before return so we can mutate nodes for screenshots
@@ -1041,6 +1137,159 @@ export class SitemapScanner {
           textAlternative: null,
           isDecorative: false,
           auditStatus: 'not-reviewed',
+        });
+      });
+
+      return elements;
+    }) as Promise<Omit<DetectedElement, 'id'>[]>;
+  }
+
+  private async extractInfoRelationshipsElements(page: any): Promise<Omit<DetectedElement, 'id'>[]> {
+    return page.evaluate(() => {
+      function truncHtml(html: string): string {
+        return html.length > 500 ? html.slice(0, 500) + '…' : html;
+      }
+
+      function getSelector(el: Element): string {
+        if ((el as HTMLElement).id) return `#${CSS.escape((el as HTMLElement).id)}`;
+        const parts: string[] = [];
+        let cur: Element | null = el;
+        while (cur && cur !== document.body && cur !== document.documentElement) {
+          let seg = cur.tagName.toLowerCase();
+          if ((cur as HTMLElement).id) {
+            seg = `#${CSS.escape((cur as HTMLElement).id)}`;
+            parts.unshift(seg);
+            break;
+          }
+          const parent = cur.parentElement;
+          if (parent) {
+            const sameTag = Array.from(parent.children).filter(c => c.tagName === cur!.tagName);
+            if (sameTag.length > 1) seg += `:nth-of-type(${sameTag.indexOf(cur as HTMLElement) + 1})`;
+          }
+          parts.unshift(seg);
+          cur = cur.parentElement;
+        }
+        return parts.join(' > ');
+      }
+
+      function resolveAriaLabelledby(el: Element): string | null {
+        const ids = el.getAttribute('aria-labelledby');
+        if (!ids) return null;
+        const text = ids.split(/\s+/)
+          .map(id => document.getElementById(id)?.textContent?.trim())
+          .filter(Boolean)
+          .join(' ');
+        return text || null;
+      }
+
+      function getFormLabel(el: Element): string | null {
+        const labelledby = resolveAriaLabelledby(el);
+        if (labelledby) return labelledby;
+        const ariaLabel = el.getAttribute('aria-label')?.trim();
+        if (ariaLabel) return ariaLabel;
+        const id = (el as HTMLElement).id;
+        if (id) {
+          const label = document.querySelector(`label[for="${CSS.escape(id)}"]`);
+          if (label) return label.textContent?.trim() || null;
+        }
+        const wrappingLabel = el.closest('label');
+        if (wrappingLabel) {
+          const clone = wrappingLabel.cloneNode(true) as HTMLElement;
+          clone.querySelectorAll('input, select, textarea').forEach(n => n.remove());
+          const text = clone.textContent?.trim();
+          if (text) return text;
+        }
+        const title = el.getAttribute('title')?.trim();
+        if (title) return title;
+        return null;
+      }
+
+      const elements: any[] = [];
+
+      function tag(el: Element, data: any) {
+        const scanId = `a11y-struct-${elements.length}`;
+        el.setAttribute('data-a11y-struct-scan-id', scanId);
+        elements.push(data);
+      }
+
+      // 1. Form fields — input (excluding non-labelable types), select, textarea
+      const EXCLUDED_INPUT_TYPES = new Set(['hidden', 'submit', 'reset', 'button', 'image']);
+      document.querySelectorAll('input, select, textarea').forEach(el => {
+        if (el.getAttribute('aria-hidden') === 'true') return;
+        if (el.tagName === 'INPUT') {
+          const type = (el as HTMLInputElement).type?.toLowerCase() || 'text';
+          if (EXCLUDED_INPUT_TYPES.has(type)) return;
+        }
+        const label = getFormLabel(el);
+        const inputType = el.tagName === 'SELECT' ? 'select'
+          : el.tagName === 'TEXTAREA' ? 'textarea'
+          : ((el as HTMLInputElement).type || 'text').toLowerCase();
+        tag(el, {
+          elementType: 'form-field',
+          html: truncHtml(el.outerHTML),
+          selector: getSelector(el),
+          textAlternative: label,
+          isDecorative: false,
+          auditStatus: 'not-reviewed',
+          screenReaderText: label ? `${inputType}: ${label}` : `${inputType}: (no label)`,
+        });
+      });
+
+      // 2. Data tables
+      document.querySelectorAll('table').forEach(el => {
+        const role = el.getAttribute('role');
+        if (role === 'presentation' || role === 'none') {
+          tag(el, {
+            elementType: 'data-table',
+            html: truncHtml(el.outerHTML),
+            selector: getSelector(el),
+            textAlternative: 'Presentational (role=presentation)',
+            isDecorative: true,
+            auditStatus: 'not-reviewed',
+            screenReaderText: 'Hidden from assistive technology',
+          });
+          return;
+        }
+        const thCells = Array.from(el.querySelectorAll('th'));
+        const caption = el.querySelector('caption')?.textContent?.trim() || null;
+        const headerTexts = thCells.slice(0, 6).map(th => th.textContent?.trim()).filter(Boolean);
+        const headerDesc = headerTexts.length > 0
+          ? headerTexts.join(', ') + (thCells.length > 6 ? '…' : '')
+          : null;
+        const textAlt = thCells.length > 0 ? (caption || headerDesc) : null;
+        const screenReaderText = thCells.length > 0
+          ? `${thCells.length} header cell${thCells.length !== 1 ? 's' : ''}: ${headerDesc}`
+          : 'No <th> header cells detected';
+        // Truncate to opening tag + thead/first row to keep html readable
+        const raw = el.outerHTML;
+        const tbodyIdx = raw.indexOf('<tbody');
+        const htmlSnippet = tbodyIdx !== -1
+          ? truncHtml(raw.slice(0, tbodyIdx) + '…</table>')
+          : truncHtml(raw);
+        tag(el, {
+          elementType: 'data-table',
+          html: htmlSnippet,
+          selector: getSelector(el),
+          textAlternative: textAlt,
+          isDecorative: false,
+          auditStatus: 'not-reviewed',
+          screenReaderText,
+        });
+      });
+
+      // 3. Headings h1–h6
+      document.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(el => {
+        const isHidden = el.getAttribute('aria-hidden') === 'true';
+        const level = parseInt(el.tagName.slice(1), 10);
+        const text = el.textContent?.trim() || null;
+        tag(el, {
+          elementType: 'heading',
+          html: truncHtml(el.outerHTML),
+          selector: getSelector(el),
+          textAlternative: isHidden ? null : text,
+          isDecorative: isHidden,
+          auditStatus: 'not-reviewed',
+          screenReaderText: isHidden ? 'Hidden from assistive technology' : `Heading level ${level}`,
         });
       });
 
