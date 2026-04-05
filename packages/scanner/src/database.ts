@@ -110,6 +110,14 @@ export class DatabaseService {
     return fs.access(filePath).then(() => true).catch(() => false);
   }
 
+  async reportIsBundle(id: string): Promise<boolean> {
+    return this.pathExists(this.bundleManifestFile(id));
+  }
+
+  async streamReportPages(reportId: string, callback: (page: ScanReport['results'][number]) => Promise<void> | void): Promise<void> {
+    return this.iterateReportPages(reportId, callback);
+  }
+
   /**
    * One-time migration: if the legacy monolithic reports.json exists and
    * meta.json does not, split every report into its own file and write meta.json.

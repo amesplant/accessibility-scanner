@@ -175,13 +175,25 @@ app.delete('/api/reports', async (_req, res) => {
 
 app.post('/api/reports/:id/export/excel', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.id);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
     const { selectedViolations, tasklistName, selectedLevels } = req.body;
     const exporter = new Reporter();
     res.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.header('Content-Disposition', `attachment; filename="accessibility-export-${req.params.id}.xlsx"`);
     res.flushHeaders();
+
+    if (await db.reportIsBundle(req.params.id)) {
+      await exporter.streamToExcelFromPages(
+        res,
+        async (page) => db.streamReportPages(req.params.id, page),
+        selectedViolations,
+        tasklistName,
+        selectedLevels,
+      );
+      return;
+    }
+
+    const report = await db.getReport(req.params.id);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
     await exporter.streamToExcel(report, res, selectedViolations, tasklistName, selectedLevels);
     return;
   } catch (error) {
@@ -192,13 +204,25 @@ app.post('/api/reports/:id/export/excel', async (req, res) => {
 
 app.post('/api/reports/:id/export/jira', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.id);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
     const { selectedViolations, selectedLevels } = req.body;
     const exporter = new Reporter();
-    const csvData = exporter.exportToJiraCsv(report, selectedViolations, selectedLevels);
     res.header('Content-Type', 'text/csv');
     res.header('Content-Disposition', `attachment; filename="jira-export-${req.params.id}.csv"`);
+    res.flushHeaders();
+
+    if (await db.reportIsBundle(req.params.id)) {
+      await exporter.streamToJiraCsvFromPages(
+        res,
+        async (pageCallback) => db.streamReportPages(req.params.id, pageCallback),
+        selectedViolations,
+        selectedLevels,
+      );
+      return;
+    }
+
+    const report = await db.getReport(req.params.id);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const csvData = exporter.exportToJiraCsv(report, selectedViolations, selectedLevels);
     return res.send(csvData);
   } catch (error) {
     console.error('Jira export error:', error);
