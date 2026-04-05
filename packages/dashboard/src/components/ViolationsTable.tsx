@@ -9,6 +9,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { Pagination } from '@/components/ui/pagination';
 import { useViolationGroups } from '@/hooks/useViolationGroups';
 
 interface ViolationsTableProps {
@@ -23,25 +24,16 @@ const impactColors = {
 } as const;
 
 export function ViolationsTable({ reportId }: ViolationsTableProps) {
-  const { items, total, loading, loadingMore, error, loadMore, hasMore } = useViolationGroups(reportId);
+  const { items, total, loading, error, page, setPage, totalPages } = useViolationGroups(reportId);
 
   if (loading) return <div className="text-sm text-muted-foreground">Loading violations…</div>;
   if (error) return <div className="text-sm text-destructive">{error}</div>;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <span>{items.length} of {total} violation groups loaded</span>
-        {hasMore && (
-          <button
-            type="button"
-            onClick={loadMore}
-            disabled={loadingMore}
-            className="text-link hover:underline disabled:opacity-60"
-          >
-            {loadingMore ? 'Loading…' : 'Load more'}
-          </button>
-        )}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm text-muted-foreground">
+        <span>Page {page} of {totalPages} — {total} violation groups</span>
+        <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
       </div>
 
       <Table aria-label="Accessibility violations grouped by type">

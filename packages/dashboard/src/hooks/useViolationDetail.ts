@@ -31,10 +31,13 @@ export function useViolationDetail(reportId: string | undefined, violationId: st
   const [group, setGroup] = useState<ViolationGroup | null>(null);
   const [pages, setPages] = useState<ViolationPage[]>([]);
   const [total, setTotal] = useState(0);
-  const [offset, setOffset] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPage(1);
+  }, [reportId, violationId]);
 
   useEffect(() => {
     if (!reportId || !violationId) {
@@ -43,39 +46,36 @@ export function useViolationDetail(reportId: string | undefined, violationId: st
     }
 
     setLoading(true);
-    Promise.all([
-      apiFetch(`/api/reports/${reportId}/violations/${violationId}`),
-      apiFetch(`/api/reports/${reportId}/violations/${violationId}/pages?offset=0&limit=${pageSize}`),
-    ])
-      .then(async ([groupRes, pagesRes]) => {
-        if (!groupRes.ok || !pagesRes.ok) throw new Error('Failed to fetch violation details');
+    apiFetch(`/api/reports/${reportId}/violations/${violationId}`)
+      .then(async groupRes => {
+        if (!groupRes.ok) throw new Error('Failed to fetch violation details');
         const groupData = await groupRes.json();
-        const pagesData = await pagesRes.json();
         setGroup(groupData);
-        setPages(pagesData.items ?? []);
-        setTotal(pagesData.total ?? 0);
-        setOffset(pagesData.items?.length ?? 0);
       })
-      .catch(err => setError(err instanceof Error ? err.message : 'Failed to fetch violation details'))
-      .finally(() => setLoading(false));
-  }, [reportId, violationId, pageSize]);
+      .catch(err => setError(err instanceof Error ? err.message : 'Failed to fetch violation details'));
+  }, [reportId, violationId]);
 
-  async function loadMore() {
-    if (!reportId || !violationId || loadingMore || pages.length >= total) return;
-    setLoadingMore(true);
-    try {
-      const res = await apiFetch(`/api/reports/${reportId}/violations/${violationId}/pages?offset=${offset}&limit=${pageSize}`);
-      if (!res.ok) throw new Error('Failed to fetch violation pages');
-      const data = await res.json();
-      setPages(current => [...current, ...(data.items ?? [])]);
-      setOffset(current => current + (data.items?.length ?? 0));
-      setTotal(data.total ?? total);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch violation pages');
-    } finally {
-      setLoadingMore(false);
+  useEffect(() => {
+    if (!reportId || !violationId) {
+      return;
     }
-  }
 
-  return { group, pages, total, loading, loadingMore, error, loadMore, hasMore: pages.length < total };
+    setLoading(true);
+    const offset = (page - 1) * pageSize;
+    apiFetch(`/api/reports/${reportId}/violations/${violationId}/pages?offset=${offset}&limit=${pageSize}`)
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to fetch violation pages');
+        return res.json();
+      })
+      .then(data => {
+        setPages(data.items ?? []);
+        setTotal(data.total ?? 0);
+      })
+      .catch(err => setError(err instanceof Error ? err.message : 'Failed to fetch violation pages'))
+      .finally(() => setLoading(false));
+  }, [reportId, violationId, pageSize, page]);
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  return { group, pages, total, loading, error, page, setPage, pageSize, totalPages };
 }

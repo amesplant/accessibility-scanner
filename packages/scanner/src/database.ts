@@ -497,11 +497,34 @@ export class DatabaseService {
     return undefined;
   }
 
+  private async iterateReportPages(
+    reportId: string,
+    callback: (page: ScanReport['results'][number]) => Promise<void> | void,
+  ): Promise<void> {
+    const single = await this.readJsonFile<ScanReport>(this.reportFile(reportId));
+    if (single) {
+      for (const page of single.results) {
+        await callback(page);
+      }
+      return;
+    }
+
+    const manifest = await this.readBundleManifest(reportId);
+    if (!manifest) return;
+
+    for (const shard of manifest.shards) {
+      const shardReport = await this.readJsonFile<ScanReport>(path.join(this.bundleDir(reportId), shard.file));
+      if (!shardReport) continue;
+      for (const page of shardReport.results) {
+        await callback(page);
+      }
+    }
+  }
+
   async listViolationGroups(reportId: string): Promise<ViolationGroupSummary[]> {
     const aggregated = new Map<string, ViolationGroupSummary>();
-    const pages = await this.listReportPages(reportId, 0, Number.MAX_SAFE_INTEGER);
 
-    for (const page of pages.items) {
+    await this.iterateReportPages(reportId, (page) => {
       for (const violation of page.violations) {
         const existing = aggregated.get(violation.id);
         if (existing) {
@@ -544,7 +567,7 @@ export class DatabaseService {
           pageCount: 1,
         });
       }
-    }
+    });
 
     return [...aggregated.values()].sort((a, b) => {
       const order = { critical: 0, serious: 1, moderate: 2, minor: 3 } as Record<string, number>;
@@ -558,20 +581,23 @@ export class DatabaseService {
   }
 
   async listViolationPages(reportId: string, violationId: string, offset = 0, limit = 50): Promise<ViolationPageSlice> {
-    const pages = await this.listReportPages(reportId, 0, Number.MAX_SAFE_INTEGER);
     const matches: ViolationPageSlice['items'] = [];
+    let total = 0;
 
-    for (const page of pages.items) {
+    await this.iterateReportPages(reportId, (page) => {
       for (const violation of page.violations) {
         if (violation.id === violationId) {
-          matches.push({ pageId: page.id, url: page.url, violation });
+          if (total >= offset && matches.length < limit) {
+            matches.push({ pageId: page.id, url: page.url, violation });
+          }
+          total += 1;
         }
       }
-    }
+    });
 
     return {
-      items: matches.slice(offset, offset + limit),
-      total: matches.length,
+      items: matches,
+      total,
       offset,
       limit,
     };

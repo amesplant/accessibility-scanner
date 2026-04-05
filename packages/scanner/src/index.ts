@@ -69,7 +69,7 @@ function buildBundleManifest(
   };
 }
 
-const FIXED_BATCH_SIZE = 100;
+const FIXED_BATCH_SIZE = 150;
 
 const program = new Command();
 
@@ -84,7 +84,7 @@ program
   .requiredOption('-s, --sitemap <url|path>', 'Sitemap URL or local file path')
   .option('-c, --concurrent <number>', 'Concurrent pages to scan', '8')
   .option('--headless', 'Run in headless mode', true)
-  .option('--batch-size', 'Batch scan in fixed groups of 100 pages')
+  .option('--batch-size', 'Batch scan in fixed groups of 150 pages')
   .option('--batch-index <number>', '1-based batch index when batch-size is set')
   .option('--output <path>', 'Optional path to write report JSON directly')
   .action(async (options) => {

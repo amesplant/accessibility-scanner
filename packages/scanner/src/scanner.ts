@@ -8,7 +8,7 @@ import { resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { ScanResult, ScanReport, DetectedElement } from '../../shared/dist/index.js';
 
-const FIXED_BATCH_SIZE = 100;
+const FIXED_BATCH_SIZE = 150;
 
 export class SitemapScanner {
   private browser: Browser | null = null;

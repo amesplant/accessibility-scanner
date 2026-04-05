@@ -61,7 +61,7 @@ Single scan:
 npm run scan -- scan -s https://example.com/sitemap.xml
 ```
 
-Batched scan (100 pages per chunk):
+Batched scan (150 pages per chunk):
 
 ```bash
 npm run scan -- scan -s https://example.com/sitemap.xml --batch-size --batch-index 1
@@ -93,7 +93,7 @@ The scanner CLI is in `packages/scanner/src/index.ts` and supports options:
 - `-s, --sitemap <url|path>` (required)
 - `-c, --concurrent <number>` (default `8`)
 - `--headless` (default `true`)
-- `--batch-size` (enable batching in fixed groups of 100 pages)
+- `--batch-size` (enable batching in fixed groups of 150 pages)
 - `--batch-index <number>` (1-based, required when batch-size is set for selective chunk runs)
 - `--output <path>` (write report JSON to file instead of database; supports relative paths)
 

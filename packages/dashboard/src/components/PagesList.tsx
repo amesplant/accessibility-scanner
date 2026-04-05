@@ -10,6 +10,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ExternalLink } from './ExternalLink';
+import { Pagination } from '@/components/ui/pagination';
 import { useReportPages } from '@/hooks/useReportPages';
 
 interface PagesListProps {
@@ -17,25 +18,16 @@ interface PagesListProps {
 }
 
 export function PagesList({ reportId }: PagesListProps) {
-  const { pages, total, loading, loadingMore, error, loadMore, hasMore } = useReportPages(reportId);
+  const { pages, total, loading, error, page, setPage, totalPages } = useReportPages(reportId);
 
   if (loading) return <div className="text-sm text-muted-foreground">Loading pages…</div>;
   if (error) return <div className="text-sm text-destructive">{error}</div>;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <span>{pages.length} of {total} pages loaded</span>
-        {hasMore && (
-          <button
-            type="button"
-            onClick={loadMore}
-            disabled={loadingMore}
-            className="text-link hover:underline disabled:opacity-60"
-          >
-            {loadingMore ? 'Loading…' : 'Load more'}
-          </button>
-        )}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm text-muted-foreground">
+        <span>Page {page} of {totalPages} — {total} pages</span>
+        <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
       </div>
 
       <Table aria-label="Accessibility pages">

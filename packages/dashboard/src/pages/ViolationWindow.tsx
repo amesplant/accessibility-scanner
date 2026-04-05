@@ -4,11 +4,12 @@ import { useViolationDetail } from '@/hooks/useViolationDetail';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ExternalLink } from '@/components/ExternalLink';
+import { Pagination } from '@/components/ui/pagination';
 import { X, ArrowLeft, FileSearch } from 'lucide-react';
 
 export function ViolationWindow() {
   const { id, violationId } = useParams<{ id: string; violationId: string }>();
-  const { group, pages, loading, error, loadMore, hasMore, loadingMore } = useViolationDetail(id, violationId);
+  const { group, pages, total, loading, error, page, setPage, totalPages } = useViolationDetail(id, violationId);
   const navigate = useNavigate();
 
   const violation = group?.kind === 'automated' ? group.violation : null;
@@ -90,9 +91,12 @@ export function ViolationWindow() {
       </div>
 
       <div>
-        <p className="text-xs text-muted-foreground mb-1">
-          Affected Pages ({pages.length} of {group.pageCount})
-        </p>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-muted-foreground mb-1">
+            Affected Pages ({pages.length} of {total})
+          </p>
+          <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
+        </div>
         <ul className="space-y-1.5">
           {pages.map(({ url, pageId }) => (
             <li key={url} className="flex items-center gap-3 flex-wrap">
@@ -109,16 +113,6 @@ export function ViolationWindow() {
             </li>
           ))}
         </ul>
-        {hasMore && (
-          <button
-            type="button"
-            onClick={loadMore}
-            disabled={loadingMore}
-            className="mt-3 text-sm text-link hover:underline disabled:opacity-60"
-          >
-            {loadingMore ? 'Loading…' : 'Load more'}
-          </button>
-        )}
       </div>
 
       {violation.nodes.length > 0 && (
