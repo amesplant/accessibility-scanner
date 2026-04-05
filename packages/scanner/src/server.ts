@@ -10,7 +10,7 @@ import { DatabaseService } from './database.js';
 import { Reporter } from './exporter.js';
 import { SitemapScanner } from './scanner.js';
 import { crawlSite } from './crawler.js';
-import { AuditType, createDefaultChecks, ManualAudit, ManualAuditStatus, ManualCheckResult, ManualFailureInstance, Project } from '../../shared/dist/index.js';
+import { AuditType, ScanReport, createDefaultChecks, ManualAudit, ManualAuditStatus, ManualCheckResult, ManualFailureInstance, Project } from '../../shared/dist/index.js';
 import { captureViewportScreenshot, detectFocusOrder, ViewportLabel } from './detectors/focusOrder.js';
 import { detectOnPage } from './detectors/onFocus.js';
 import { captureElementScreenshot } from './detectors/captureScreenshots.js';
@@ -242,30 +242,31 @@ app.post('/api/reports/:id/export/jira', async (req, res) => {
 // PATCH /api/reports/:reportId/pages/:pageId/violations/:violationId
 app.patch('/api/reports/:reportId/pages/:pageId/violations/:violationId', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.reportId);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const violations = await modifyReportPage(req.params.reportId, req.params.pageId, (page) => {
+      const violation = page.violations.find((v: { id: string }) => v.id === req.params.violationId);
+      if (!violation) throw new Error('Violation not found');
 
-    const page = report.results.find((r: { id: string }) => r.id === req.params.pageId);
-    if (!page) return res.status(404).json({ error: 'Page not found' });
+      const { overrideStatus, overrideNotes } = req.body as {
+        overrideStatus?: 'pass' | 'na' | null;
+        overrideNotes?: string;
+      };
+      if (overrideStatus === null) {
+        delete violation.overrideStatus;
+        delete violation.overrideNotes;
+      } else {
+        if (overrideStatus !== undefined) violation.overrideStatus = overrideStatus;
+        if (overrideNotes !== undefined) violation.overrideNotes = overrideNotes || undefined;
+      }
 
-    const violation = page.violations.find((v: { id: string }) => v.id === req.params.violationId);
-    if (!violation) return res.status(404).json({ error: 'Violation not found' });
+      return page.violations;
+    });
 
-    const { overrideStatus, overrideNotes } = req.body as {
-      overrideStatus?: 'pass' | 'na' | null;
-      overrideNotes?: string;
-    };
-    if (overrideStatus === null) {
-      delete violation.overrideStatus;
-      delete violation.overrideNotes;
-    } else {
-      if (overrideStatus !== undefined) violation.overrideStatus = overrideStatus;
-      if (overrideNotes !== undefined) violation.overrideNotes = overrideNotes || undefined;
-    }
-
-    await db.updateReport(report);
-    return res.json({ violations: page.violations });
+    if (!violations) return res.status(404).json({ error: 'Page not found' });
+    return res.json({ violations });
   } catch (err) {
+    if (err instanceof Error && err.message === 'Violation not found') {
+      return res.status(404).json({ error: err.message });
+    }
     console.error('Violation override error:', err);
     return res.status(500).json({ error: 'Failed to update violation' });
   }
@@ -274,47 +275,50 @@ app.patch('/api/reports/:reportId/pages/:pageId/violations/:violationId', async 
 // PATCH /api/reports/:reportId/pages/:pageId/violations/:violationId/nodes/:nodeIndex
 app.patch('/api/reports/:reportId/pages/:pageId/violations/:violationId/nodes/:nodeIndex', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.reportId);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const violations = await modifyReportPage(req.params.reportId, req.params.pageId, (page) => {
+      const violation = page.violations.find((v: { id: string }) => v.id === req.params.violationId);
+      if (!violation) throw new Error('Violation not found');
 
-    const page = report.results.find((r: { id: string }) => r.id === req.params.pageId);
-    if (!page) return res.status(404).json({ error: 'Page not found' });
+      const nodeIndex = parseInt(req.params.nodeIndex, 10);
+      const node = violation.nodes[nodeIndex];
+      if (!node) throw new Error('Node not found');
 
-    const violation = page.violations.find((v: { id: string }) => v.id === req.params.violationId);
-    if (!violation) return res.status(404).json({ error: 'Violation not found' });
-
-    const nodeIndex = parseInt(req.params.nodeIndex, 10);
-    const node = violation.nodes[nodeIndex];
-    if (!node) return res.status(404).json({ error: 'Node not found' });
-
-    const { screenshotDataUrl, overrideStatus } = req.body as {
-      screenshotDataUrl?: string | null;
-      overrideStatus?: 'pass' | 'fail' | null;
-    };
-    if (screenshotDataUrl === null) {
-      delete node.screenshotDataUrl;
-    } else if (screenshotDataUrl !== undefined) {
-      node.screenshotDataUrl = screenshotDataUrl;
-    }
-    if (overrideStatus === null) {
-      delete node.overrideStatus;
-    } else if (overrideStatus !== undefined) {
-      node.overrideStatus = overrideStatus;
-    }
-
-    // Auto-derive violation-level status from node statuses (unless violation is N/A)
-    if (violation.overrideStatus !== 'na') {
-      const allPass = violation.nodes.every(n => n.overrideStatus === 'pass');
-      if (allPass) {
-        violation.overrideStatus = 'pass';
-      } else {
-        delete violation.overrideStatus;
+      const { screenshotDataUrl, overrideStatus } = req.body as {
+        screenshotDataUrl?: string | null;
+        overrideStatus?: 'pass' | 'fail' | null;
+      };
+      if (screenshotDataUrl === null) {
+        delete node.screenshotDataUrl;
+      } else if (screenshotDataUrl !== undefined) {
+        node.screenshotDataUrl = screenshotDataUrl;
       }
-    }
+      if (overrideStatus === null) {
+        delete node.overrideStatus;
+      } else if (overrideStatus !== undefined) {
+        node.overrideStatus = overrideStatus;
+      }
 
-    await db.updateReport(report);
-    return res.json({ violations: page.violations });
+      if (violation.overrideStatus !== 'na') {
+        const allPass = violation.nodes.every(n => n.overrideStatus === 'pass');
+        if (allPass) {
+          violation.overrideStatus = 'pass';
+        } else {
+          delete violation.overrideStatus;
+        }
+      }
+
+      return page.violations;
+    });
+
+    if (!violations) return res.status(404).json({ error: 'Page not found' });
+    return res.json({ violations });
   } catch (err) {
+    if (err instanceof Error && err.message === 'Violation not found') {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err instanceof Error && err.message === 'Node not found') {
+      return res.status(404).json({ error: err.message });
+    }
     console.error('Node screenshot error:', err);
     return res.status(500).json({ error: 'Failed to update node screenshot' });
   }
@@ -331,35 +335,41 @@ function initManualAudit(auditType?: AuditType): ManualAudit {
   };
 }
 
+async function modifyReportPage<T>(
+  reportId: string,
+  pageId: string,
+  patch: (page: ScanReport['results'][number], reportContext: { auditType?: AuditType }) => T | Promise<T>,
+): Promise<T | undefined> {
+  const auditType = await db.getReportAuditType(reportId);
+  return db.updateReportPage(reportId, pageId, async (page) => patch(page, { auditType }));
+}
+
 // PATCH /api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId
 app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.reportId);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const manualAudit = await modifyReportPage(req.params.reportId, req.params.pageId, (page, { auditType }) => {
+      if (!page.manualAudit) page.manualAudit = initManualAudit(auditType);
 
-    const page = report.results.find(r => r.id === req.params.pageId);
-    if (!page) return res.status(404).json({ error: 'Page not found' });
+      const { status, notes, codeSnippet, screenshotDataUrl } = req.body as {
+        status: ManualAuditStatus;
+        notes?: string;
+        codeSnippet?: string;
+        screenshotDataUrl?: string;
+      };
+      const check = page.manualAudit.checks.find(c => c.id === req.params.checkId);
+      if (check) {
+        check.status = status;
+        if (notes !== undefined) check.notes = notes;
+        if (codeSnippet !== undefined) check.codeSnippet = codeSnippet;
+        if (screenshotDataUrl !== undefined) check.screenshotDataUrl = screenshotDataUrl;
+        check.updatedAt = new Date().toISOString();
+      }
+      page.manualAudit.lastUpdated = new Date().toISOString();
+      return page.manualAudit;
+    });
 
-    if (!page.manualAudit) page.manualAudit = initManualAudit(report.auditType);
-
-    const { status, notes, codeSnippet, screenshotDataUrl } = req.body as {
-      status: ManualAuditStatus;
-      notes?: string;
-      codeSnippet?: string;
-      screenshotDataUrl?: string;
-    };
-    const check = page.manualAudit.checks.find(c => c.id === req.params.checkId);
-    if (check) {
-      check.status = status;
-      if (notes !== undefined) check.notes = notes;
-      if (codeSnippet !== undefined) check.codeSnippet = codeSnippet;
-      if (screenshotDataUrl !== undefined) check.screenshotDataUrl = screenshotDataUrl;
-      check.updatedAt = new Date().toISOString();
-    }
-    page.manualAudit.lastUpdated = new Date().toISOString();
-
-    await db.updateReport(report);
-    return res.json({ manualAudit: page.manualAudit });
+    if (!manualAudit) return res.status(404).json({ error: 'Page not found' });
+    return res.json({ manualAudit });
   } catch (err) {
     console.error('Manual audit update error:', err);
     return res.status(500).json({ error: 'Failed to update check' });
@@ -369,33 +379,33 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId', a
 // POST /api/reports/:reportId/pages/:pageId/manual-audit/checks
 app.post('/api/reports/:reportId/pages/:pageId/manual-audit/checks', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.reportId);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const manualAudit = await modifyReportPage(req.params.reportId, req.params.pageId, (page, { auditType }) => {
+      if (!page.manualAudit) page.manualAudit = initManualAudit(auditType);
 
-    const page = report.results.find(r => r.id === req.params.pageId);
-    if (!page) return res.status(404).json({ error: 'Page not found' });
+      const { title, description, impact, status, notes } = req.body as Partial<ManualCheckResult>;
+      if (!title) throw new Error('title is required');
 
-    if (!page.manualAudit) page.manualAudit = initManualAudit(report.auditType);
+      const newCheck: ManualCheckResult = {
+        id: randomUUID(),
+        type: 'custom',
+        title,
+        description,
+        impact,
+        status: status ?? 'not-tested',
+        notes,
+        updatedAt: new Date().toISOString(),
+      };
+      page.manualAudit.checks.push(newCheck);
+      page.manualAudit.lastUpdated = new Date().toISOString();
+      return page.manualAudit;
+    });
 
-    const { title, description, impact, status, notes } = req.body as Partial<ManualCheckResult>;
-    if (!title) return res.status(400).json({ error: 'title is required' });
-
-    const newCheck: ManualCheckResult = {
-      id: randomUUID(),
-      type: 'custom',
-      title,
-      description,
-      impact,
-      status: status ?? 'not-tested',
-      notes,
-      updatedAt: new Date().toISOString(),
-    };
-    page.manualAudit.checks.push(newCheck);
-    page.manualAudit.lastUpdated = new Date().toISOString();
-
-    await db.updateReport(report);
-    return res.status(201).json({ manualAudit: page.manualAudit });
+    if (!manualAudit) return res.status(404).json({ error: 'Page not found' });
+    return res.status(201).json({ manualAudit });
   } catch (err) {
+    if (err instanceof Error && err.message === 'title is required') {
+      return res.status(400).json({ error: err.message });
+    }
     console.error('Add custom check error:', err);
     return res.status(500).json({ error: 'Failed to add custom check' });
   }
@@ -404,22 +414,29 @@ app.post('/api/reports/:reportId/pages/:pageId/manual-audit/checks', async (req,
 // DELETE /api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId
 app.delete('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.reportId);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const manualAudit = await modifyReportPage(req.params.reportId, req.params.pageId, (page) => {
+      if (!page.manualAudit) throw new Error('Page or audit not found');
 
-    const page = report.results.find(r => r.id === req.params.pageId);
-    if (!page || !page.manualAudit) return res.status(404).json({ error: 'Page or audit not found' });
+      const check = page.manualAudit.checks.find(c => c.id === req.params.checkId);
+      if (!check) throw new Error('Check not found');
+      if (check.type !== 'custom') throw new Error('Only custom checks can be deleted');
 
-    const check = page.manualAudit.checks.find(c => c.id === req.params.checkId);
-    if (!check) return res.status(404).json({ error: 'Check not found' });
-    if (check.type !== 'custom') return res.status(400).json({ error: 'Only custom checks can be deleted' });
+      page.manualAudit.checks = page.manualAudit.checks.filter(c => c.id !== req.params.checkId);
+      page.manualAudit.lastUpdated = new Date().toISOString();
+      return page.manualAudit;
+    });
 
-    page.manualAudit.checks = page.manualAudit.checks.filter(c => c.id !== req.params.checkId);
-    page.manualAudit.lastUpdated = new Date().toISOString();
-
-    await db.updateReport(report);
+    if (!manualAudit) return res.status(404).json({ error: 'Page not found' });
     return res.sendStatus(204);
   } catch (err) {
+    if (err instanceof Error) {
+      if (err.message === 'Page or audit not found' || err.message === 'Check not found') {
+        return res.status(404).json({ error: err.message });
+      }
+      if (err.message === 'Only custom checks can be deleted') {
+        return res.status(400).json({ error: err.message });
+      }
+    }
     console.error('Delete custom check error:', err);
     return res.status(500).json({ error: 'Failed to delete check' });
   }
@@ -428,21 +445,18 @@ app.delete('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId', 
 // PATCH /api/reports/:reportId/pages/:pageId/manual-audit/complete
 app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/complete', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.reportId);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const manualAudit = await modifyReportPage(req.params.reportId, req.params.pageId, (page, { auditType }) => {
+      if (!page.manualAudit) page.manualAudit = initManualAudit(auditType);
 
-    const page = report.results.find(r => r.id === req.params.pageId);
-    if (!page) return res.status(404).json({ error: 'Page not found' });
+      const { completed } = req.body as { completed: boolean };
+      page.manualAudit.completed = completed;
+      page.manualAudit.completedAt = completed ? new Date().toISOString() : undefined;
+      page.manualAudit.lastUpdated = new Date().toISOString();
+      return page.manualAudit;
+    });
 
-    if (!page.manualAudit) page.manualAudit = initManualAudit(report.auditType);
-
-    const { completed } = req.body as { completed: boolean };
-    page.manualAudit.completed = completed;
-    page.manualAudit.completedAt = completed ? new Date().toISOString() : undefined;
-    page.manualAudit.lastUpdated = new Date().toISOString();
-
-    await db.updateReport(report);
-    return res.json({ manualAudit: page.manualAudit });
+    if (!manualAudit) return res.status(404).json({ error: 'Page not found' });
+    return res.json({ manualAudit });
   } catch (err) {
     console.error('Audit complete toggle error:', err);
     return res.status(500).json({ error: 'Failed to update audit completion' });
@@ -452,20 +466,17 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/complete', async (r
 // PATCH /api/reports/:reportId/pages/:pageId/manual-audit
 app.patch('/api/reports/:reportId/pages/:pageId/manual-audit', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.reportId);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const manualAudit = await modifyReportPage(req.params.reportId, req.params.pageId, (page, { auditType }) => {
+      if (!page.manualAudit) page.manualAudit = initManualAudit(auditType);
 
-    const page = report.results.find(r => r.id === req.params.pageId);
-    if (!page) return res.status(404).json({ error: 'Page not found' });
+      const { auditorNotes } = req.body as { auditorNotes?: string };
+      page.manualAudit.auditorNotes = auditorNotes;
+      page.manualAudit.lastUpdated = new Date().toISOString();
+      return page.manualAudit;
+    });
 
-    if (!page.manualAudit) page.manualAudit = initManualAudit(report.auditType);
-
-    const { auditorNotes } = req.body as { auditorNotes?: string };
-    page.manualAudit.auditorNotes = auditorNotes;
-    page.manualAudit.lastUpdated = new Date().toISOString();
-
-    await db.updateReport(report);
-    return res.json({ manualAudit: page.manualAudit });
+    if (!manualAudit) return res.status(404).json({ error: 'Page not found' });
+    return res.json({ manualAudit });
   } catch (err) {
     console.error('Auditor notes update error:', err);
     return res.status(500).json({ error: 'Failed to update auditor notes' });
@@ -475,34 +486,34 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit', async (req, res) 
 // POST /api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/failures
 app.post('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/failures', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.reportId);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const manualAudit = await modifyReportPage(req.params.reportId, req.params.pageId, (page, { auditType }) => {
+      if (!page.manualAudit) page.manualAudit = initManualAudit(auditType);
 
-    const page = report.results.find(r => r.id === req.params.pageId);
-    if (!page) return res.status(404).json({ error: 'Page not found' });
+      const check = page.manualAudit.checks.find(c => c.id === req.params.checkId);
+      if (!check) throw new Error('Check not found');
 
-    if (!page.manualAudit) page.manualAudit = initManualAudit(report.auditType);
+      const failure: ManualFailureInstance = {
+        id: randomUUID(),
+        notes: req.body.notes,
+        codeSnippet: req.body.codeSnippet,
+        screenshotDataUrl: req.body.screenshotDataUrl,
+        createdAt: new Date().toISOString(),
+      };
+      if (!check.failures) check.failures = [];
+      check.failures.push(failure);
+      // Auto-set check status to fail when a failure is recorded
+      check.status = 'fail';
+      check.updatedAt = new Date().toISOString();
+      page.manualAudit.lastUpdated = new Date().toISOString();
+      return page.manualAudit;
+    });
 
-    const check = page.manualAudit.checks.find(c => c.id === req.params.checkId);
-    if (!check) return res.status(404).json({ error: 'Check not found' });
-
-    const failure: ManualFailureInstance = {
-      id: randomUUID(),
-      notes: req.body.notes,
-      codeSnippet: req.body.codeSnippet,
-      screenshotDataUrl: req.body.screenshotDataUrl,
-      createdAt: new Date().toISOString(),
-    };
-    if (!check.failures) check.failures = [];
-    check.failures.push(failure);
-    // Auto-set check status to fail when a failure is recorded
-    check.status = 'fail';
-    check.updatedAt = new Date().toISOString();
-    page.manualAudit.lastUpdated = new Date().toISOString();
-
-    await db.updateReport(report);
-    return res.status(201).json({ manualAudit: page.manualAudit });
+    if (!manualAudit) return res.status(404).json({ error: 'Page not found' });
+    return res.status(201).json({ manualAudit });
   } catch (err) {
+    if (err instanceof Error && err.message === 'Check not found') {
+      return res.status(404).json({ error: err.message });
+    }
     console.error('Add failure instance error:', err);
     return res.status(500).json({ error: 'Failed to add failure instance' });
   }
@@ -511,38 +522,41 @@ app.post('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fail
 // PATCH /api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/failures/:failureId
 app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/failures/:failureId', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.reportId);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const manualAudit = await modifyReportPage(req.params.reportId, req.params.pageId, (page) => {
+      if (!page.manualAudit) throw new Error('Page or audit not found');
 
-    const page = report.results.find(r => r.id === req.params.pageId);
-    if (!page || !page.manualAudit) return res.status(404).json({ error: 'Page or audit not found' });
+      const check = page.manualAudit.checks.find(c => c.id === req.params.checkId);
+      if (!check) throw new Error('Check not found');
 
-    const check = page.manualAudit.checks.find(c => c.id === req.params.checkId);
-    if (!check) return res.status(404).json({ error: 'Check not found' });
+      const failure = (check.failures ?? []).find(f => f.id === req.params.failureId);
+      if (!failure) throw new Error('Failure instance not found');
 
-    const failure = (check.failures ?? []).find(f => f.id === req.params.failureId);
-    if (!failure) return res.status(404).json({ error: 'Failure instance not found' });
+      const { scope, notes, codeSnippet, screenshotDataUrl, status, remediationRecommendation } = req.body;
+      if (scope !== undefined) failure.scope = scope;
+      if (notes !== undefined) failure.notes = notes;
+      if (codeSnippet !== undefined) failure.codeSnippet = codeSnippet;
+      if (screenshotDataUrl !== undefined) failure.screenshotDataUrl = screenshotDataUrl;
+      if (status !== undefined) failure.status = status;
+      if (remediationRecommendation !== undefined) failure.remediationRecommendation = remediationRecommendation;
 
-    const { scope, notes, codeSnippet, screenshotDataUrl, status, remediationRecommendation } = req.body;
-    if (scope !== undefined) failure.scope = scope;
-    if (notes !== undefined) failure.notes = notes;
-    if (codeSnippet !== undefined) failure.codeSnippet = codeSnippet;
-    if (screenshotDataUrl !== undefined) failure.screenshotDataUrl = screenshotDataUrl;
-    if (status !== undefined) failure.status = status;
-    if (remediationRecommendation !== undefined) failure.remediationRecommendation = remediationRecommendation;
+      const allFailures = check.failures ?? [];
+      if (allFailures.length > 0) {
+        check.status = allFailures.every(f => f.status === 'pass') ? 'pass' : 'fail';
+      }
 
-    // Auto-derive check status from instance statuses
-    const allFailures = check.failures ?? [];
-    if (allFailures.length > 0) {
-      check.status = allFailures.every(f => f.status === 'pass') ? 'pass' : 'fail';
-    }
+      check.updatedAt = new Date().toISOString();
+      page.manualAudit.lastUpdated = new Date().toISOString();
+      return page.manualAudit;
+    });
 
-    check.updatedAt = new Date().toISOString();
-    page.manualAudit.lastUpdated = new Date().toISOString();
-
-    await db.updateReport(report);
-    return res.json({ manualAudit: page.manualAudit });
+    if (!manualAudit) return res.status(404).json({ error: 'Page not found' });
+    return res.json({ manualAudit });
   } catch (err) {
+    if (err instanceof Error) {
+      if (err.message === 'Page or audit not found' || err.message === 'Check not found' || err.message === 'Failure instance not found') {
+        return res.status(404).json({ error: err.message });
+      }
+    }
     console.error('Update failure instance error:', err);
     return res.status(500).json({ error: 'Failed to update failure instance' });
   }
@@ -551,23 +565,25 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fai
 // DELETE /api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/failures/:failureId
 app.delete('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/failures/:failureId', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.reportId);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const manualAudit = await modifyReportPage(req.params.reportId, req.params.pageId, (page) => {
+      if (!page.manualAudit) throw new Error('Page or audit not found');
 
-    const page = report.results.find(r => r.id === req.params.pageId);
-    if (!page || !page.manualAudit) return res.status(404).json({ error: 'Page or audit not found' });
+      const check = page.manualAudit.checks.find(c => c.id === req.params.checkId);
+      if (!check) throw new Error('Check not found');
 
-    const check = page.manualAudit.checks.find(c => c.id === req.params.checkId);
-    if (!check) return res.status(404).json({ error: 'Check not found' });
+      check.failures = (check.failures ?? []).filter(f => f.id !== req.params.failureId);
+      if (check.failures.length === 0) check.status = 'not-tested';
+      check.updatedAt = new Date().toISOString();
+      page.manualAudit.lastUpdated = new Date().toISOString();
+      return page.manualAudit;
+    });
 
-    check.failures = (check.failures ?? []).filter(f => f.id !== req.params.failureId);
-    if (check.failures.length === 0) check.status = 'not-tested';
-    check.updatedAt = new Date().toISOString();
-    page.manualAudit.lastUpdated = new Date().toISOString();
-
-    await db.updateReport(report);
+    if (!manualAudit) return res.status(404).json({ error: 'Page not found' });
     return res.sendStatus(204);
   } catch (err) {
+    if (err instanceof Error && (err.message === 'Page or audit not found' || err.message === 'Check not found')) {
+      return res.status(404).json({ error: err.message });
+    }
     console.error('Delete failure instance error:', err);
     return res.status(500).json({ error: 'Failed to delete failure instance' });
   }
@@ -735,28 +751,28 @@ app.post('/api/ai/remediation-suggestion', async (req, res) => {
 // "screenshot" as a :failureId param.
 app.post('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/screenshot', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.reportId);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const element = await modifyReportPage(req.params.reportId, req.params.pageId, async (page) => {
+      const elements = page.detectedElements?.[req.params.criterionId];
+      if (!elements) throw new Error('No detected elements for this criterion');
 
-    const page = report.results.find(r => r.id === req.params.pageId);
-    if (!page) return res.status(404).json({ error: 'Page not found' });
+      const element = elements.find(e => e.id === req.params.elementId);
+      if (!element) throw new Error('Element not found');
 
-    const elements = page.detectedElements?.[req.params.criterionId];
-    if (!elements) return res.status(404).json({ error: 'No detected elements for this criterion' });
+      const labelText = element.textAlternative ?? element.elementType;
+      const { screenshotDataUrl, contextScreenshotDataUrl } =
+        await captureElementScreenshot(page.url, element.selector, labelText);
 
-    const element = elements.find(e => e.id === req.params.elementId);
-    if (!element) return res.status(404).json({ error: 'Element not found' });
+      if (screenshotDataUrl)        element.screenshotDataUrl        = screenshotDataUrl;
+      if (contextScreenshotDataUrl) element.contextScreenshotDataUrl = contextScreenshotDataUrl;
+      return element;
+    });
 
-    const labelText = element.textAlternative ?? element.elementType;
-    const { screenshotDataUrl, contextScreenshotDataUrl } =
-      await captureElementScreenshot(page.url, element.selector, labelText);
-
-    if (screenshotDataUrl)        element.screenshotDataUrl        = screenshotDataUrl;
-    if (contextScreenshotDataUrl) element.contextScreenshotDataUrl = contextScreenshotDataUrl;
-
-    await db.updateReport(report);
+    if (!element) return res.status(404).json({ error: 'Page not found' });
     return res.json({ element });
   } catch (err) {
+    if (err instanceof Error && (err.message === 'No detected elements for this criterion' || err.message === 'Element not found')) {
+      return res.status(404).json({ error: err.message });
+    }
     console.error('Element screenshot error:', err);
     return res.status(500).json({ error: 'Failed to capture element screenshot' });
   }
@@ -765,34 +781,35 @@ app.post('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/
 // PATCH /api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId
 app.patch('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.reportId);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const detectedElements = await modifyReportPage(req.params.reportId, req.params.pageId, (page) => {
+      const elements = page.detectedElements?.[req.params.criterionId];
+      if (!elements) throw new Error('No detected elements for this criterion');
 
-    const page = report.results.find(r => r.id === req.params.pageId);
-    if (!page) return res.status(404).json({ error: 'Page not found' });
+      const element = elements.find(e => e.id === req.params.elementId);
+      if (!element) throw new Error('Element not found');
 
-    const elements = page.detectedElements?.[req.params.criterionId];
-    if (!elements) return res.status(404).json({ error: 'No detected elements for this criterion' });
+      const { auditStatus, auditComment, screenshotDataUrl, darkScreenshotDataUrl } = req.body as {
+        auditStatus?: 'pass' | 'fail' | 'not-reviewed';
+        auditComment?: string;
+        screenshotDataUrl?: string | null;
+        darkScreenshotDataUrl?: string | null;
+      };
+      if (auditStatus) element.auditStatus = auditStatus;
+      if (auditComment !== undefined) element.auditComment = auditComment || undefined;
+      if (screenshotDataUrl === null) delete element.screenshotDataUrl;
+      else if (screenshotDataUrl !== undefined) element.screenshotDataUrl = screenshotDataUrl;
+      if (darkScreenshotDataUrl === null) delete element.darkScreenshotDataUrl;
+      else if (darkScreenshotDataUrl !== undefined) element.darkScreenshotDataUrl = darkScreenshotDataUrl;
 
-    const element = elements.find(e => e.id === req.params.elementId);
-    if (!element) return res.status(404).json({ error: 'Element not found' });
+      return page.detectedElements;
+    });
 
-    const { auditStatus, auditComment, screenshotDataUrl, darkScreenshotDataUrl } = req.body as {
-      auditStatus?: 'pass' | 'fail' | 'not-reviewed';
-      auditComment?: string;
-      screenshotDataUrl?: string | null;
-      darkScreenshotDataUrl?: string | null;
-    };
-    if (auditStatus) element.auditStatus = auditStatus;
-    if (auditComment !== undefined) element.auditComment = auditComment || undefined;
-    if (screenshotDataUrl === null) delete element.screenshotDataUrl;
-    else if (screenshotDataUrl !== undefined) element.screenshotDataUrl = screenshotDataUrl;
-    if (darkScreenshotDataUrl === null) delete element.darkScreenshotDataUrl;
-    else if (darkScreenshotDataUrl !== undefined) element.darkScreenshotDataUrl = darkScreenshotDataUrl;
-
-    await db.updateReport(report);
-    return res.json({ detectedElements: page.detectedElements });
+    if (!detectedElements) return res.status(404).json({ error: 'Page not found' });
+    return res.json({ detectedElements });
   } catch (err) {
+    if (err instanceof Error && (err.message === 'No detected elements for this criterion' || err.message === 'Element not found')) {
+      return res.status(404).json({ error: err.message });
+    }
     console.error('Element update error:', err);
     return res.status(500).json({ error: 'Failed to update element' });
   }
@@ -801,20 +818,24 @@ app.patch('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId
 // POST /api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/failures
 app.post('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/failures', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.reportId);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
-    const page = report.results.find(r => r.id === req.params.pageId);
-    if (!page) return res.status(404).json({ error: 'Page not found' });
-    const elements = page.detectedElements?.[req.params.criterionId];
-    if (!elements) return res.status(404).json({ error: 'No detected elements for this criterion' });
-    const element = elements.find(e => e.id === req.params.elementId);
-    if (!element) return res.status(404).json({ error: 'Element not found' });
+    const detectedElements = await modifyReportPage(req.params.reportId, req.params.pageId, (page) => {
+      const elements = page.detectedElements?.[req.params.criterionId];
+      if (!elements) throw new Error('No detected elements for this criterion');
 
-    const failure = { id: `ef_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, createdAt: new Date().toISOString() };
-    element.failures = [...(element.failures ?? []), failure];
-    await db.updateReport(report);
-    return res.json({ detectedElements: page.detectedElements });
+      const element = elements.find(e => e.id === req.params.elementId);
+      if (!element) throw new Error('Element not found');
+
+      const failure = { id: `ef_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, createdAt: new Date().toISOString() };
+      element.failures = [...(element.failures ?? []), failure];
+      return page.detectedElements;
+    });
+
+    if (!detectedElements) return res.status(404).json({ error: 'Page not found' });
+    return res.json({ detectedElements });
   } catch (err) {
+    if (err instanceof Error && (err.message === 'No detected elements for this criterion' || err.message === 'Element not found')) {
+      return res.status(404).json({ error: err.message });
+    }
     console.error('Add element failure error:', err);
     return res.status(500).json({ error: 'Failed to add element failure' });
   }
@@ -823,21 +844,25 @@ app.post('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/
 // PATCH /api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/failures/:failureId
 app.patch('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/failures/:failureId', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.reportId);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
-    const page = report.results.find(r => r.id === req.params.pageId);
-    if (!page) return res.status(404).json({ error: 'Page not found' });
-    const elements = page.detectedElements?.[req.params.criterionId];
-    if (!elements) return res.status(404).json({ error: 'No detected elements for this criterion' });
-    const element = elements.find(e => e.id === req.params.elementId);
-    if (!element) return res.status(404).json({ error: 'Element not found' });
-    const failure = (element.failures ?? []).find(f => f.id === req.params.failureId);
-    if (!failure) return res.status(404).json({ error: 'Failure not found' });
+    const detectedElements = await modifyReportPage(req.params.reportId, req.params.pageId, (page) => {
+      const elements = page.detectedElements?.[req.params.criterionId];
+      if (!elements) throw new Error('No detected elements for this criterion');
 
-    Object.assign(failure, req.body);
-    await db.updateReport(report);
-    return res.json({ detectedElements: page.detectedElements });
+      const element = elements.find(e => e.id === req.params.elementId);
+      if (!element) throw new Error('Element not found');
+      const failure = (element.failures ?? []).find(f => f.id === req.params.failureId);
+      if (!failure) throw new Error('Failure not found');
+
+      Object.assign(failure, req.body);
+      return page.detectedElements;
+    });
+
+    if (!detectedElements) return res.status(404).json({ error: 'Page not found' });
+    return res.json({ detectedElements });
   } catch (err) {
+    if (err instanceof Error && (err.message === 'No detected elements for this criterion' || err.message === 'Element not found' || err.message === 'Failure not found')) {
+      return res.status(404).json({ error: err.message });
+    }
     console.error('Update element failure error:', err);
     return res.status(500).json({ error: 'Failed to update element failure' });
   }
@@ -846,19 +871,23 @@ app.patch('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId
 // DELETE /api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/failures/:failureId
 app.delete('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/failures/:failureId', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.reportId);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
-    const page = report.results.find(r => r.id === req.params.pageId);
-    if (!page) return res.status(404).json({ error: 'Page not found' });
-    const elements = page.detectedElements?.[req.params.criterionId];
-    if (!elements) return res.status(404).json({ error: 'No detected elements for this criterion' });
-    const element = elements.find(e => e.id === req.params.elementId);
-    if (!element) return res.status(404).json({ error: 'Element not found' });
+    const detectedElements = await modifyReportPage(req.params.reportId, req.params.pageId, (page) => {
+      const elements = page.detectedElements?.[req.params.criterionId];
+      if (!elements) throw new Error('No detected elements for this criterion');
 
-    element.failures = (element.failures ?? []).filter(f => f.id !== req.params.failureId);
-    await db.updateReport(report);
-    return res.json({ detectedElements: page.detectedElements });
+      const element = elements.find(e => e.id === req.params.elementId);
+      if (!element) throw new Error('Element not found');
+
+      element.failures = (element.failures ?? []).filter(f => f.id !== req.params.failureId);
+      return page.detectedElements;
+    });
+
+    if (!detectedElements) return res.status(404).json({ error: 'Page not found' });
+    return res.json({ detectedElements });
   } catch (err) {
+    if (err instanceof Error && (err.message === 'No detected elements for this criterion' || err.message === 'Element not found')) {
+      return res.status(404).json({ error: err.message });
+    }
     console.error('Delete element failure error:', err);
     return res.status(500).json({ error: 'Failed to delete element failure' });
   }
@@ -871,44 +900,45 @@ app.delete('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementI
 // POST /api/reports/:reportId/pages/:pageId/elements/2.4.3/:elementId/focus-order-screenshot
 app.post('/api/reports/:reportId/pages/:pageId/elements/2.4.3/:elementId/focus-order-screenshot', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.reportId);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const result = await modifyReportPage(req.params.reportId, req.params.pageId, async (page) => {
+      const elements = page.detectedElements?.['2.4.3'];
+      if (!elements) throw new Error('No focus-order elements for this page');
 
-    const page = report.results.find(r => r.id === req.params.pageId);
-    if (!page) return res.status(404).json({ error: 'Page not found' });
+      const element = elements.find(e => e.id === req.params.elementId);
+      if (!element) throw new Error('Element not found');
 
-    const elements = page.detectedElements?.['2.4.3'];
-    if (!elements) return res.status(404).json({ error: 'No focus-order elements for this page' });
+      const { colorScheme, viewport } = req.body as {
+        colorScheme: 'light' | 'dark';
+        viewport: ViewportLabel;
+      };
+      if (!colorScheme || !viewport) {
+        throw new Error('colorScheme and viewport are required');
+      }
 
-    const element = elements.find(e => e.id === req.params.elementId);
-    if (!element) return res.status(404).json({ error: 'Element not found' });
+      const { screenshotDataUrl, focusableCount } = await captureViewportScreenshot(
+        page.url,
+        viewport,
+        colorScheme,
+      );
 
-    const { colorScheme, viewport } = req.body as {
-      colorScheme: 'light' | 'dark';
-      viewport: ViewportLabel;
-    };
-    if (!colorScheme || !viewport) {
-      return res.status(400).json({ error: 'colorScheme and viewport are required' });
-    }
+      if (colorScheme === 'dark') {
+        element.darkScreenshotDataUrl = screenshotDataUrl;
+      } else {
+        element.screenshotDataUrl = screenshotDataUrl;
+      }
+      element.textAlternative = `${viewport} — ${focusableCount} focusable element${focusableCount !== 1 ? 's' : ''}`;
+      return { screenshotDataUrl, focusableCount, element };
+    });
 
-    const { screenshotDataUrl, focusableCount } = await captureViewportScreenshot(
-      page.url,
-      viewport,
-      colorScheme,
-    );
-
-    // Persist the screenshot to the element
-    if (colorScheme === 'dark') {
-      element.darkScreenshotDataUrl = screenshotDataUrl;
-    } else {
-      element.screenshotDataUrl = screenshotDataUrl;
-    }
-    // Update the focusable count in the text alternative
-    element.textAlternative = `${viewport} — ${focusableCount} focusable element${focusableCount !== 1 ? 's' : ''}`;
-
-    await db.updateReport(report);
-    return res.json({ screenshotDataUrl, focusableCount, element });
+    if (!result) return res.status(404).json({ error: 'Page not found' });
+    return res.json(result);
   } catch (err) {
+    if (err instanceof Error && (err.message === 'No focus-order elements for this page' || err.message === 'Element not found')) {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err instanceof Error && err.message === 'colorScheme and viewport are required') {
+      return res.status(400).json({ error: err.message });
+    }
     console.error('Focus order screenshot error:', err);
     return res.status(500).json({ error: 'Failed to capture focus order screenshot' });
   }
@@ -921,18 +951,15 @@ app.post('/api/reports/:reportId/pages/:pageId/elements/2.4.3/:elementId/focus-o
 // POST /api/reports/:reportId/pages/:pageId/elements/2.4.3/detect
 app.post('/api/reports/:reportId/pages/:pageId/elements/2.4.3/detect', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.reportId);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const detectedElements = await modifyReportPage(req.params.reportId, req.params.pageId, async (page) => {
+      const raw = await detectFocusOrder(page.url);
+      if (!page.detectedElements) page.detectedElements = {};
+      page.detectedElements['2.4.3'] = raw.map(el => ({ ...el, id: randomUUID() }));
+      return page.detectedElements;
+    });
 
-    const page = report.results.find(r => r.id === req.params.pageId);
-    if (!page) return res.status(404).json({ error: 'Page not found' });
-
-    const raw = await detectFocusOrder(page.url);
-    if (!page.detectedElements) page.detectedElements = {};
-    page.detectedElements['2.4.3'] = raw.map(el => ({ ...el, id: randomUUID() }));
-
-    await db.updateReport(report);
-    return res.json({ detectedElements: page.detectedElements });
+    if (!detectedElements) return res.status(404).json({ error: 'Page not found' });
+    return res.json({ detectedElements });
   } catch (err) {
     console.error('Focus order detection error:', err);
     return res.status(500).json({ error: 'Failed to detect focus order elements' });
@@ -946,20 +973,16 @@ app.post('/api/reports/:reportId/pages/:pageId/elements/2.4.3/detect', async (re
 // POST /api/reports/:reportId/pages/:pageId/elements/3.2.1/detect
 app.post('/api/reports/:reportId/pages/:pageId/elements/3.2.1/detect', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.reportId);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const detectedElements = await modifyReportPage(req.params.reportId, req.params.pageId, async (page) => {
+      const raw = await detectOnPage(page.url);
+      const elements = raw.map(el => ({ ...el, id: randomUUID() }));
+      if (!page.detectedElements) page.detectedElements = {};
+      page.detectedElements['3.2.1'] = elements;
+      return page.detectedElements;
+    });
 
-    const page = report.results.find(r => r.id === req.params.pageId);
-    if (!page) return res.status(404).json({ error: 'Page not found' });
-
-    const raw = await detectOnPage(page.url);
-    const elements = raw.map(el => ({ ...el, id: randomUUID() }));
-
-    if (!page.detectedElements) page.detectedElements = {};
-    page.detectedElements['3.2.1'] = elements;
-
-    await db.updateReport(report);
-    return res.json({ detectedElements: page.detectedElements });
+    if (!detectedElements) return res.status(404).json({ error: 'Page not found' });
+    return res.json({ detectedElements });
   } catch (err) {
     console.error('On Focus detection error:', err);
     return res.status(500).json({ error: 'Failed to detect focus-triggered elements' });
@@ -1039,14 +1062,12 @@ app.delete('/api/projects/:id', async (req, res) => {
 
 app.patch('/api/reports/:id', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.id);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
     const { pageTitle } = req.body;
-    if (typeof pageTitle === 'string') {
-      report.pageTitle = pageTitle.trim() || undefined;
-    }
-    await db.updateReport(report);
-    return res.json(report);
+    const updated = await db.updateReportMetadata(req.params.id, {
+      pageTitle: typeof pageTitle === 'string' ? pageTitle.trim() || undefined : undefined,
+    });
+    if (!updated) return res.status(404).json({ error: 'Report not found' });
+    return res.json(updated);
   } catch (err) {
     console.error('Update report error:', err);
     return res.status(500).json({ error: 'Failed to update report' });
@@ -1055,16 +1076,16 @@ app.patch('/api/reports/:id', async (req, res) => {
 
 app.patch('/api/reports/:id/project', async (req, res) => {
   try {
-    const report = await db.getReport(req.params.id);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
     const { projectId } = req.body;
     if (projectId !== null && projectId !== undefined) {
       const project = await db.getProject(projectId);
       if (!project) return res.status(404).json({ error: 'Project not found' });
     }
-    report.projectId = projectId ?? undefined;
-    await db.updateReport(report);
-    return res.json(report);
+    const updated = await db.updateReportMetadata(req.params.id, {
+      projectId: projectId ?? undefined,
+    });
+    if (!updated) return res.status(404).json({ error: 'Report not found' });
+    return res.json(updated);
   } catch (err) {
     console.error('Assign project error:', err);
     return res.status(500).json({ error: 'Failed to assign project' });

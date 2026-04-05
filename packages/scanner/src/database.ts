@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
-import { ScanReport, Project, AxeViolation } from '../../shared/dist/index.js';
+import { AuditType, ScanReport, Project, AxeViolation } from '../../shared/dist/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_DATA_DIR = path.join(__dirname, '..', 'data');
@@ -112,6 +112,13 @@ export class DatabaseService {
 
   async reportIsBundle(id: string): Promise<boolean> {
     return this.pathExists(this.bundleManifestFile(id));
+  }
+
+  async getReportAuditType(reportId: string): Promise<AuditType | undefined> {
+    const single = await this.readJsonFile<Pick<ScanReport, 'auditType'>>(this.reportFile(reportId));
+    if (single) return single.auditType;
+    const bundle = await this.readBundleManifest(reportId);
+    return bundle?.auditType;
   }
 
   async streamReportPages(reportId: string, callback: (page: ScanReport['results'][number]) => Promise<void> | void): Promise<void> {
@@ -289,15 +296,13 @@ export class DatabaseService {
     const manifest = await this.readBundleManifest(id);
     if (!manifest) return undefined;
 
-    const shardReports = await Promise.all(
-      manifest.shards.map((shard) => this.readJsonFile<ScanReport>(path.join(this.bundleDir(id), shard.file))),
-    );
-
-    if (shardReports.some((report) => !report)) {
-      return undefined;
+    const reports: ScanReport[] = [];
+    for (const shard of manifest.shards) {
+      const shardReport = await this.readJsonFile<ScanReport>(path.join(this.bundleDir(id), shard.file));
+      if (!shardReport) return undefined;
+      reports.push(shardReport);
     }
 
-    const reports = shardReports as ScanReport[];
     const summary = this.aggregateSummaryFromReports(id, reports, {
       sitemap: manifest.sitemap,
       pageTitle: manifest.pageTitle,
@@ -487,6 +492,18 @@ export class DatabaseService {
     return this.readReportPageByIndex(reportId, offset, limit);
   }
 
+  private pageManualStats(page: ScanReport['results'][number]): { manualFailCount: number; auditedPages: number } {
+    return {
+      manualFailCount: page.manualAudit?.checks.filter((check) => check.status === 'fail').length ?? 0,
+      auditedPages: page.manualAudit?.completed ? 1 : 0,
+    };
+  }
+
+  private summaryFromManifest(manifest: ReportBundleManifest): ReportSummary {
+    const { kind: _kind, shards: _shards, ...summary } = manifest;
+    return summary;
+  }
+
   async getReportPage(reportId: string, pageId: string): Promise<ScanReport['results'][number] | undefined> {
     const single = await this.readJsonFile<ScanReport>(this.reportFile(reportId));
     if (single) {
@@ -500,6 +517,56 @@ export class DatabaseService {
       const shardReport = await this.readJsonFile<ScanReport>(path.join(this.bundleDir(reportId), shard.file));
       const page = shardReport?.results.find((entry) => entry.id === pageId);
       if (page) return page;
+    }
+
+    return undefined;
+  }
+
+  async updateReportPage<T>(
+    reportId: string,
+    pageId: string,
+    patch: (page: ScanReport['results'][number]) => T | Promise<T>,
+  ): Promise<T | undefined> {
+    await this.ensureDirs();
+
+    const single = await this.readJsonFile<ScanReport>(this.reportFile(reportId));
+    if (single) {
+      const page = single.results.find((p) => p.id === pageId);
+      if (!page) return undefined;
+      const oldStats = this.pageManualStats(page);
+      const result = await patch(page);
+      await fs.writeFile(this.reportFile(reportId), JSON.stringify(single));
+      const newStats = this.pageManualStats(page);
+      if (oldStats.manualFailCount !== newStats.manualFailCount || oldStats.auditedPages !== newStats.auditedPages) {
+        await this.upsertSummary(this.summaryOf(single));
+      }
+      return result;
+    }
+
+    const manifest = await this.readBundleManifest(reportId);
+    if (!manifest) return undefined;
+
+    for (const shard of manifest.shards) {
+      const shardPath = path.join(this.bundleDir(reportId), shard.file);
+      const shardReport = await this.readJsonFile<ScanReport>(shardPath);
+      if (!shardReport) continue;
+
+      const page = shardReport.results.find((p) => p.id === pageId);
+      if (!page) continue;
+
+      const oldStats = this.pageManualStats(page);
+      const result = await patch(page);
+      await fs.writeFile(shardPath, JSON.stringify(shardReport));
+
+      const newStats = this.pageManualStats(page);
+      if (oldStats.manualFailCount !== newStats.manualFailCount || oldStats.auditedPages !== newStats.auditedPages) {
+        manifest.summary.manualFailCount = (manifest.summary.manualFailCount ?? 0) - oldStats.manualFailCount + newStats.manualFailCount;
+        manifest.summary.auditedPages = (manifest.summary.auditedPages ?? 0) - oldStats.auditedPages + newStats.auditedPages;
+        await fs.writeFile(this.bundleManifestFile(reportId), JSON.stringify(manifest));
+        await this.upsertSummary(this.summaryFromManifest(manifest));
+      }
+
+      return result;
     }
 
     return undefined;
@@ -648,6 +715,30 @@ export class DatabaseService {
     }
 
     return false;
+  }
+
+  async updateReportMetadata(reportId: string, metadata: { projectId?: string; pageTitle?: string }): Promise<ReportSummary | undefined> {
+    await this.ensureDirs();
+
+    const single = await this.readJsonFile<ScanReport>(this.reportFile(reportId));
+    if (single) {
+      if (metadata.projectId !== undefined) single.projectId = metadata.projectId;
+      if (metadata.pageTitle !== undefined) single.pageTitle = metadata.pageTitle;
+      await fs.writeFile(this.reportFile(reportId), JSON.stringify(single));
+      const summary = this.summaryOf(single);
+      await this.upsertSummary(summary);
+      return summary;
+    }
+
+    const manifest = await this.readBundleManifest(reportId);
+    if (!manifest) return undefined;
+
+    if (metadata.projectId !== undefined) manifest.projectId = metadata.projectId;
+    if (metadata.pageTitle !== undefined) manifest.pageTitle = metadata.pageTitle;
+    await fs.writeFile(this.bundleManifestFile(reportId), JSON.stringify(manifest));
+    const summary = this.summaryFromManifest(manifest);
+    await this.upsertSummary(summary);
+    return summary;
   }
 
   async clearReports(): Promise<void> {
