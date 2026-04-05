@@ -146,7 +146,20 @@ export async function captureViewportScreenshot(
 ): Promise<{ screenshotDataUrl: string; focusableCount: number }> {
   // Dynamic import to avoid bundling puppeteer at the module level for tests
   const puppeteer = (await import('puppeteer')).default;
-  const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+
+  // --force-dark-mode sets prefers-color-scheme at the Chrome process level (new headless
+  // inherits OS preference otherwise, making emulateMediaFeatures unreliable for light captures
+  // when the OS is in dark mode and vice-versa).
+  // --disable-features=WebContentsForceDark prevents Chrome's own color-inversion algorithm
+  // from running on top of the site's own dark theme.
+  const args = [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-features=WebContentsForceDark',
+    ...(colorScheme === 'dark' ? ['--force-dark-mode'] : []),
+  ];
+
+  const browser = await puppeteer.launch({ headless: true, args });
 
   try {
     const vp = VIEWPORTS.find(v => v.label === viewportLabel);
@@ -155,7 +168,15 @@ export async function captureViewportScreenshot(
     const page = await browser.newPage();
     await page.setViewport({ width: vp.width, height: vp.height, deviceScaleFactor: 1 });
 
-    // Override matchMedia before page scripts run
+    // CSS layer: use CDP directly — Puppeteer v24's emulateMediaFeatures wrapper has
+    // reliability issues in new-headless mode; raw CDP is more consistent.
+    const cdp = await page.createCDPSession();
+    await cdp.send('Emulation.setEmulatedMedia', {
+      features: [{ name: 'prefers-color-scheme', value: colorScheme }],
+    });
+
+    // JS layer: override window.matchMedia before any page script runs so JS-driven
+    // theme detection (class toggles, etc.) sees the correct value.
     await page.evaluateOnNewDocument(`
       (() => {
         const _scheme = '${colorScheme}';
@@ -175,9 +196,8 @@ export async function captureViewportScreenshot(
       })();
     `);
 
-    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: colorScheme }]);
-    await page.goto(url, { waitUntil: 'load', timeout: 30000 });
-    await page.evaluate(() => new Promise<void>(r => setTimeout(r, 600)));
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
+    await page.evaluate(() => new Promise<void>(r => setTimeout(r, 1000)));
     await page.evaluate(() => window.scrollTo(0, 0));
 
     const focusableCount = await injectBadgesAndCount(page);
