@@ -18,6 +18,7 @@ import { detectFocusVisible } from './detectors/focusVisible.js';
 import { detectKeyboardTrap } from './detectors/keyboardTrap.js';
 import { detectLinkPurpose } from './detectors/linkPurpose.js';
 import { detectNonTextContent } from './detectors/nonTextElements.js';
+import { detectInfoRelationships } from './detectors/infoRelationships.js';
 import { captureElementScreenshot } from './detectors/captureScreenshots.js';
 
 const app = express();
@@ -1182,6 +1183,42 @@ app.post('/api/reports/:reportId/pages/:pageId/elements/1.1.1/detect', async (re
   } catch (err) {
     console.error('Non-text content detection error:', err);
     send({ type: 'error', message: 'Failed to detect non-text elements' });
+  }
+  res.end();
+});
+
+// ---------------------------------------------------------------------------
+// Info and Relationships — on-demand detection (WCAG 1.3.1)
+// ---------------------------------------------------------------------------
+
+// POST /api/reports/:reportId/pages/:pageId/elements/1.3.1/detect
+app.post('/api/reports/:reportId/pages/:pageId/elements/1.3.1/detect', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  const send = (event: object) => res.write(`data: ${JSON.stringify(event)}\n\n`);
+  try {
+    const allElements: any[] = [];
+    const detectedElements = await modifyReportPage(req.params.reportId, req.params.pageId, async (page) => {
+      await detectInfoRelationships(page.url, (event) => {
+        if (event.type === 'element') {
+          const withId = { ...event.element, id: randomUUID() };
+          allElements.push(withId);
+          send({ type: 'element', element: withId });
+        } else {
+          send(event);
+        }
+      });
+      if (!page.detectedElements) page.detectedElements = {};
+      page.detectedElements['1.3.1'] = allElements;
+      return page.detectedElements;
+    });
+    if (!detectedElements) { send({ type: 'error', message: 'Page not found' }); }
+    else { send({ type: 'done', detectedElements }); }
+  } catch (err) {
+    console.error('Info relationships detection error:', err);
+    send({ type: 'error', message: 'Failed to detect info and relationships elements' });
   }
   res.end();
 });

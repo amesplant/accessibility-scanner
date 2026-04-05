@@ -15,7 +15,6 @@ export { captureElementScreenshots } from './captureScreenshots.js';
 
 import * as mediaElements from './mediaElements.js';
 import * as captionsElements from './captionsElements.js';
-import * as infoRelationships from './infoRelationships.js';
 
 /**
  * All element detectors in execution order.
@@ -24,8 +23,8 @@ import * as infoRelationships from './infoRelationships.js';
 export const DETECTORS: DetectorModule[] = [
   mediaElements,
   captionsElements,
-  infoRelationships,
-  // nonTextElements (1.1.1) — moved to on-demand, not part of the scan pipeline
-  // linkPurpose     (2.4.4) — moved to on-demand, not part of the scan pipeline
-  // focusOrder      (2.4.3) — fully on-demand, not part of the scan pipeline
+  // infoRelationships (1.3.1) — moved to on-demand, not part of the scan pipeline
+  // nonTextElements   (1.1.1) — moved to on-demand, not part of the scan pipeline
+  // linkPurpose       (2.4.4) — moved to on-demand, not part of the scan pipeline
+  // focusOrder        (2.4.3) — fully on-demand, not part of the scan pipeline
 ];

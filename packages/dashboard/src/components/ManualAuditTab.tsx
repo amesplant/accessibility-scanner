@@ -1565,6 +1565,15 @@ function CheckRow({
                     </Badge>
                   );
                 })()}
+                {meta?.auditTags?.map(tag => (
+                  <Badge key={tag} variant="outline" className={cn(
+                    'text-xs h-5 px-1.5 py-0 font-normal',
+                    tag === 'rapid'     && 'bg-teal-50   text-teal-700   border-teal-200',
+                    tag === 'mid-level' && 'bg-amber-50  text-amber-700  border-amber-200',
+                  )}>
+                    {tag === 'rapid' ? 'Rapid' : 'Mid-level'}
+                  </Badge>
+                ))}
               </>
             )}
             {/* Summary badges shown when collapsed */}
@@ -1700,7 +1709,8 @@ function CheckRow({
               check.wcagCriterion === '2.4.7' ||
               check.wcagCriterion === '2.1.2' ||
               check.wcagCriterion === '2.4.4' ||
-              check.wcagCriterion === '1.1.1'
+              check.wcagCriterion === '1.1.1' ||
+              check.wcagCriterion === '1.3.1'
             ) ? (
             <OnDemandDetectionPanel
               criterionId={check.wcagCriterion}
