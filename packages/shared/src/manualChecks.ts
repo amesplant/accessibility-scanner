@@ -115,9 +115,13 @@ export const PREDEFINED_CHECKS: PredefinedCheck[] = [
     category: 'Keyboard & Focus',
     priority: 'high',
     questions: [
-      'Can you reach every interactive element (links, buttons, inputs, menus, modals) using only the Tab and arrow keys?',
-      'Can every action that a mouse user can perform also be performed with the keyboard alone?',
-      'Do custom widgets (date pickers, sliders, carousels) respond correctly to expected keyboard interactions?',
+      'Tab through the entire page using only Tab and Shift+Tab — can you reach every link, button, input, and interactive control?',
+      'Press Enter to activate links and buttons, and Space to activate buttons and checkboxes — do they respond correctly?',
+      'For menus, dropdowns, and listboxes, can you open them with Enter/Space and navigate options with arrow keys?',
+      'Do any of the elements flagged below (those with JS click or drag handlers on non-interactive elements) have a usable keyboard equivalent?',
+      'Open any modals, dialogs, or off-canvas panels — does focus move into them, and can you close them with Escape?',
+      'Is there any functionality that requires a mouse gesture (hover to reveal, drag-and-drop) with no keyboard alternative?',
+      'After dynamic content changes (modal closes, accordion expands, alert appears), does focus move to a logical location?',
     ],
   },
   {

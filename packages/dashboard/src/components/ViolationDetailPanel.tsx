@@ -24,7 +24,7 @@ export function ViolationDetailPanel({ violation, urls, onClose }: ViolationDeta
         <CardTitle className="text-lg">{violation.help}</CardTitle>
         <Button size="sm" variant="outline" onClick={onClose}>Close</Button>
       </CardHeader>
-      <CardContent className="space-y-4 text-sm">
+      <CardContent className="space-y-4 text-base">
 
         <div className="flex flex-wrap gap-3">
           <div>

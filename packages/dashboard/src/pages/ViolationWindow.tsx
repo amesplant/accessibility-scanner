@@ -100,7 +100,7 @@ export function ViolationWindow() {
         <ul className="space-y-1.5">
           {pages.map(({ url, pageId }) => (
             <li key={url} className="flex items-center gap-3 flex-wrap">
-              <ExternalLink href={url} className="break-all text-sm flex-1 min-w-0">{url}</ExternalLink>
+              <ExternalLink href={url} className="break-all text-base flex-1 min-w-0">{url}</ExternalLink>
               {pageId && (
                 <Link
                   to={`/reports/${id}/page/${pageId}`}
@@ -142,7 +142,7 @@ export function ViolationWindow() {
         </div>
       )}
 
-      <ExternalLink href={violation.helpUrl} className="text-sm">
+      <ExternalLink href={violation.helpUrl} className="text-base">
         Learn more about this rule
       </ExternalLink>
     </div>

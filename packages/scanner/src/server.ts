@@ -13,6 +13,7 @@ import { crawlSite } from './crawler.js';
 import { AuditType, ScanReport, createDefaultChecks, ManualAudit, ManualAuditStatus, ManualCheckResult, ManualFailureInstance, Project } from '../../shared/dist/index.js';
 import { captureViewportScreenshot, detectFocusOrder, ViewportLabel } from './detectors/focusOrder.js';
 import { detectOnPage } from './detectors/onFocus.js';
+import { detectKeyboard } from './detectors/keyboard.js';
 import { captureElementScreenshot } from './detectors/captureScreenshots.js';
 
 const app = express();
@@ -986,6 +987,28 @@ app.post('/api/reports/:reportId/pages/:pageId/elements/3.2.1/detect', async (re
   } catch (err) {
     console.error('On Focus detection error:', err);
     return res.status(500).json({ error: 'Failed to detect focus-triggered elements' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Keyboard — on-demand detection (WCAG 2.1.1)
+// ---------------------------------------------------------------------------
+
+// POST /api/reports/:reportId/pages/:pageId/elements/2.1.1/detect
+app.post('/api/reports/:reportId/pages/:pageId/elements/2.1.1/detect', async (req, res) => {
+  try {
+    const detectedElements = await modifyReportPage(req.params.reportId, req.params.pageId, async (page) => {
+      const raw = await detectKeyboard(page.url);
+      if (!page.detectedElements) page.detectedElements = {};
+      page.detectedElements['2.1.1'] = raw.map(el => ({ ...el, id: randomUUID() }));
+      return page.detectedElements;
+    });
+
+    if (!detectedElements) return res.status(404).json({ error: 'Page not found' });
+    return res.json({ detectedElements });
+  } catch (err) {
+    console.error('Keyboard detection error:', err);
+    return res.status(500).json({ error: 'Failed to detect keyboard-inaccessible elements' });
   }
 });
 

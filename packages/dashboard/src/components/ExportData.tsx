@@ -81,7 +81,7 @@ export function ExportData({ report }: ExportDataProps) {
         </div>
 
         <fieldset>
-          <legend className="text-sm font-medium mb-2">WCAG Levels to Export</legend>
+          <legend className="text-base font-medium mb-2">WCAG Levels to Export</legend>
           <div className="border rounded-md p-4 space-y-2">
             {LEVELS.map(({ value, label }) => (
               <div key={value} className="flex items-center space-x-2">

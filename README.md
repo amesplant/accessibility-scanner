@@ -149,14 +149,21 @@ Crawl defaults: max **200 pages** (~5–10 min). Cap: **500 pages**. The crawler
 
 Each scanned page has a manual audit tab covering WCAG criteria that automated tools cannot fully verify.
 
-### Smart Element Detection (WCAG 1.1.1)
+### Smart Element Detection
 
-For the Non-text Content criterion, the scanner automatically detects images, SVGs, icon buttons, canvas elements, and other non-text content on each page. Each element is shown with:
+Several criteria surface a list of detected elements directly in the audit checklist, so auditors have a concrete starting point rather than hunting manually.
 
-- Its computed text alternative (or a "no text alternative" indicator)
-- What a screen reader would announce
-- A screenshot of the element and an annotated full-page context screenshot
-- Pass / Fail / Not Reviewed status that auditors can set inline
+**Automatic detection (runs at scan time):**
+
+- **WCAG 1.1.1 Non-text Content** — images, SVGs, icon buttons, canvas, video, and other non-text elements, each shown with its computed text alternative (or a "no text alternative" indicator), what a screen reader would announce, and cropped + annotated full-page screenshots.
+
+**On-demand detection (triggered per page via "Detect elements"):**
+
+- **WCAG 2.1.1 Keyboard** — scans the page for non-interactive elements (divs, spans, list items, etc.) that have JS mouse/drag event listeners, inline `onclick`/`ondragstart` attributes, a `cursor: pointer` style, or CSS `:hover` rules that show or hide content — all patterns that suggest mouse-only interactions with no keyboard equivalent. Each flagged element is a suspect for manual keyboard verification, not a guaranteed failure.
+- **WCAG 2.4.3 Focus Order** — renders the page and walks the tab sequence, capturing a screenshot at each focus stop so auditors can verify the order is logical.
+- **WCAG 3.2.1 On Focus** — intercepts JS `focus`/`focusin` event listeners and collects elements that could trigger a context change on focus.
+
+All detected elements include a cropped screenshot, the element's HTML, and Pass / Fail / Not Reviewed status that auditors set inline.
 
 ### Failure Instances
 
@@ -278,6 +285,9 @@ POST /api/scan
 | `PATCH` | `/api/reports/:id/pages/:pageId/manual-audit/checks/:checkId/failures/:failureId` | Update a failure instance |
 | `DELETE` | `/api/reports/:id/pages/:pageId/manual-audit/checks/:checkId/failures/:failureId` | Delete a failure instance |
 | `PATCH` | `/api/reports/:id/pages/:pageId/elements/:criterionId/:elementId` | Update a detected element audit status |
+| `POST` | `/api/reports/:id/pages/:pageId/elements/2.1.1/detect` | On-demand: detect mouse-only interactions (keyboard, CSS hover) |
+| `POST` | `/api/reports/:id/pages/:pageId/elements/2.4.3/detect` | On-demand: detect focus order |
+| `POST` | `/api/reports/:id/pages/:pageId/elements/3.2.1/detect` | On-demand: detect focus-triggered elements |
 
 ### AI
 

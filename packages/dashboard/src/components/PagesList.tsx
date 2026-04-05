@@ -20,12 +20,12 @@ interface PagesListProps {
 export function PagesList({ reportId }: PagesListProps) {
   const { pages, total, loading, error, page, setPage, totalPages } = useReportPages(reportId);
 
-  if (loading) return <div className="text-sm text-muted-foreground">Loading pages…</div>;
-  if (error) return <div className="text-sm text-destructive">{error}</div>;
+  if (loading) return <div className="text-base text-muted-foreground">Loading pages…</div>;
+  if (error) return <div className="text-base text-destructive">{error}</div>;
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm text-muted-foreground">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-base text-muted-foreground">
         <span>Page {page} of {totalPages} — {total} pages</span>
         <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
       </div>
@@ -44,7 +44,7 @@ export function PagesList({ reportId }: PagesListProps) {
             <TableRow key={page.id}>
               <TableCell>
                 <div className="space-y-0.5">
-                  <ExternalLink href={page.url} className="break-all text-sm">
+                  <ExternalLink href={page.url} className="break-all text-base">
                     {page.url}
                   </ExternalLink>
                   <p className="text-xs text-muted-foreground">

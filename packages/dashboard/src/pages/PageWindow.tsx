@@ -172,7 +172,7 @@ export function PageWindow() {
         <ExternalLink href={page.url}>{page.url}</ExternalLink>
       </h1>
 
-      <div className="flex flex-wrap gap-4 text-sm">
+      <div className="flex flex-wrap gap-4 text-base">
         <div>
           <p className="text-xs text-muted-foreground mb-1">Scanned</p>
           <p>{new Date(page.timestamp).toLocaleString()}</p>
@@ -428,13 +428,13 @@ export function PageWindow() {
                                     })}
                                   </div>
                                   {n.failureSummary && (
-                                    <p className="text-sm">{n.failureSummary}</p>
+                                    <p className="text-base">{n.failureSummary}</p>
                                   )}
                                   {n.target.length > 0 && (
-                                    <p className="text-[12px] font-mono text-zinc-500 dark:text-zinc-400 break-all">{n.target.join(' > ')}</p>
+                                    <p className="text-sm font-mono text-zinc-500 dark:text-zinc-400 break-all">{n.target.join(' > ')}</p>
                                   )}
                                   {n.html && (
-                                    <pre className="text-[12px] leading-relaxed font-mono bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all border border-zinc-200 dark:border-zinc-700">{n.html}</pre>
+                                    <pre className="text-sm leading-relaxed font-mono bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all border border-zinc-200 dark:border-zinc-700">{n.html}</pre>
                                   )}
                                   {/* Screenshot */}
                                   {n.screenshotDataUrl ? (
