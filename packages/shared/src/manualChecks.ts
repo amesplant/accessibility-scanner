@@ -131,9 +131,13 @@ export const PREDEFINED_CHECKS: PredefinedCheck[] = [
     category: 'Keyboard & Focus',
     priority: 'high',
     questions: [
-      'Can you Tab away from every focusable component without getting permanently stuck?',
-      'When a modal or dialog opens, can you close it and return focus to the triggering element using only the keyboard?',
-      'Does focus ever become invisible or lost inside a widget so you cannot continue navigating?',
+      'Tab to every focusable element on the page — can you always move forward with Tab and backward with Shift+Tab without getting stuck?',
+      'For each keyboard handler flagged below, does it intercept Tab or Escape in a way that prevents navigating away from the element?',
+      'Tab into any modal or dialog — does focus stay within it, and can you close it with Escape to return focus to the trigger?',
+      'Are there any iframes or embedded widgets where keyboard focus becomes invisible or impossible to exit without a mouse?',
+      'In custom widgets (carousels, date pickers, rich text editors) do arrow keys work inside the widget AND allow Tab to exit it?',
+      'After completing a form section or closing an overlay, can you Tab past the component to continue through the rest of the page?',
+      'Does any element with a positive tabindex create a confusing tab order that makes it hard to predict where focus will land?',
     ],
   },
   {

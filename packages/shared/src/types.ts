@@ -65,7 +65,8 @@ export type DetectedElementType =
   | 'focus-order-map'
   | 'focus-trigger'
   | 'mouse-only'
-  | 'no-focus-style';
+  | 'no-focus-style'
+  | 'keyboard-trap';
 
 export interface DetectedElement {
   id: string;
