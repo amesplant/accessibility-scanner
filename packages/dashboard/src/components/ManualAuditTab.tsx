@@ -1192,6 +1192,7 @@ function OnDemandDetectionPanel({
   criterionId: string;
   onDetect: () => Promise<void>;
 }) {
+  const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
 
   async function handleDetect() {
@@ -1204,23 +1205,36 @@ function OnDemandDetectionPanel({
   }
 
   return (
-    <div className="mt-2 rounded-md border border-dashed border-border bg-muted/30 p-3 flex flex-col gap-2">
-      <p className="text-xs text-muted-foreground flex items-start gap-1.5">
-        <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
-        Detection runs on demand — click below to scan this page for elements with JavaScript focus handlers or autofocus ({criterionId}).
-      </p>
-      <Button
-        size="sm"
-        variant="outline"
-        className="self-start text-xs h-7"
-        onClick={handleDetect}
-        disabled={running}
+    <div className="mt-3 mb-3 border rounded overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        aria-expanded={open}
+        className="w-full flex items-center justify-between px-3 py-2 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
       >
-        {running
-          ? <><Loader2 className="h-3 w-3 animate-spin mr-1" aria-hidden="true" />Detecting…</>
-          : 'Detect elements'
-        }
-      </Button>
+        <span className="text-base font-medium">Detected Elements</span>
+        <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')} aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="px-3 py-3 flex flex-col gap-2">
+          <p className="text-base text-muted-foreground flex items-start gap-1.5">
+            <Info className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+            Detection runs on demand — click below to scan this page ({criterionId}).
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="self-start h-8"
+            onClick={handleDetect}
+            disabled={running}
+          >
+            {running
+              ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" aria-hidden="true" />Detecting…</>
+              : 'Detect elements on page'
+            }
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1250,6 +1264,7 @@ function NonTextElementsPanel({
   onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
   onGenerateElementScreenshot?: (elementId: string) => Promise<void>;
 }) {
+  const [open, setOpen] = useState(false);
   const reviewed = elements.filter(e => e.auditStatus !== 'not-reviewed').length;
   const failed = elements.filter(e => e.auditStatus === 'fail').length;
 
@@ -1257,13 +1272,13 @@ function NonTextElementsPanel({
     return (
       <div className="mt-3 mb-3 border rounded overflow-hidden">
         <div className="px-3 py-3 bg-muted/30 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 text-base text-muted-foreground">
             <span className="text-green-600">✓</span>
             <span>{emptyLabel}</span>
           </div>
           {onAutoPass && (
             <Button size="sm" variant="outline" onClick={onAutoPass}
-              className="border-green-600/50 text-green-700 hover:bg-green-600/10 hover:text-green-700 dark:text-green-400 shrink-0 h-6 text-xs px-2">
+              className="border-green-600/50 text-green-700 hover:bg-green-600/10 hover:text-green-700 dark:text-green-400 shrink-0 h-6 text-base px-2">
               Mark Pass
             </Button>
           )}
@@ -1274,48 +1289,60 @@ function NonTextElementsPanel({
 
   return (
     <div className="mt-3 mb-3 border rounded overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-2 bg-muted/30 border-b">
-        <span className="text-xs font-medium">
-          Detected Elements on Page ({elements.length})
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        aria-expanded={open}
+        className="w-full flex items-center justify-between px-3 py-2 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
+      >
+        <span className="text-base font-medium">
+          Detected Elements ({elements.length})
         </span>
-        <span className="text-xs text-muted-foreground">
-          {reviewed}/{elements.length} reviewed
-          {failed > 0 && (
-            <span className="text-red-700 dark:text-red-400 ml-2">· {failed} failed</span>
-          )}
-        </span>
-      </div>
-      <div className="px-3 py-3 bg-muted/20 border-b flex items-start gap-2">
-        <Info className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" aria-hidden="true" />
-        <p className="text-base text-muted-foreground leading-snug">
-          Detection is automated — also review the live page directly for issues not captured below.{' '}
-          {onAddCriterionFailure && (
-            <button
-              type="button"
-              onClick={onAddCriterionFailure}
-              className="font-medium underline hover:no-underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
-            >
-              Add a failure instance
-            </button>
-          )}{' '}
-          for anything found manually.
-        </p>
-      </div>
-      <div className="divide-y">
-        {elements.map(el => (
-          <NonTextElementRow
-            key={el.id}
-            element={el}
-            criterionId={criterionId}
-            onUpdate={onUpdate!}
-            onAddFailure={onAddElementFailure ? () => onAddElementFailure(el.id) : undefined}
-            onUpdateFailure={onUpdateElementFailure ? (fid, data) => onUpdateElementFailure(el.id, fid, data) : undefined}
-            onDeleteFailure={onDeleteElementFailure ? (fid) => onDeleteElementFailure(el.id, fid) : undefined}
-            onGenerateFocusOrderScreenshot={onGenerateFocusOrderScreenshot}
-            onCaptureScreenshot={onGenerateElementScreenshot ? () => onGenerateElementScreenshot(el.id) : undefined}
-          />
-        ))}
-      </div>
+        <div className="flex items-center gap-3">
+          <span className="text-base text-muted-foreground">
+            {reviewed}/{elements.length} reviewed
+            {failed > 0 && (
+              <span className="text-red-700 dark:text-red-400 ml-2">· {failed} failed</span>
+            )}
+          </span>
+          <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')} aria-hidden="true" />
+        </div>
+      </button>
+      {open && (
+        <>
+          <div className="px-3 py-3 bg-muted/20 border-b flex items-start gap-2">
+            <Info className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" aria-hidden="true" />
+            <p className="text-base text-muted-foreground leading-snug">
+              Detection is automated — also review the live page directly for issues not captured below.{' '}
+              {onAddCriterionFailure && (
+                <button
+                  type="button"
+                  onClick={onAddCriterionFailure}
+                  className="font-medium underline hover:no-underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
+                >
+                  Add a failure instance
+                </button>
+              )}{' '}
+              for anything found manually.
+            </p>
+          </div>
+          <div className="divide-y">
+            {elements.map(el => (
+              <NonTextElementRow
+                key={el.id}
+                element={el}
+                criterionId={criterionId}
+                onUpdate={onUpdate!}
+                onAddFailure={onAddElementFailure ? () => onAddElementFailure(el.id) : undefined}
+                onUpdateFailure={onUpdateElementFailure ? (fid, data) => onUpdateElementFailure(el.id, fid, data) : undefined}
+                onDeleteFailure={onDeleteElementFailure ? (fid) => onDeleteElementFailure(el.id, fid) : undefined}
+                onGenerateFocusOrderScreenshot={onGenerateFocusOrderScreenshot}
+                onCaptureScreenshot={onGenerateElementScreenshot ? () => onGenerateElementScreenshot(el.id) : undefined}
+              />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1412,12 +1439,18 @@ function CheckRow({
   onGenerateElementScreenshot?: (criterionId: string, elementId: string) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [showQuestions, setShowQuestions] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const meta = check.wcagCriterion ? PREDEFINED_MAP[check.wcagCriterion] : undefined;
   const bodyId = `check-body-${check.id}`;
-  const howToTestId = `check-howtotest-${check.id}`;
   const questions = meta?.questions ?? [];
+  const [questionStatuses, setQuestionStatuses] = useState<ManualAuditStatus[]>(() => questions.map(() => 'not-tested'));
+
+  const QUESTION_STATUS_OPTIONS: { value: ManualAuditStatus; label: string }[] = [
+    { value: 'pass', label: 'Pass' },
+    { value: 'fail', label: 'Fail' },
+    { value: 'na', label: 'N/A' },
+    { value: 'not-tested', label: 'Not tested' },
+  ];
 
   const failCount = (check.failures ?? []).length;
   const elementFailCount = smartElements?.filter(e => e.auditStatus === 'fail').length ?? 0;
@@ -1523,32 +1556,43 @@ function CheckRow({
       {expanded && (
         <div id={bodyId} className="px-4 pb-3 pt-1">
           {check.description && (
-            <p className="text-base text-muted-foreground mb-2">{check.description}</p>
+            <p className="text-base text-muted-foreground mb-3">{check.description}</p>
           )}
 
           {/* How to test */}
           {questions.length > 0 && (
-            <div className="mb-2">
-              <button
-                type="button"
-                onClick={() => setShowQuestions(v => !v)}
-                aria-expanded={showQuestions}
-                aria-controls={howToTestId}
-                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                <ChevronDown
-                  className={cn('h-3 w-3 transition-transform', showQuestions && 'rotate-180')}
-                  aria-hidden="true"
-                />
-                How to test
-              </button>
-              {showQuestions && (
-                <ul id={howToTestId} className="mt-1.5 space-y-1 pl-3 border-l-2 border-muted">
-                  {questions.map((q, i) => (
-                    <li key={i} className="text-xs text-muted-foreground leading-snug">{q}</li>
-                  ))}
-                </ul>
-              )}
+            <div className="mb-3 rounded-md bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 px-3 pt-3 pb-2">
+              <p className="text-base font-bold text-foreground mb-2.5">How to test</p>
+              <ol className="space-y-3">
+                {questions.map((q, i) => (
+                  <li key={i}>
+                    <p className="text-base text-foreground leading-snug mb-1.5">{q}</p>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {QUESTION_STATUS_OPTIONS.map(({ value, label }) => {
+                        const selected = questionStatuses[i] === value;
+                        const colorClass =
+                          value === 'pass' ? selected ? 'bg-green-100 text-green-800 border-green-300 dark:bg-green-950/40 dark:text-green-300 dark:border-green-700' : 'text-zinc-600 dark:text-zinc-400 hover:text-green-700 dark:hover:text-green-400'
+                          : value === 'fail' ? selected ? 'bg-red-100 text-red-800 border-red-300 dark:bg-red-950/40 dark:text-red-300 dark:border-red-700' : 'text-zinc-600 dark:text-zinc-400 hover:text-red-700 dark:hover:text-red-400'
+                          : selected ? 'bg-muted text-foreground border-border' : 'text-zinc-600 dark:text-zinc-400 hover:text-foreground';
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            aria-pressed={selected}
+                            onClick={() => setQuestionStatuses(prev => prev.map((s, idx) => idx === i ? value : s))}
+                            className={cn(
+                              'inline-flex items-center rounded px-2 py-0.5 text-xs font-medium border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                              selected ? colorClass : cn('border-transparent', colorClass),
+                            )}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </li>
+                ))}
+              </ol>
             </div>
           )}
 
