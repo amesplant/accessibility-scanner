@@ -13,12 +13,17 @@ const MOUSE_EVENTS = ['click', 'dblclick', 'mousedown', 'dragstart', 'drop'];
 
 const INLINE_MOUSE_ATTRS = ['onclick', 'ondblclick', 'onmousedown', 'ondragstart', 'ondrop'];
 
+type OnProgressEvent =
+  | { type: 'status'; message: string }
+  | { type: 'element'; element: Omit<DetectedElement, 'id'> };
+type OnProgressFn = (event: OnProgressEvent) => void;
+
 /**
  * Detects non-interactive elements with mouse-only interactions.
  * Intercepts addEventListener for mouse event types via evaluateOnNewDocument,
  * then collects inline attribute handlers and cursor:pointer elements.
  */
-export async function detectKeyboard(url: string): Promise<Omit<DetectedElement, 'id'>[]> {
+export async function detectKeyboard(url: string, onProgress?: OnProgressFn): Promise<Omit<DetectedElement, 'id'>[]> {
   const puppeteer = (await import('puppeteer')).default;
 
   const browser = await puppeteer.launch({
@@ -49,6 +54,7 @@ export async function detectKeyboard(url: string): Promise<Omit<DetectedElement,
 
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
     await page.evaluate(() => new Promise<void>(r => setTimeout(r, 500)));
+    onProgress?.({ type: 'status', message: 'Page loaded — scanning for mouse-only interactions…' });
 
     await page.addScriptTag({ content: BROWSER_UTILS_SCRIPT });
 
@@ -148,6 +154,7 @@ export async function detectKeyboard(url: string): Promise<Omit<DetectedElement,
 
       return results;
     }, [...NON_INTERACTIVE_TAGS], INLINE_MOUSE_ATTRS);
+    onProgress?.({ type: 'status', message: `Found ${rawElements.length} candidate element${rawElements.length !== 1 ? 's' : ''} — capturing screenshots…` });
 
     // Take a per-element screenshot
     const results: Omit<DetectedElement, 'id'>[] = [];
@@ -176,7 +183,7 @@ export async function detectKeyboard(url: string): Promise<Omit<DetectedElement,
         // screenshot failed — continue without it
       }
 
-      results.push({
+      const el: Omit<DetectedElement, 'id'> = {
         elementType: 'mouse-only' as const,
         html: raw.html,
         selector: raw.selector,
@@ -185,7 +192,9 @@ export async function detectKeyboard(url: string): Promise<Omit<DetectedElement,
         auditStatus: 'not-reviewed' as const,
         screenReaderText: raw.reason,
         screenshotDataUrl,
-      });
+      };
+      results.push(el);
+      onProgress?.({ type: 'element', element: el });
     }
 
     return results;

@@ -14,6 +14,7 @@ import { AuditType, ScanReport, createDefaultChecks, ManualAudit, ManualAuditSta
 import { captureViewportScreenshot, detectFocusOrder, ViewportLabel } from './detectors/focusOrder.js';
 import { detectOnPage } from './detectors/onFocus.js';
 import { detectKeyboard } from './detectors/keyboard.js';
+import { detectFocusVisible } from './detectors/focusVisible.js';
 import { captureElementScreenshot } from './detectors/captureScreenshots.js';
 
 const app = express();
@@ -973,21 +974,34 @@ app.post('/api/reports/:reportId/pages/:pageId/elements/2.4.3/detect', async (re
 
 // POST /api/reports/:reportId/pages/:pageId/elements/3.2.1/detect
 app.post('/api/reports/:reportId/pages/:pageId/elements/3.2.1/detect', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  const send = (event: object) => res.write(`data: ${JSON.stringify(event)}\n\n`);
   try {
+    const allElements: any[] = [];
     const detectedElements = await modifyReportPage(req.params.reportId, req.params.pageId, async (page) => {
-      const raw = await detectOnPage(page.url);
-      const elements = raw.map(el => ({ ...el, id: randomUUID() }));
+      await detectOnPage(page.url, (event) => {
+        if (event.type === 'element') {
+          const withId = { ...event.element, id: randomUUID() };
+          allElements.push(withId);
+          send({ type: 'element', element: withId });
+        } else {
+          send(event);
+        }
+      });
       if (!page.detectedElements) page.detectedElements = {};
-      page.detectedElements['3.2.1'] = elements;
+      page.detectedElements['3.2.1'] = allElements;
       return page.detectedElements;
     });
-
-    if (!detectedElements) return res.status(404).json({ error: 'Page not found' });
-    return res.json({ detectedElements });
+    if (!detectedElements) { send({ type: 'error', message: 'Page not found' }); }
+    else { send({ type: 'done', detectedElements }); }
   } catch (err) {
     console.error('On Focus detection error:', err);
-    return res.status(500).json({ error: 'Failed to detect focus-triggered elements' });
+    send({ type: 'error', message: 'Failed to detect focus-triggered elements' });
   }
+  res.end();
 });
 
 // ---------------------------------------------------------------------------
@@ -996,19 +1010,68 @@ app.post('/api/reports/:reportId/pages/:pageId/elements/3.2.1/detect', async (re
 
 // POST /api/reports/:reportId/pages/:pageId/elements/2.1.1/detect
 app.post('/api/reports/:reportId/pages/:pageId/elements/2.1.1/detect', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  const send = (event: object) => res.write(`data: ${JSON.stringify(event)}\n\n`);
   try {
+    const allElements: any[] = [];
     const detectedElements = await modifyReportPage(req.params.reportId, req.params.pageId, async (page) => {
-      const raw = await detectKeyboard(page.url);
+      await detectKeyboard(page.url, (event) => {
+        if (event.type === 'element') {
+          const withId = { ...event.element, id: randomUUID() };
+          allElements.push(withId);
+          send({ type: 'element', element: withId });
+        } else {
+          send(event);
+        }
+      });
       if (!page.detectedElements) page.detectedElements = {};
-      page.detectedElements['2.1.1'] = raw.map(el => ({ ...el, id: randomUUID() }));
+      page.detectedElements['2.1.1'] = allElements;
       return page.detectedElements;
     });
-
-    if (!detectedElements) return res.status(404).json({ error: 'Page not found' });
-    return res.json({ detectedElements });
+    if (!detectedElements) { send({ type: 'error', message: 'Page not found' }); }
+    else { send({ type: 'done', detectedElements }); }
   } catch (err) {
     console.error('Keyboard detection error:', err);
-    return res.status(500).json({ error: 'Failed to detect keyboard-inaccessible elements' });
+    send({ type: 'error', message: 'Failed to detect keyboard-inaccessible elements' });
+  }
+  res.end();
+});
+
+// ---------------------------------------------------------------------------
+// Focus Visible — on-demand detection (WCAG 2.4.7)
+// ---------------------------------------------------------------------------
+
+// POST /api/reports/:reportId/pages/:pageId/elements/2.4.7/detect
+app.post('/api/reports/:reportId/pages/:pageId/elements/2.4.7/detect', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  const send = (event: object) => res.write(`data: ${JSON.stringify(event)}\n\n`);
+  try {
+    const allElements: any[] = [];
+    const detectedElements = await modifyReportPage(req.params.reportId, req.params.pageId, async (page) => {
+      await detectFocusVisible(page.url, (event) => {
+        if (event.type === 'element') {
+          const withId = { ...event.element, id: randomUUID() };
+          allElements.push(withId);
+          send({ type: 'element', element: withId });
+        } else {
+          send(event);
+        }
+      });
+      if (!page.detectedElements) page.detectedElements = {};
+      page.detectedElements['2.4.7'] = allElements;
+      return page.detectedElements;
+    });
+    if (!detectedElements) { send({ type: 'error', message: 'Page not found' }); }
+    else { send({ type: 'done', detectedElements }); }
+  } catch (err) {
+    console.error('Focus visible detection error:', err);
+    send({ type: 'error', message: 'Failed to detect focus-style issues' });
   }
 });
 
