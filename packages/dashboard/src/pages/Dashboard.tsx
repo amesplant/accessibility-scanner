@@ -236,7 +236,7 @@ export function Dashboard() {
     <form onSubmit={handleScan} className="flex flex-col gap-4">
       {/* Audit type selector */}
       <div>
-        <Label className="text-sm font-medium mb-2 block">Audit Type</Label>
+        <Label className="text-base font-medium mb-2 block">Audit Type</Label>
         <div className="grid grid-cols-3 gap-3">
           {(['rapid', 'mid-level', 'all-inclusive'] as AuditType[]).map(type => (
             <button
@@ -252,7 +252,7 @@ export function Dashboard() {
                 scanning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
               ].join(' ')}
             >
-              <span className="text-sm font-semibold">{AUDIT_TYPE_LABELS[type]}</span>
+              <span className="text-base font-semibold">{AUDIT_TYPE_LABELS[type]}</span>
               <span className="text-xs text-muted-foreground">{AUDIT_TYPE_DESCRIPTIONS[type]}</span>
             </button>
           ))}
@@ -262,7 +262,7 @@ export function Dashboard() {
       {/* WCAG level + best practices */}
       <div className="flex flex-wrap gap-4 items-end">
         <div className="flex flex-col gap-1.5">
-          <Label className="text-sm font-medium">WCAG Level</Label>
+          <Label className="text-base font-medium">WCAG Level</Label>
           <div className="flex gap-1">
             {(['A', 'AA', 'AAA'] as const).map(level => (
               <button
@@ -272,7 +272,7 @@ export function Dashboard() {
                 onClick={() => setWcagLevel(level)}
                 aria-pressed={wcagLevel === level}
                 className={[
-                  'rounded border px-3 py-1 text-sm font-medium transition-colors',
+                  'rounded border px-3 py-1 text-base font-medium transition-colors',
                   wcagLevel === level
                     ? 'border-primary bg-primary text-primary-foreground'
                     : 'border-border hover:border-primary/50 hover:bg-muted/50',
@@ -292,7 +292,7 @@ export function Dashboard() {
             disabled={scanning}
             className="h-4 w-4 rounded border-input accent-primary"
           />
-          <span className="text-sm font-medium">Include best practices</span>
+          <span className="text-base font-medium">Include best practices</span>
         </label>
       </div>
 
@@ -304,7 +304,7 @@ export function Dashboard() {
           onChange={e => setParallelTabs(e.target.value as '1' | '3' | '5' | '8')}
           disabled={scanning}
           aria-describedby="scan-parallel-hint"
-          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
         >
           <option value="1">1</option>
           <option value="3">3</option>
@@ -338,7 +338,7 @@ export function Dashboard() {
               value={scanProjectId}
               onChange={e => setScanProjectId(e.target.value)}
               disabled={scanning}
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
             >
               <option value="">No project</option>
               {projects.map(p => (
@@ -405,7 +405,7 @@ export function Dashboard() {
               </Button>
             </div>
             {urlInputError && (
-              <p id="url-input-error" role="alert" className="text-sm text-destructive">{urlInputError}</p>
+              <p id="url-input-error" role="alert" className="text-base text-destructive">{urlInputError}</p>
             )}
           </div>
 
@@ -413,7 +413,7 @@ export function Dashboard() {
             <ul className="flex flex-col gap-1" aria-label="URLs to audit">
               {urlList.map((url, i) => (
                 <li key={url} className="flex items-center justify-between rounded-md border border-border bg-muted/30 px-3 py-2">
-                  <span className="text-sm font-mono truncate flex-1 mr-2">{url}</span>
+                  <span className="text-base font-mono truncate flex-1 mr-2">{url}</span>
                   <button
                     type="button"
                     onClick={() => handleRemoveUrl(i)}
@@ -470,13 +470,13 @@ export function Dashboard() {
               {scanning ? 'Scanning…' : 'Scan'}
             </Button>
           </div>
-          {file && <p className="text-sm text-muted-foreground">{file.name}</p>}
+          {file && <p className="text-base text-muted-foreground">{file.name}</p>}
         </div>
       )}
 
       {mode === 'crawl' && (
         <div className="flex flex-col gap-3">
-          <div className="rounded-md border border-border bg-muted/40 p-3 text-sm space-y-1">
+          <div className="rounded-md border border-border bg-muted/40 p-3 text-base space-y-1">
             <p className="font-medium">⚠ Before you crawl</p>
             <ul className="list-disc list-inside text-muted-foreground space-y-0.5">
               <li>Crawling follows internal links from your starting URL downward — keep the path specific to avoid scanning the whole site.</li>
@@ -525,7 +525,7 @@ export function Dashboard() {
       >
         {scanning && (
           <>
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <div className="flex items-center justify-between text-base text-muted-foreground">
               <span className="truncate max-w-[70%]">
                 {scanState.phase === 'crawling' && (
                   crawlingUrl
@@ -580,7 +580,7 @@ export function Dashboard() {
       </div>
 
       {scanError && (
-        <p id="scan-error" role="alert" className="text-sm text-destructive">
+        <p id="scan-error" role="alert" className="text-base text-destructive">
           {scanError}
         </p>
       )}
@@ -614,7 +614,7 @@ export function Dashboard() {
         <div className="mb-8">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold">Projects</h2>
-            <Link to="/projects" className="text-sm text-link hover:underline">View all</Link>
+            <Link to="/projects" className="text-base text-link hover:underline">View all</Link>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {projects.map(project => (
@@ -624,7 +624,7 @@ export function Dashboard() {
               >
                 <FolderOpen className="h-5 w-5 text-muted-foreground shrink-0" aria-hidden="true" />
                 <Link to={`/projects/${project.id}`} className="min-w-0 flex-1">
-                  <p className="text-sm font-medium truncate">{project.name}</p>
+                  <p className="text-base font-medium truncate">{project.name}</p>
                   <p className="text-xs text-muted-foreground">
                     {project.reportCount} {project.reportCount === 1 ? 'report' : 'reports'}
                   </p>
@@ -696,7 +696,7 @@ export function Dashboard() {
                   )}
                 </CardTitle>
                 {report.pageTitle && report.sitemap.startsWith('http') && (
-                  <ExternalLink href={report.sitemap} className="text-sm text-muted-foreground break-all font-normal">
+                  <ExternalLink href={report.sitemap} className="text-base text-muted-foreground break-all font-normal">
                     {report.sitemap}
                   </ExternalLink>
                 )}
@@ -718,7 +718,7 @@ export function Dashboard() {
                       </Link>
                     ) : null;
                   })()}
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-base text-muted-foreground">
                     Scanned on {new Date(report.startTime).toLocaleString()}
                   </p>
                 </div>
@@ -726,7 +726,7 @@ export function Dashboard() {
               <div className="flex flex-row items-center gap-2 lg:shrink-0">
                 <Link
                   to={`/reports/${report.id}`}
-                  className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors"
+                  className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-base font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors"
                 >
                   View Report
                 </Link>
@@ -734,7 +734,7 @@ export function Dashboard() {
                   type="button"
                   onClick={() => { setAssignReport(report); setAssignProjectId(report.projectId ?? ''); }}
                   aria-label={`Assign ${report.pageTitle || report.sitemap} to a project`}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-primary/20 hover:border-primary"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border px-4 py-2 text-base font-medium text-foreground transition-colors hover:bg-primary/20 hover:border-primary"
                 >
                   <FolderOpen className="h-4 w-4" aria-hidden="true" />
                   Project
@@ -743,7 +743,7 @@ export function Dashboard() {
                   type="button"
                   onClick={() => setExportReport(report)}
                   aria-label={`Export report for ${report.sitemap}`}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-primary/20 hover:border-primary"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border px-4 py-2 text-base font-medium text-foreground transition-colors hover:bg-primary/20 hover:border-primary"
                 >
                   <Download className="h-4 w-4" aria-hidden="true" />
                   Export
@@ -764,31 +764,31 @@ export function Dashboard() {
             <CardContent>
               <div className="grid grid-cols-4 gap-4 mb-4">
                 <Link to={`/reports/${report.id}?tab=pages`} className="group">
-                  <p className="text-sm text-muted-foreground">Total Pages</p>
+                  <p className="text-base text-muted-foreground">Total Pages</p>
                   <p className="text-2xl font-bold underline decoration-dotted group-hover:decoration-solid">
                     {report.summary.totalPages}
                   </p>
                 </Link>
                 <Link to={`/reports/${report.id}?tab=violations`} className="group">
-                  <p className="text-sm text-muted-foreground">Total Violations</p>
+                  <p className="text-base text-muted-foreground">Total Violations</p>
                   <p className="text-2xl font-bold text-red-400 underline decoration-dotted group-hover:decoration-solid">
                     {report.summary.totalViolations}
                   </p>
                 </Link>
                 <Link to={`/reports/${report.id}?tab=violations&impact=critical`} className="group">
-                  <p className="text-sm text-muted-foreground">Critical</p>
+                  <p className="text-base text-muted-foreground">Critical</p>
                   <p className="text-2xl font-bold text-red-400 underline decoration-dotted group-hover:decoration-solid">
                     {report.summary.violationsByImpact.critical || 0}
                   </p>
                 </Link>
                 <Link to={`/reports/${report.id}?tab=violations&impact=serious`} className="group">
-                  <p className="text-sm text-muted-foreground">Serious</p>
+                  <p className="text-base text-muted-foreground">Serious</p>
                   <p className="text-2xl font-bold text-orange-400 underline decoration-dotted group-hover:decoration-solid">
                     {report.summary.violationsByImpact.serious || 0}
                   </p>
                 </Link>
               </div>
-              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <div className="flex items-center gap-4 text-base text-muted-foreground">
                 <Link
                   to={`/reports/${report.id}?tab=violations`}
                   className="underline hover:text-link"
@@ -833,10 +833,10 @@ export function Dashboard() {
         <DialogContent className="border-2 border-white" aria-live="assertive">
           <DialogHeader>
             <DialogTitle className="text-xl text-foreground">Remove report?</DialogTitle>
-            <DialogDescription className="text-sm text-muted-foreground">
+            <DialogDescription className="text-base text-muted-foreground">
               This will permanently delete this scan report.
             </DialogDescription>
-            <p className="flex items-center gap-1.5 text-sm text-destructive font-medium" aria-live="polite">
+            <p className="flex items-center gap-1.5 text-base text-destructive font-medium" aria-live="polite">
               <TriangleAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
               This action cannot be undone.
             </p>
@@ -937,7 +937,7 @@ export function Dashboard() {
                   id="assign-project-select"
                   value={assignProjectId}
                   onChange={e => setAssignProjectId(e.target.value)}
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 >
                   <option value="">No project</option>
                   {projects.map(p => (

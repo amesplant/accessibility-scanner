@@ -39,7 +39,7 @@ export function Pagination({ currentPage, totalPages, onPageChange }: Pagination
   const pages = buildPageRange(currentPage, totalPages);
 
   return (
-    <nav className="flex flex-wrap items-center gap-2 text-sm" aria-label="Pagination">
+    <nav className="flex flex-wrap items-center gap-2 text-base" aria-label="Pagination">
       <button
         type="button"
         onClick={() => onPageChange(currentPage - 1)}

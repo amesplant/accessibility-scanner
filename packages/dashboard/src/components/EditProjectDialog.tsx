@@ -78,7 +78,7 @@ export function EditProjectDialog({ open, project, onClose, onSave }: EditProjec
                 onChange={e => setDescription(e.target.value)}
               />
             </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            {error && <p className="text-base text-destructive">{error}</p>}
           </div>
           <DialogFooter className="gap-2 mt-4">
             <DialogClose asChild>

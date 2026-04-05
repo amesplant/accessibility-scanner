@@ -120,8 +120,8 @@ export function ReportDetail() {
             </div>
           )}
           {report.pageTitle && report.sitemap.startsWith('http') && (
-            <p className="text-sm mb-1">
-              <ExternalLink href={report.sitemap} className="break-all text-muted-foreground text-sm">
+            <p className="text-base mb-1">
+              <ExternalLink href={report.sitemap} className="break-all text-muted-foreground text-base">
                 {report.sitemap}
               </ExternalLink>
             </p>
@@ -132,7 +132,7 @@ export function ReportDetail() {
                 {report.auditType === 'rapid' ? 'Rapid Audit (Quick Assess)' : report.auditType === 'mid-level' ? 'Mid-Level' : 'Full Site'}
               </span>
             )}
-            <p className="text-sm text-muted-foreground">
+            <p className="text-base text-muted-foreground">
               Scanned on {new Date(report.startTime).toLocaleString()}
             </p>
           </div>
@@ -147,7 +147,7 @@ export function ReportDetail() {
           aria-label={`${report.summary.totalPages} pages scanned — view Pages tab`}
         >
           <div className="flex flex-col space-y-1.5 p-6 pb-2">
-            <p className="text-sm font-medium">Pages Scanned</p>
+            <p className="text-base font-medium">Pages Scanned</p>
           </div>
           <div className="p-6 pt-0">
             <p className="text-2xl font-bold underline decoration-dotted">
@@ -162,7 +162,7 @@ export function ReportDetail() {
           aria-label={`${report.summary.totalViolations} total violations — view Violations tab`}
         >
           <div className="flex flex-col space-y-1.5 p-6 pb-2">
-            <p className="text-sm font-medium">Total Violations</p>
+            <p className="text-base font-medium">Total Violations</p>
           </div>
           <div className="p-6 pt-0">
             <p className="text-2xl font-bold text-red-400 underline decoration-dotted">
@@ -182,7 +182,7 @@ export function ReportDetail() {
           aria-label={`${(report.summary.totalViolations / report.summary.totalPages).toFixed(1)} violations per page on average — view Violations tab`}
         >
           <div className="flex flex-col space-y-1.5 p-6 pb-2">
-            <p className="text-sm font-medium">Avg per Page</p>
+            <p className="text-base font-medium">Avg per Page</p>
           </div>
           <div className="p-6 pt-0">
             <p className="text-2xl font-bold underline decoration-dotted">
@@ -193,7 +193,7 @@ export function ReportDetail() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">
+            <CardTitle className="text-base font-medium">
               Scan Duration
             </CardTitle>
           </CardHeader>
@@ -218,7 +218,7 @@ export function ReportDetail() {
           <button
             type="button"
             onClick={() => setExportOpen(true)}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-primary/20 hover:border-primary focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-base font-medium text-foreground transition-colors hover:bg-primary/20 hover:border-primary focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
           >
             <Download className="h-4 w-4" aria-hidden="true" />
             Export
@@ -253,7 +253,7 @@ export function ReportDetail() {
               <CardTitle>Manual Audit Coverage</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center justify-between text-base">
                 <span className="text-muted-foreground">
                   {auditedCount} of {report.summary.totalPages} pages audited
                 </span>
@@ -287,7 +287,7 @@ export function ReportDetail() {
                       <div key={type} className="flex items-center gap-2">
                         <div className="flex-1">
                           <div className="flex items-baseline gap-2 mb-0.5">
-                            <p className="text-sm font-medium">{type}</p>
+                            <p className="text-base font-medium">{type}</p>
                             <span className="text-xs text-muted-foreground font-mono shrink-0">{count}</span>
                           </div>
                           <Progress
@@ -296,7 +296,7 @@ export function ReportDetail() {
                             aria-label={`${type}: ${count} of ${report.summary.totalViolations} violations`}
                           />
                         </div>
-                        <span className="text-sm w-12 text-right">{count}</span>
+                        <span className="text-base w-12 text-right">{count}</span>
                       </div>
                     );
                   })}

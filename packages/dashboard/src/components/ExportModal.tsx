@@ -212,7 +212,7 @@ export function ExportModal({ report, onClose, singleIssue }: ExportModalProps) 
             {/* What to export — hidden for single-issue exports */}
             {!isSingleIssue && (
               <fieldset className="flex flex-col gap-1.5">
-                <legend id={scopeId} className="text-sm font-medium mb-2">What to export</legend>
+                <legend id={scopeId} className="text-base font-medium mb-2">What to export</legend>
                 <div className="border rounded-md p-3 space-y-2">
                   {SCOPE_OPTIONS.map(opt => (
                     <div key={opt.value} className="flex items-start gap-2">
@@ -260,7 +260,7 @@ export function ExportModal({ report, onClose, singleIssue }: ExportModalProps) 
             {/* WCAG levels — hidden for single-issue exports and manual-only scope */}
             {!isSingleIssue && exportScope !== 'manual' && (
               <fieldset className="flex flex-col gap-1.5">
-                <legend className="text-sm font-medium mb-2">WCAG Levels to Export</legend>
+                <legend className="text-base font-medium mb-2">WCAG Levels to Export</legend>
                 <div className="border rounded-md p-3 space-y-2">
                   {LEVELS.map(({ value, label }) => (
                     <div key={value} className="flex items-center gap-2">

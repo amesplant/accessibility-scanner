@@ -537,7 +537,7 @@ function FailureInstanceItem({
           value={localNotes}
           onChange={e => { setLocalNotes(e.target.value); markDirty(); }}
           rows={3}
-          className="text-sm resize-y"
+          className="text-base resize-y"
         />
       </div>
 
@@ -647,7 +647,7 @@ function FailureInstanceItem({
           value={localRemediation}
           onChange={e => { setLocalRemediation(e.target.value); markDirty(); }}
           rows={3}
-          className="text-sm resize-y"
+          className="text-base resize-y"
         />
       </div>
 
@@ -916,7 +916,7 @@ function FocusOrderRow({
                     className="w-full"
                   />
                 ) : (
-                  <div className="flex items-center justify-center h-40 text-sm text-muted-foreground">
+                  <div className="flex items-center justify-center h-40 text-base text-muted-foreground">
                     No screenshot available.
                   </div>
                 )}
@@ -1006,7 +1006,7 @@ function NonTextElementRow({
       }}>
         <DialogContent className="max-w-3xl flex flex-col" style={{ maxHeight: '90vh' }}>
           <DialogHeader className="shrink-0">
-            <DialogTitle className="text-sm font-medium">
+            <DialogTitle className="text-base font-medium">
               {ELEMENT_TYPE_LABELS[element.elementType]} screenshot
             </DialogTitle>
             <DialogDescription className="sr-only">
@@ -1043,7 +1043,7 @@ function NonTextElementRow({
         <div className="flex-1 min-w-0 space-y-1.5">
           {/* HTML code block with copy button */}
           <div className="relative">
-            <pre className="text-[12px] leading-relaxed font-mono bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 rounded p-2 pr-8 overflow-x-auto whitespace-pre-wrap break-all border border-zinc-200 dark:border-zinc-700">
+            <pre className="text-sm leading-relaxed font-mono bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 rounded p-2 pr-8 overflow-x-auto whitespace-pre-wrap break-all border border-zinc-200 dark:border-zinc-700">
               {element.html}
             </pre>
             <div className="absolute top-1.5 right-1.5">
@@ -1287,7 +1287,7 @@ function NonTextElementsPanel({
       </div>
       <div className="px-3 py-3 bg-muted/20 border-b flex items-start gap-2">
         <Info className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" aria-hidden="true" />
-        <p className="text-sm text-muted-foreground leading-snug">
+        <p className="text-base text-muted-foreground leading-snug">
           Detection is automated — also review the live page directly for issues not captured below.{' '}
           {onAddCriterionFailure && (
             <button
@@ -1455,9 +1455,9 @@ function CheckRow({
           />
           <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
             {check.wcagCriterion && (
-              <span className="font-mono text-sm text-muted-foreground shrink-0">{check.wcagCriterion}</span>
+              <span className="font-mono text-base text-muted-foreground shrink-0">{check.wcagCriterion}</span>
             )}
-            <span className="text-sm font-medium">{check.title}</span>
+            <span className="text-base font-medium">{check.title}</span>
             {showMeta && (
               <>
                 {check.level && (
@@ -1523,7 +1523,7 @@ function CheckRow({
       {expanded && (
         <div id={bodyId} className="px-4 pb-3 pt-1">
           {check.description && (
-            <p className="text-sm text-muted-foreground mb-2">{check.description}</p>
+            <p className="text-base text-muted-foreground mb-2">{check.description}</p>
           )}
 
           {/* How to test */}
@@ -1646,7 +1646,7 @@ function CustomCheckItem({
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-sm font-medium">{check.title}</p>
+            <p className="text-base font-medium">{check.title}</p>
             {showMeta && (
               <Badge variant="outline" className="text-xs h-4 px-1 py-0 font-normal bg-slate-100 text-slate-700 border-slate-200">
                 Custom
@@ -1781,7 +1781,7 @@ function CheckGroupSection({
             className={cn('h-4 w-4 shrink-0 text-muted-foreground', !collapsed && 'rotate-180')}
             aria-hidden="true"
           />
-          <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wide group-hover:text-foreground">
+          <span className="text-base font-semibold text-muted-foreground uppercase tracking-wide group-hover:text-foreground">
             {group.label}
           </span>
           <span className="text-xs font-normal normal-case text-muted-foreground">
@@ -1970,14 +1970,14 @@ function AddCustomCheckDialog({
                 value={form.impact}
                 onValueChange={v => setForm(p => ({ ...p, impact: v as ImpactLevel }))}
               >
-                <SelectTrigger className="text-sm">
+                <SelectTrigger className="text-base">
                   {form.impact
                     ? <span className="capitalize">{form.impact}</span>
                     : <span className="text-muted-foreground">Select…</span>}
                 </SelectTrigger>
                 <SelectContent>
                   {(['minor', 'moderate', 'serious', 'critical'] as const).map(i => (
-                    <SelectItem key={i} value={i} className="capitalize text-sm">{i}</SelectItem>
+                    <SelectItem key={i} value={i} className="capitalize text-base">{i}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1989,12 +1989,12 @@ function AddCustomCheckDialog({
                 value={form.status}
                 onValueChange={v => setForm(p => ({ ...p, status: v as ManualAuditStatus }))}
               >
-                <SelectTrigger className="text-sm">
+                <SelectTrigger className="text-base">
                   <span className={STATUS_COLORS[form.status]}>{STATUS_LABELS[form.status]}</span>
                 </SelectTrigger>
                 <SelectContent>
                   {(['pass', 'fail', 'na', 'not-tested'] as ManualAuditStatus[]).map(s => (
-                    <SelectItem key={s} value={s} className="text-sm">
+                    <SelectItem key={s} value={s} className="text-base">
                       <span className={STATUS_COLORS[s]}>{STATUS_LABELS[s]}</span>
                     </SelectItem>
                   ))}
@@ -2128,7 +2128,7 @@ export function ManualAuditTab({
       {/* Completion banner */}
       {isCompleted && (
         <div className="flex items-center justify-between gap-3 rounded border border-green-600/40 bg-green-600/10 px-4 py-3">
-          <div className="flex items-center gap-2 text-sm text-green-700 dark:text-green-400">
+          <div className="flex items-center gap-2 text-base text-green-700 dark:text-green-400">
             <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
             <span>
               Audit marked complete
@@ -2155,11 +2155,11 @@ export function ManualAuditTab({
 
       {/* Progress panel */}
       <div className="border rounded p-4 space-y-3">
-        <div className="flex items-center justify-between text-sm">
+        <div className="flex items-center justify-between text-base">
           <span className="font-medium text-muted-foreground uppercase tracking-wide text-xs">
             Audit Progress
           </span>
-          <span className="text-sm text-muted-foreground">
+          <span className="text-base text-muted-foreground">
             {checked}/{total} checked
           </span>
         </div>
@@ -2198,7 +2198,7 @@ export function ManualAuditTab({
                 onAuditorNotesChange(auditorNotes);
               }
             }}
-            className="min-h-[60px] text-sm"
+            className="min-h-[60px] text-base"
           />
         </div>
       </div>
@@ -2262,7 +2262,7 @@ export function ManualAuditTab({
           <div className="flex items-center justify-between mb-2">
             <h2
               id="custom-issues-heading"
-              className="text-sm font-semibold text-muted-foreground uppercase tracking-wide"
+              className="text-base font-semibold text-muted-foreground uppercase tracking-wide"
             >
               Custom Issues
               <span className="ml-1.5 normal-case font-normal">({customChecks.length})</span>
@@ -2273,7 +2273,7 @@ export function ManualAuditTab({
             </Button>
           </div>
           {customChecks.length === 0 ? (
-            <p className="text-sm text-muted-foreground border rounded p-4 text-center">
+            <p className="text-base text-muted-foreground border rounded p-4 text-center">
               No custom issues added yet.
             </p>
           ) : (

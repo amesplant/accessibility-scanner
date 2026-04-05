@@ -65,7 +65,7 @@ function NavItem({
       aria-current={active ? 'page' : undefined}
       onClick={onClick}
       className={[
-        'flex items-center gap-3.5 pr-4 pl-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+        'flex items-center gap-3.5 pr-4 pl-3 py-2.5 rounded-lg text-base font-medium transition-colors',
         'focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-[-1px] focus-visible:outline-ring',
         active
           ? 'border-l-4 border-primary bg-white/10 text-white'
@@ -200,7 +200,7 @@ export function Layout({ children }: Props) {
                   onNavigate?.();
                   navigate('/', { state: { newScan: true, projectId: currentProjectId } });
                 }}
-                className="flex items-center gap-3.5 w-full px-4 py-2.5 rounded-lg text-sm font-medium bg-primary text-white hover:bg-primary/85 transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                className="flex items-center gap-3.5 w-full px-4 py-2.5 rounded-lg text-base font-medium bg-primary text-white hover:bg-primary/85 transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
               >
                 <IconScan />
                 New Scan
@@ -326,7 +326,7 @@ export function Layout({ children }: Props) {
               className="flex items-center gap-3 px-4 py-2.5 rounded-full hover:bg-primary/10 transition-colors"
             >
               <div className="h-2 w-2 rounded-full bg-primary animate-pulse shrink-0" aria-hidden="true" />
-              <span className="text-sm text-foreground whitespace-nowrap">
+              <span className="text-base text-foreground whitespace-nowrap">
                 {aborting ? 'Aborting…' : (
                   <>
                     {scanState.phase === 'crawling' && 'Discovering pages…'}
@@ -359,7 +359,7 @@ export function Layout({ children }: Props) {
             {!scanning ? (
               <button
                 onClick={() => navigate('/', { state: { newScan: true, projectId: currentProjectId } })}
-                className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium bg-primary text-white hover:bg-primary/85 transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg text-base font-medium bg-primary text-white hover:bg-primary/85 transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
               >
                 <IconScan />
                 New Scan

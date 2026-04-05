@@ -48,14 +48,14 @@ export function PageDetail() {
       <div className="space-y-4">
         <div>
           <p className="font-medium">URL</p>
-          <p className="text-sm break-words">
+          <p className="text-base break-words">
             <ExternalLink href={page.url} className="break-words">{page.url}</ExternalLink>
           </p>
         </div>
 
         <div>
           <p className="font-medium">Scanned</p>
-          <p className="text-sm ">
+          <p className="text-base ">
             {new Date(page.timestamp).toLocaleString()}
           </p>
         </div>
