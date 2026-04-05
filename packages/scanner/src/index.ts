@@ -1,8 +1,75 @@
 import { Command } from 'commander';
 import { promises as fs } from 'fs';
+import { randomUUID } from 'crypto';
 import path from 'path';
 import { SitemapScanner } from './scanner.js';
-import { DatabaseService } from './database.js';
+import { DatabaseService, type ReportBundleManifest, type ReportShardRef } from './database.js';
+import type { ScanReport } from '../../shared/dist/index.js';
+
+type BundleSummary = {
+  totalPages: number;
+  totalViolations: number;
+  violationsByImpact: Record<string, number>;
+  violationsByType: Record<string, number>;
+  violationsByLevel: Record<string, number>;
+  manualFailCount: number;
+  auditedPages: number;
+};
+
+function createBundleSummary(): BundleSummary {
+  return {
+    totalPages: 0,
+    totalViolations: 0,
+    violationsByImpact: {},
+    violationsByType: {},
+    violationsByLevel: {},
+    manualFailCount: 0,
+    auditedPages: 0,
+  };
+}
+
+function accumulateBundleSummary(summary: BundleSummary, report: ScanReport): void {
+  summary.totalPages += report.summary.totalPages;
+  summary.totalViolations += report.summary.totalViolations;
+  summary.manualFailCount += report.summary.manualFailCount ?? 0;
+  summary.auditedPages += report.summary.auditedPages ?? 0;
+
+  for (const [impact, count] of Object.entries(report.summary.violationsByImpact)) {
+    summary.violationsByImpact[impact] = (summary.violationsByImpact[impact] ?? 0) + count;
+  }
+
+  for (const [type, count] of Object.entries(report.summary.violationsByType)) {
+    summary.violationsByType[type] = (summary.violationsByType[type] ?? 0) + count;
+  }
+
+  for (const [level, count] of Object.entries(report.summary.violationsByLevel)) {
+    summary.violationsByLevel[level] = (summary.violationsByLevel[level] ?? 0) + count;
+  }
+}
+
+function buildBundleManifest(
+  bundleId: string,
+  metadata: Pick<ScanReport, 'sitemap' | 'pageTitle' | 'startTime' | 'endTime' | 'auditType' | 'wcagLevel' | 'includeBestPractices' | 'projectId'>,
+  summary: BundleSummary,
+  shards: ReportShardRef[],
+): ReportBundleManifest {
+  return {
+    id: bundleId,
+    sitemap: metadata.sitemap,
+    pageTitle: metadata.pageTitle,
+    startTime: metadata.startTime,
+    endTime: metadata.endTime,
+    auditType: metadata.auditType,
+    wcagLevel: metadata.wcagLevel,
+    includeBestPractices: metadata.includeBestPractices,
+    projectId: metadata.projectId,
+    summary,
+    kind: 'bundle',
+    shards,
+  };
+}
+
+const FIXED_BATCH_SIZE = 150;
 
 const program = new Command();
 
@@ -17,64 +84,82 @@ program
   .requiredOption('-s, --sitemap <url|path>', 'Sitemap URL or local file path')
   .option('-c, --concurrent <number>', 'Concurrent pages to scan', '8')
   .option('--headless', 'Run in headless mode', true)
-  .option('--batch-size <number>', 'Maximum pages per batch (0 = no batching)', '0')
+  .option('--batch-size', 'Batch scan in fixed groups of 150 pages')
   .option('--batch-index <number>', '1-based batch index when batch-size is set')
   .option('--output <path>', 'Optional path to write report JSON directly')
   .action(async (options) => {
     const db = new DatabaseService();
     const scanner = new SitemapScanner(options);
 
-    const batchSize = Number(options.batchSize ?? 0);
+    const batchSize = options.batchSize ? FIXED_BATCH_SIZE : 0;
 
     if (batchSize > 0 && !options.batchIndex) {
       const allUrls = await scanner.getUrls();
       const totalBatches = Math.ceil(allUrls.length / batchSize);
-      const partialReports = [];
+      const bundleId = randomUUID();
+      const shards: ReportShardRef[] = [];
+      const summary = createBundleSummary();
+      let firstReport: ScanReport | undefined;
+      let startTime: ScanReport['startTime'] | undefined;
+      let endTime: ScanReport['endTime'] | undefined;
 
       for (let i = 1; i <= totalBatches; i++) {
         // run each batch with explicit URLs so scanner does not re-slice the same batch
         const chunkUrls = allUrls.slice((i - 1) * batchSize, i * batchSize);
         const chunkScanner = new SitemapScanner({ ...options, urls: chunkUrls });
         const chunkReport = await chunkScanner.scan();
-        partialReports.push(chunkReport);
 
-        if (!options.output) {
-          await db.saveReport(chunkReport);
+        if (!firstReport) {
+          firstReport = chunkReport;
+        }
+
+        startTime = !startTime || new Date(chunkReport.startTime).getTime() < new Date(startTime).getTime()
+          ? chunkReport.startTime
+          : startTime;
+        endTime = !endTime || new Date(chunkReport.endTime).getTime() > new Date(endTime).getTime()
+          ? chunkReport.endTime
+          : endTime;
+
+        const shardRef = await db.saveReportBundleShard(bundleId, chunkReport);
+        shards.push(shardRef);
+        accumulateBundleSummary(summary, chunkReport);
+
+        const maybeGc = (globalThis as { gc?: () => void }).gc;
+        if (typeof maybeGc === 'function') {
+          maybeGc();
         }
 
         // eslint-disable-next-line no-console
         console.log(`Batch ${i}/${totalBatches} complete; report ID ${chunkReport.id}`);
       }
 
-      // Merge all partial chunk results into a single consolidated report
-      const mergedReport = SitemapScanner.mergeReports(partialReports, { outputSitemap: options.sitemap });
+      if (!firstReport) {
+        throw new Error('No reports were generated for the requested batches');
+      }
+
+      const bundleManifest = buildBundleManifest(bundleId, {
+        sitemap: options.sitemap,
+        pageTitle: firstReport.pageTitle,
+        startTime: startTime ?? firstReport.startTime,
+        endTime: endTime ?? firstReport.endTime,
+        auditType: firstReport.auditType,
+        wcagLevel: firstReport.wcagLevel,
+        includeBestPractices: firstReport.includeBestPractices,
+        projectId: firstReport.projectId,
+      }, summary, shards);
+      await db.saveReportBundleManifest(bundleId, bundleManifest);
 
       if (options.output) {
         const outputPath = path.isAbsolute(options.output)
           ? options.output
           : path.resolve(process.cwd(), options.output);
-        await fs.writeFile(outputPath, JSON.stringify(mergedReport));
-        await db.saveReport(mergedReport);
+        await fs.writeFile(outputPath, JSON.stringify(bundleManifest));
 
         // eslint-disable-next-line no-console
-        console.log(`Merged report written to ${outputPath} and saved with ID ${mergedReport.id}`);
-
-        // Remove partial chunk reports so dashboard shows only consolidated result
-        await Promise.all(partialReports.map((chunkReport) => db.deleteReport(chunkReport.id)));
-
-        // eslint-disable-next-line no-console
-        console.log(`Deleted partial chunk reports; consolidated report is now the canonical result`);
+        console.log(`Bundle manifest written to ${outputPath} and saved with ID ${bundleId}`);
       } else {
-        await db.saveReport(mergedReport);
-
-        // Remove partial chunk reports so dashboard shows only consolidated result.
-        // Delete serially to avoid concurrent meta.json race conditions.
-        for (const chunkReport of partialReports) {
-          await db.deleteReport(chunkReport.id);
-        }
-
         // eslint-disable-next-line no-console
-        console.log(`Merged report saved with ID ${mergedReport.id} (deleted partial chunk reports)`);
+        console.log(`Bundle saved with ID ${bundleId}`);
       }
 
       return;
@@ -114,15 +199,20 @@ program
 
 program
   .command('merge')
-  .description('Merge partial scan reports into a consolidated report')
+  .description('Merge partial scan reports into a bundled report')
   .requiredOption('-i, --input <items...>', 'Input report IDs or file paths')
-  .option('-o, --output <path>', 'Output path (JSON) for merged report')
+  .option('-o, --output <path>', 'Output path (JSON) for bundled report manifest')
   .action(async (options) => {
     const db = new DatabaseService();
-    const reports = [];
+    const bundleId = randomUUID();
+    const shards: ReportShardRef[] = [];
+    const summary = createBundleSummary();
+    let firstReport: ScanReport | undefined;
+    let startTime: ScanReport['startTime'] | undefined;
+    let endTime: ScanReport['endTime'] | undefined;
 
     for (const item of options.input) {
-      let report;
+      let report: ScanReport | undefined;
       if (item.endsWith('.json') || item.includes('/') || item.includes('\\')) {
         const absolute = path.isAbsolute(item) ? item : path.resolve(process.cwd(), item);
         const raw = await fs.readFile(absolute, 'utf-8');
@@ -134,23 +224,49 @@ program
       if (!report) {
         throw new Error(`Report not found: ${item}`);
       }
-      reports.push(report);
+
+      if (!firstReport) {
+        firstReport = report;
+      }
+
+      startTime = !startTime || new Date(report.startTime).getTime() < new Date(startTime).getTime()
+        ? report.startTime
+        : startTime;
+      endTime = !endTime || new Date(report.endTime).getTime() > new Date(endTime).getTime()
+        ? report.endTime
+        : endTime;
+
+      const shardRef = await db.saveReportBundleShard(bundleId, report);
+      shards.push(shardRef);
+      accumulateBundleSummary(summary, report);
     }
 
-    const mergedReport = SitemapScanner.mergeReports(reports);
+    if (!firstReport) {
+      throw new Error('No reports were provided to merge');
+    }
+
+    const bundleManifest = buildBundleManifest(bundleId, {
+      sitemap: firstReport.sitemap,
+      pageTitle: firstReport.pageTitle,
+      startTime: startTime ?? firstReport.startTime,
+      endTime: endTime ?? firstReport.endTime,
+      auditType: firstReport.auditType,
+      wcagLevel: firstReport.wcagLevel,
+      includeBestPractices: firstReport.includeBestPractices,
+      projectId: firstReport.projectId,
+    }, summary, shards);
+    await db.saveReportBundleManifest(bundleId, bundleManifest);
 
     if (options.output) {
       const outputPath = path.isAbsolute(options.output)
         ? options.output
         : path.resolve(process.cwd(), options.output);
-      await fs.writeFile(outputPath, JSON.stringify(mergedReport));
-      await db.saveReport(mergedReport);
+      await fs.writeFile(outputPath, JSON.stringify(bundleManifest));
       // eslint-disable-next-line no-console
-      console.log(`Merged report written to ${outputPath} and saved with ID ${mergedReport.id}`);
+      console.log(`Bundle manifest written to ${outputPath} and saved with ID ${bundleId}`);
     } else {
-      await db.saveReport(mergedReport);
       // eslint-disable-next-line no-console
-      console.log(`Merged report saved with ID ${mergedReport.id}`);
+      console.log(`Bundle saved with ID ${bundleId}`);
     }
 
     // Clean up source reports from DB to keep only the merged result

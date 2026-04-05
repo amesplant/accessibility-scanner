@@ -1,25 +1,18 @@
 import { useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useReport } from '@/hooks/useReport';
+import { useViolationDetail } from '@/hooks/useViolationDetail';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ExternalLink } from '@/components/ExternalLink';
+import { Pagination } from '@/components/ui/pagination';
 import { X, ArrowLeft, FileSearch } from 'lucide-react';
 
 export function ViolationWindow() {
   const { id, violationId } = useParams<{ id: string; violationId: string }>();
-  const { report, loading, error } = useReport(id);
+  const { group, pages, total, loading, error, page, setPage, totalPages } = useViolationDetail(id, violationId);
   const navigate = useNavigate();
 
-  const allInstances = report
-    ? report.results.flatMap(result =>
-        result.violations
-          .filter(v => v.id === violationId)
-          .map(v => ({ violation: v, url: result.url }))
-      )
-    : [];
-
-  const violation = allInstances[0]?.violation ?? null;
+  const violation = group?.kind === 'automated' ? group.violation : null;
 
   useEffect(() => {
     if (violation) {
@@ -30,15 +23,8 @@ export function ViolationWindow() {
 
   if (loading) return <div className="p-6">Loading…</div>;
   if (error)   return <div className="p-6">Error: {error}</div>;
-  if (!report) return <div className="p-6">Report not found.</div>;
-  if (!violation) return <div className="p-6">Violation not found in this report.</div>;
-
-  const affectedPages = [...new Set(allInstances.map(i => i.url))]
-    .sort((a, b) => a.localeCompare(b))
-    .map(url => ({
-      url,
-      pageId: report.results.find(r => r.url === url)?.id,
-    }));
+  if (!group) return <div className="p-6">Violation not found in this report.</div>;
+  if (group.kind !== 'automated' || !violation) return <div className="p-6">Violation not found in this report.</div>;
 
   const impactColors = {
     critical: 'destructive',
@@ -105,11 +91,14 @@ export function ViolationWindow() {
       </div>
 
       <div>
-        <p className="text-xs text-muted-foreground mb-1">
-          Affected Pages ({affectedPages.length})
-        </p>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-muted-foreground mb-1">
+            Affected Pages ({pages.length} of {total})
+          </p>
+          <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
+        </div>
         <ul className="space-y-1.5">
-          {affectedPages.map(({ url, pageId }) => (
+          {pages.map(({ url, pageId }) => (
             <li key={url} className="flex items-center gap-3 flex-wrap">
               <ExternalLink href={url} className="break-all text-sm flex-1 min-w-0">{url}</ExternalLink>
               {pageId && (

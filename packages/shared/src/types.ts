@@ -151,6 +151,8 @@ export interface ScanReport {
     violationsByType: Record<string, number>;
     /** aggregated counts by WCAG level (A/AA/AAA) */
     violationsByLevel: Record<string, number>;
+    manualFailCount?: number;
+    auditedPages?: number;
   };
 }
 

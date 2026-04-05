@@ -74,7 +74,7 @@ Tabs.displayName = "Tabs"
 // TabsList
 // -----------------------------------------------------------------------------
 
-export interface TabsListProps extends React.HTMLAttributes<HTMLDivElement> {}
+export type TabsListProps = React.HTMLAttributes<HTMLDivElement>;
 
 const TabsList = React.forwardRef<HTMLDivElement, TabsListProps>(
   ({ className, children, ...props }, ref) => {

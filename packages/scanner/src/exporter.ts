@@ -1,5 +1,6 @@
-import { ScanReport, AxeViolation, ManualCheckResult, DetectedElement } from '@accessibility-scanner/shared';
+import { ScanReport, AxeViolation, ManualCheckResult, DetectedElement } from '../../shared/dist/index.js';
 import ExcelJS from 'exceljs';
+import type { Stream } from 'stream';
 
 /**
  * Export helpers that produce Excel/CSV payloads matching the Teamwork
@@ -60,6 +61,426 @@ export class Reporter {
     // exceljs returns a Uint8Array/Buffer-like object; normalize to Node Buffer
     const buf = await workbook.xlsx.writeBuffer();
     return Buffer.from(buf as ArrayBuffer);
+  }
+
+  async streamToExcel(
+    report: ScanReport,
+    stream: NodeJS.WritableStream,
+    selectedViolations?: string[],
+    tasklistName?: string,
+    selectedLevels?: string[],
+    exportScope: 'all' | 'automated' | 'manual' = 'all',
+  ): Promise<void> {
+    const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
+      stream: stream as unknown as Stream,
+      useStyles: false,
+      useSharedStrings: true,
+    });
+
+    if (exportScope === 'manual') {
+      const manualSheet = workbook.addWorksheet('Accessibility');
+      const rows = this.buildManualTeamworkRows(report, tasklistName);
+      rows.forEach(row => manualSheet.addRow(row).commit());
+      await workbook.commit();
+      return;
+    }
+
+    const sheet = workbook.addWorksheet('Accessibility');
+    this.writeExcelRows(sheet, report, selectedViolations, tasklistName, selectedLevels);
+
+    if (exportScope === 'all') {
+      const manualEntries = this.collectManualChecks(report);
+      if (manualEntries.length > 0) {
+        const manualSheet = workbook.addWorksheet('Manual Audit');
+        manualSheet.addRow(['Criterion', 'Level', 'Title', 'Status', 'Notes', 'Impact', 'Last Updated']).commit();
+        manualEntries.forEach(({ check: c, failedElements }) => {
+          const extraNotes = failedElements.length > 0
+            ? `${c.notes ?? ''}\n\nFailed elements (${failedElements.length}):\n${failedElements.map(e => `- ${e.html}${e.auditComment ? ` — ${e.auditComment}` : ''}`).join('\n')}`.trim()
+            : (c.notes ?? '');
+          manualSheet.addRow([
+            c.wcagCriterion ?? '',
+            c.level ?? '',
+            c.title,
+            c.status,
+            extraNotes,
+            c.impact ?? '',
+            c.updatedAt,
+          ]).commit();
+        });
+      }
+    }
+
+    await workbook.commit();
+  }
+
+  async streamToExcelFromPages(
+    stream: NodeJS.WritableStream,
+    pageIterator: (callback: (page: ScanReport['results'][number]) => Promise<void> | void) => Promise<void>,
+    selectedViolations?: string[],
+    tasklistName?: string,
+    selectedLevels?: string[],
+    exportScope: 'all' | 'automated' | 'manual' = 'all',
+  ): Promise<void> {
+    const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
+      stream: stream as unknown as Stream,
+      useStyles: false,
+      useSharedStrings: true,
+    });
+
+    let sheet: ExcelJS.Worksheet | null = null;
+    let manualSheet: ExcelJS.Worksheet | null = null;
+    const ensureManualSheet = () => {
+      if (!manualSheet) {
+        manualSheet = workbook.addWorksheet('Manual Audit');
+        manualSheet.addRow(['Criterion', 'Level', 'Title', 'Status', 'Notes', 'Impact', 'Last Updated']).commit();
+      }
+      return manualSheet;
+    };
+
+    if (exportScope !== 'manual') {
+      sheet = workbook.addWorksheet('Accessibility');
+      sheet.addRow([
+        'TASKLIST',
+        'TASK',
+        'DESCRIPTION',
+        'ASSIGN TO',
+        'START DATE',
+        'DUE DATE',
+        'PRIORITY',
+        'ESTIMATED TIME',
+        'TAGS',
+        'STATUS'
+      ]).commit();
+
+      sheet.addRow([
+        tasklistName?.trim() || 'Accessibility Updates',
+        '',
+        'Required Accessibility Updates',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        ''
+      ]).commit();
+    }
+
+    const violationGroups = new Map<
+      string,
+      { violation: AxeViolation; pageNodes: Array<{ url: string; html: string }>; count: number }
+    >();
+
+    await pageIterator(async (page: ScanReport['results'][number]) => {
+      if (exportScope !== 'manual') {
+        for (const violation of page.violations.filter((v: AxeViolation) => {
+          if (selectedViolations && !selectedViolations.includes(v.id)) return false;
+          if (selectedLevels && selectedLevels.length > 0) {
+            const vLevel = v.level ?? 'best-practice';
+            if (!selectedLevels.includes(vLevel)) return false;
+          }
+          return true;
+        })) {
+          if (!violationGroups.has(violation.id)) {
+            violationGroups.set(violation.id, {
+              violation,
+              pageNodes: [],
+              count: 0
+            });
+          }
+          const group = violationGroups.get(violation.id)!;
+          for (const node of violation.nodes) {
+            group.pageNodes.push({ url: page.url, html: node.html });
+            group.count++;
+          }
+        }
+      }
+
+      if (exportScope !== 'automated' && page.manualAudit) {
+        for (const check of page.manualAudit.checks) {
+          if (check.status !== 'not-tested') {
+            const failedElements = check.wcagCriterion
+              ? (page.detectedElements?.[check.wcagCriterion] ?? []).filter((e: DetectedElement) => e.auditStatus === 'fail')
+              : [];
+            const manualSheetRef = ensureManualSheet();
+            const extraNotes = failedElements.length > 0
+              ? `${check.notes ?? ''}\n\nFailed elements (${failedElements.length}):\n${failedElements.map((e: DetectedElement) => `- ${e.html}${e.auditComment ? ` — ${e.auditComment}` : ''}`).join('\n')}`.trim()
+              : (check.notes ?? '');
+            manualSheetRef.addRow([
+              check.wcagCriterion ?? '',
+              check.level ?? '',
+              check.title,
+              check.status,
+              extraNotes,
+              check.impact ?? '',
+              check.updatedAt,
+            ]).commit();
+          }
+        }
+      }
+    });
+
+    if (exportScope !== 'manual') {
+      violationGroups.forEach(({ violation, pageNodes, count }) => {
+        const seen = new Set<string>();
+        const uniqueEntries = pageNodes.filter(p => {
+          const key = `${p.url}||${p.html}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+
+        const pagesForDescription: Array<{ url: string; html: string }> =
+          uniqueEntries.length > 100
+            ? [...new Set(uniqueEntries.map(p => p.url))].map(url => ({ url, html: '' }))
+            : uniqueEntries;
+
+        const firstSnippet = uniqueEntries[0]?.html ?? '';
+        const descriptionMarkdown = this.buildDescriptionMarkdown(
+          violation,
+          pagesForDescription,
+          count,
+          firstSnippet
+        );
+
+        const resolvedTasklist = tasklistName?.trim() || 'Accessibility Updates';
+        const wcagTags = this.wcagCriteriaTags(violation.tags);
+        const severityTag = this.severityTag(violation.impact);
+        const level = violation.level ?? 'best-practice';
+        const levelTag = level !== 'best-practice' ? level : 'Best Practice';
+        const tags = ['Accessibility', severityTag, levelTag, 'Automated'].join(', ');
+
+        const firstCriterion = wcagTags[0]?.replace('WCAG ', '') ?? '';
+        const taskName = firstCriterion
+          ? `${firstCriterion} ${violation.help} | ${level !== 'best-practice' ? level : 'BP'}`
+          : `${violation.help} | ${level !== 'best-practice' ? level : 'BP'}`;
+
+        const row: string[] = [];
+        row[0] = resolvedTasklist;
+        row[1] = taskName;
+        row[2] = descriptionMarkdown;
+        row[8] = tags;
+        row[9] = 'Active';
+
+        sheet?.addRow(row).commit();
+      });
+    }
+
+    if (exportScope === 'manual' && !manualSheet) {
+      ensureManualSheet();
+    }
+
+    await workbook.commit();
+  }
+
+  async streamToJiraCsvFromPages(
+    stream: NodeJS.WritableStream,
+    pageIterator: (callback: (page: ScanReport['results'][number]) => Promise<void> | void) => Promise<void>,
+    selectedViolations?: string[],
+    selectedLevels?: string[],
+    exportScope: 'all' | 'automated' | 'manual' = 'all',
+  ): Promise<void> {
+    const violationGroups = new Map<
+      string,
+      { violation: AxeViolation; pageNodes: Array<{ url: string; html: string }>; count: number }
+    >();
+    const manualEntries: ManualCheckResult[] = [];
+
+    await pageIterator(async (page: ScanReport['results'][number]) => {
+      if (exportScope !== 'manual') {
+        for (const violation of page.violations.filter((v: AxeViolation) => {
+          if (selectedViolations && !selectedViolations.includes(v.id)) return false;
+          if (selectedLevels && selectedLevels.length > 0) {
+            const vLevel = v.level ?? 'best-practice';
+            if (!selectedLevels.includes(vLevel)) return false;
+          }
+          return true;
+        })) {
+          if (!violationGroups.has(violation.id)) {
+            violationGroups.set(violation.id, {
+              violation,
+              pageNodes: [],
+              count: 0,
+            });
+          }
+
+          const group = violationGroups.get(violation.id)!;
+          for (const node of violation.nodes) {
+            group.pageNodes.push({ url: page.url, html: node.html });
+            group.count += 1;
+          }
+        }
+      }
+
+      if (exportScope !== 'automated' && page.manualAudit) {
+        for (const check of page.manualAudit.checks) {
+          if (check.status !== 'not-tested') {
+            manualEntries.push(check);
+          }
+        }
+      }
+    });
+
+    const escapeCell = (value: string): string => {
+      const escaped = value.replace(/"/g, '""');
+      return escaped.includes(',') || escaped.includes('"') || escaped.includes('\n')
+        ? `"${escaped}"`
+        : escaped;
+    };
+
+    const writeLine = (row: string[]) => {
+      stream.write(row.map(escapeCell).join(',') + '\n');
+    };
+
+    writeLine(['Summary', 'Issue Type', 'Priority', 'Labels', 'Description']);
+
+    if (exportScope !== 'manual') {
+      violationGroups.forEach(({ violation, pageNodes, count }) => {
+        const seen = new Set<string>();
+        const uniqueEntries = pageNodes.filter(p => {
+          const key = `${p.url}||${p.html}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+
+        const pagesForDescription: Array<{ url: string; html: string }> =
+          uniqueEntries.length > 100
+            ? [...new Set(uniqueEntries.map(p => p.url))].map(url => ({ url, html: '' }))
+            : uniqueEntries;
+
+        const descriptionText = this.buildDescriptionMarkdown(
+          violation,
+          pagesForDescription,
+          count,
+          uniqueEntries[0]?.html ?? '',
+        );
+
+        const wcagTags = this.wcagCriteriaTags(violation.tags);
+        const severityTag = this.severityTag(violation.impact);
+        const level = violation.level ?? 'best-practice';
+        const levelTag = level !== 'best-practice' ? level : 'Best Practice';
+        const labels = ['Accessibility', severityTag, levelTag, 'Automated'].join(', ');
+        const issueType = 'Task';
+        const priority = 'Medium';
+        const summary = wcagTags[0]
+          ? `${wcagTags[0]} ${violation.help}`
+          : violation.help;
+
+        writeLine([summary, issueType, priority, labels, descriptionText]);
+      });
+    }
+
+    if (exportScope !== 'automated') {
+      manualEntries.forEach(check => {
+        writeLine(this.buildManualJiraRow(check));
+      });
+    }
+
+    stream.end();
+  }
+
+  private writeExcelRows(sheet: ExcelJS.Worksheet, report: ScanReport, selectedViolations?: string[], tasklistName?: string, selectedLevels?: string[]): void {
+    sheet.addRow([
+      'TASKLIST',
+      'TASK',
+      'DESCRIPTION',
+      'ASSIGN TO',
+      'START DATE',
+      'DUE DATE',
+      'PRIORITY',
+      'ESTIMATED TIME',
+      'TAGS',
+      'STATUS'
+    ]).commit();
+
+    sheet.addRow([
+      tasklistName?.trim() || 'Accessibility Updates',
+      '',
+      'Required Accessibility Updates',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      ''
+    ]).commit();
+
+    const violationGroups = new Map<
+      string,
+      { violation: AxeViolation; pageNodes: Array<{ url: string; html: string }>; count: number }
+    >();
+
+    report.results.forEach(result => {
+      result.violations
+        .filter(v => {
+          if (selectedViolations && !selectedViolations.includes(v.id)) return false;
+          if (selectedLevels && selectedLevels.length > 0) {
+            const vLevel = v.level ?? 'best-practice';
+            if (!selectedLevels.includes(vLevel)) return false;
+          }
+          return true;
+        })
+        .forEach(violation => {
+          if (!violationGroups.has(violation.id)) {
+            violationGroups.set(violation.id, {
+              violation,
+              pageNodes: [],
+              count: 0
+            });
+          }
+          const group = violationGroups.get(violation.id)!;
+          violation.nodes.forEach(node => {
+            group.pageNodes.push({ url: result.url, html: node.html });
+            group.count++;
+          });
+        });
+    });
+
+    violationGroups.forEach(({ violation, pageNodes, count }) => {
+      const seen = new Set<string>();
+      const uniqueEntries = pageNodes.filter(p => {
+        const key = `${p.url}||${p.html}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      const pagesForDescription: Array<{ url: string; html: string }> =
+        uniqueEntries.length > 100
+          ? [...new Set(uniqueEntries.map(p => p.url))].map(url => ({ url, html: '' }))
+          : uniqueEntries;
+
+      const firstSnippet = uniqueEntries[0]?.html ?? '';
+      const descriptionMarkdown = this.buildDescriptionMarkdown(
+        violation,
+        pagesForDescription,
+        count,
+        firstSnippet
+      );
+
+      const resolvedTasklist = tasklistName?.trim() || 'Accessibility Updates';
+      const wcagTags = this.wcagCriteriaTags(violation.tags);
+      const severityTag = this.severityTag(violation.impact);
+      const level = violation.level ?? 'best-practice';
+      const levelTag = level !== 'best-practice' ? level : 'Best Practice';
+      const tags = ['Accessibility', severityTag, levelTag, 'Automated'].join(', ');
+
+      const firstCriterion = wcagTags[0]?.replace('WCAG ', '') ?? '';
+      const taskName = firstCriterion
+        ? `${firstCriterion} ${violation.help} | ${level !== 'best-practice' ? level : 'BP'}`
+        : `${violation.help} | ${level !== 'best-practice' ? level : 'BP'}`;
+
+      const row: string[] = [];
+      row[0] = resolvedTasklist;
+      row[1] = taskName;
+      row[2] = descriptionMarkdown;
+      row[8] = tags;
+      row[9] = 'Active';
+
+      sheet.addRow(row).commit();
+    });
   }
 
   private buildRows(report: ScanReport, selectedViolations?: string[], tasklistName?: string, selectedLevels?: string[]): string[][] {
@@ -529,7 +950,6 @@ h3. Recommended Assignment
     }
     return result;
   }
-
 
   private wcagCriteriaTags(tags: string[]): string[] {
     return tags

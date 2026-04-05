@@ -6,10 +6,11 @@ import pLimit from 'p-limit';
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { ScanResult, ScanReport, DetectedElement } from '@accessibility-scanner/shared';
+import { ScanResult, ScanReport, DetectedElement } from '../../shared/dist/index.js';
 import { DETECTORS, DetectorModule } from './detectors/index.js';
 import { BROWSER_UTILS_SCRIPT } from './detectors/browserUtils.js';
 
+const FIXED_BATCH_SIZE = 150;
 export class SitemapScanner {
   private browser: Browser | null = null;
   private options: any;
@@ -31,7 +32,7 @@ export class SitemapScanner {
   async scan(): Promise<ScanReport> {
     const signal: AbortSignal | undefined = this.options.signal;
     const allUrls: string[] = await this.getUrls();
-    const batchSize = Number(this.options.batchSize ?? 0);
+    const batchSize = this.options.batchSize ? FIXED_BATCH_SIZE : 0;
     const batchIndex = Number(this.options.batchIndex ?? 0);
     let urls = allUrls;
 
@@ -269,11 +270,18 @@ export class SitemapScanner {
       totalViolations: results.reduce((sum, r) => sum + r.violations.length, 0),
       violationsByImpact: {} as Record<string, number>,
       violationsByType: {} as Record<string, number>,
-      violationsByLevel: {} as Record<string, number>
+      violationsByLevel: {} as Record<string, number>,
+      manualFailCount: 0,
+      auditedPages: 0,
     };
 
     // Calculate violations by impact, type, and level
     results.forEach(result => {
+      if (result.manualAudit?.completed) {
+        summary.auditedPages += 1;
+      }
+      summary.manualFailCount += result.manualAudit?.checks.filter(c => c.status === 'fail').length ?? 0;
+
       result.violations.forEach(violation => {
         summary.violationsByImpact[violation.impact] = 
           (summary.violationsByImpact[violation.impact] || 0) + 1;
@@ -321,10 +329,17 @@ export class SitemapScanner {
       totalViolations: combinedResults.reduce((sum, r) => sum + r.violations.length, 0),
       violationsByImpact: {} as Record<string, number>,
       violationsByType: {} as Record<string, number>,
-      violationsByLevel: {} as Record<string, number>
+      violationsByLevel: {} as Record<string, number>,
+      manualFailCount: 0,
+      auditedPages: 0,
     };
 
     combinedResults.forEach(result => {
+      if (result.manualAudit?.completed) {
+        summary.auditedPages += 1;
+      }
+      summary.manualFailCount += result.manualAudit?.checks.filter(c => c.status === 'fail').length ?? 0;
+
       result.violations.forEach(violation => {
         summary.violationsByImpact[violation.impact] = (summary.violationsByImpact[violation.impact] || 0) + 1;
         summary.violationsByType[violation.id] = (summary.violationsByType[violation.id] || 0) + 1;
