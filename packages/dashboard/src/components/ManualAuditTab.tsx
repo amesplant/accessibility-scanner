@@ -734,6 +734,7 @@ const ELEMENT_TYPE_LABELS: Record<DetectedElement['elementType'], string> = {
   'focus-trigger': 'Focus Trigger',
   'mouse-only': 'Mouse-Only Interaction',
   'no-focus-style': 'No Focus Style',
+  'keyboard-trap': 'Keyboard Trap Risk',
 };
 
 function CopyButton({ text }: { text: string }) {
@@ -962,7 +963,7 @@ function NonTextElementRow({
   const [contextOpen, setContextOpen] = useState(false);
   const screenshotTriggerRef = useRef<HTMLButtonElement>(null);
 
-  const isDiagnosticElement = element.elementType === 'focus-trigger' || element.elementType === 'mouse-only' || element.elementType === 'focus-order-map' || element.elementType === 'no-focus-style';
+  const isDiagnosticElement = element.elementType === 'focus-trigger' || element.elementType === 'mouse-only' || element.elementType === 'focus-order-map' || element.elementType === 'no-focus-style' || element.elementType === 'keyboard-trap';
   const elementLabel = ELEMENT_TYPE_LABELS[element.elementType];
   const elementTitle = element.textAlternative
     ? `${elementLabel}: "${element.textAlternative}"`
@@ -1685,6 +1686,8 @@ function CheckRow({
                   ? 'No mouse-only interactions detected — manually tab through all functionality to verify keyboard accessibility.'
                   : check.wcagCriterion === '2.4.7'
                   ? 'No focus-style issues detected — tab through the page to visually confirm every element has a visible focus indicator.'
+                  : check.wcagCriterion === '2.1.2'
+                  ? 'No keyboard trap risks detected — tab through all interactive elements and verify focus is never permanently stuck.'
                   : undefined
               }
             />
@@ -1692,7 +1695,8 @@ function CheckRow({
               check.wcagCriterion === '3.2.1' ||
               check.wcagCriterion === '2.4.3' ||
               check.wcagCriterion === '2.1.1' ||
-              check.wcagCriterion === '2.4.7'
+              check.wcagCriterion === '2.4.7' ||
+              check.wcagCriterion === '2.1.2'
             ) ? (
             <OnDemandDetectionPanel
               criterionId={check.wcagCriterion}
