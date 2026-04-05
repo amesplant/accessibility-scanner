@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Download } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Download, Pencil, Check, X } from 'lucide-react';
 import { ExternalLink } from '@/components/ExternalLink';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useCurrentReport } from '@/context/CurrentReportContext';
@@ -27,6 +27,9 @@ export function ReportDetail() {
   const { id } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const [exportOpen, setExportOpen] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
+  const titleInputRef = useRef<HTMLInputElement>(null);
 
   const activeTab = searchParams.get('tab') || 'overview';
 
@@ -39,7 +42,7 @@ export function ReportDetail() {
     });
   }
 
-  const { report, loading, error } = useReport(id);
+  const { report, loading, error, renameReport } = useReport(id);
   const { setCurrentReport } = useCurrentReport();
 
   useEffect(() => {
@@ -70,9 +73,52 @@ export function ReportDetail() {
     <div className="container mx-auto p-6">
       <div className="mb-6 flex justify-between items-start">
         <div>
-          <h1 className="text-3xl font-bold mb-1">
-            {report.pageTitle || report.sitemap}
-          </h1>
+          {editingTitle ? (
+            <div className="flex items-center gap-2 mb-1">
+              <input
+                ref={titleInputRef}
+                type="text"
+                value={titleDraft}
+                onChange={e => setTitleDraft(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { renameReport(titleDraft); setEditingTitle(false); }
+                  if (e.key === 'Escape') setEditingTitle(false);
+                }}
+                className="text-3xl font-bold bg-transparent border-b-2 border-primary focus:outline-none w-full"
+                aria-label="Report name"
+              />
+              <button
+                type="button"
+                onClick={() => { renameReport(titleDraft); setEditingTitle(false); }}
+                aria-label="Save report name"
+                className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+              >
+                <Check className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditingTitle(false)}
+                aria-label="Cancel editing"
+                className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 mb-1 group">
+              <h1 className="text-3xl font-bold">
+                {report.pageTitle || report.sitemap}
+              </h1>
+              <button
+                type="button"
+                onClick={() => { setTitleDraft(report.pageTitle || report.sitemap); setEditingTitle(true); setTimeout(() => titleInputRef.current?.select(), 0); }}
+                aria-label="Edit report name"
+                className="opacity-0 group-hover:opacity-100 focus:opacity-100 text-muted-foreground hover:text-foreground transition-opacity shrink-0"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+            </div>
+          )}
           {report.pageTitle && report.sitemap.startsWith('http') && (
             <p className="text-sm mb-1">
               <ExternalLink href={report.sitemap} className="break-all text-muted-foreground text-sm">

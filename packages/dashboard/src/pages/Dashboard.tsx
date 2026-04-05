@@ -16,7 +16,7 @@ import {
   Progress,
 } from '@/components/ui';
 import { ExternalLink } from '@/components/ExternalLink';
-import { TriangleAlert, Trash2, Download, FolderOpen, Pencil } from 'lucide-react';
+import { TriangleAlert, Trash2, Download, FolderOpen, Pencil, Check, X } from 'lucide-react';
 import {
   Dialog,
   DialogClose,
@@ -45,7 +45,7 @@ const AUDIT_TYPE_DESCRIPTIONS: Record<AuditType, string> = {
 };
 
 export function Dashboard() {
-  const { reports, loading, error, refresh } = useReports();
+  const { reports, loading, error, refresh, renameReport } = useReports();
   const { projects, createProject, deleteProject, updateProject, refresh: refreshProjects } = useProjects();
   const location = useLocation();
   const navigate = useNavigate();
@@ -77,6 +77,9 @@ export function Dashboard() {
   const [assignProjectId, setAssignProjectId] = useState<string>('');
   const [assignNewProjectName, setAssignNewProjectName] = useState('');
   const [assignShowNewProjectInput, setAssignShowNewProjectInput] = useState(false);
+  const [renamingReportId, setRenamingReportId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
   const [editingProject, setEditingProject] = useState<ProjectWithCount | null>(null);
   const [pendingDeleteProjectId, setPendingDeleteProjectId] = useState<string | null>(null);
 
@@ -661,7 +664,36 @@ export function Dashboard() {
             <CardHeader className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
               <div>
                 <CardTitle>
-                  {report.pageTitle || report.sitemap}
+                  {renamingReportId === report.id ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        ref={renameInputRef}
+                        type="text"
+                        value={renameDraft}
+                        onChange={e => setRenameDraft(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') { renameReport(report.id, renameDraft); setRenamingReportId(null); }
+                          if (e.key === 'Escape') setRenamingReportId(null);
+                        }}
+                        className="text-xl font-semibold bg-transparent border-b-2 border-primary focus:outline-none flex-1 min-w-0"
+                        aria-label="Report name"
+                      />
+                      <button type="button" onClick={() => { renameReport(report.id, renameDraft); setRenamingReportId(null); }} aria-label="Save" className="text-muted-foreground hover:text-foreground shrink-0"><Check className="h-4 w-4" /></button>
+                      <button type="button" onClick={() => setRenamingReportId(null)} aria-label="Cancel" className="text-muted-foreground hover:text-foreground shrink-0"><X className="h-4 w-4" /></button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 group/title">
+                      <span>{report.pageTitle || report.sitemap}</span>
+                      <button
+                        type="button"
+                        onClick={() => { setRenameDraft(report.pageTitle || report.sitemap); setRenamingReportId(report.id); setTimeout(() => renameInputRef.current?.select(), 0); }}
+                        aria-label={`Rename ${report.pageTitle || report.sitemap}`}
+                        className="opacity-0 group-hover/title:opacity-100 focus:opacity-100 text-muted-foreground hover:text-foreground transition-opacity shrink-0"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
                 </CardTitle>
                 {report.pageTitle && report.sitemap.startsWith('http') && (
                   <ExternalLink href={report.sitemap} className="text-sm text-muted-foreground break-all font-normal">

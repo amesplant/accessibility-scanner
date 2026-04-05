@@ -192,7 +192,7 @@ export function useManualAudit(
   );
 
   const updateFailure = useCallback(
-    async (checkId: string, failureId: string, data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl'>>) => {
+    async (checkId: string, failureId: string, data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>) => {
       setAudit(prev => ({
         ...prev,
         checks: prev.checks.map(c => {
@@ -233,6 +233,71 @@ export function useManualAudit(
         );
       } catch (err) {
         console.error('Failed to delete failure:', err);
+      }
+    },
+    [reportId, pageId],
+  );
+
+  const addElementFailure = useCallback(
+    async (criterionId: string, elementId: string) => {
+      try {
+        const res = await fetch(
+          `/api/reports/${reportId}/pages/${pageId}/elements/${criterionId}/${elementId}/failures`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) },
+        );
+        const json = await res.json();
+        if (json.detectedElements) setDetectedElements(json.detectedElements);
+      } catch (err) {
+        console.error('Failed to add element failure:', err);
+      }
+    },
+    [reportId, pageId],
+  );
+
+  const updateElementFailure = useCallback(
+    async (criterionId: string, elementId: string, failureId: string, data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>) => {
+      setDetectedElements(prev => {
+        if (!prev?.[criterionId]) return prev;
+        return {
+          ...prev,
+          [criterionId]: prev[criterionId].map(el => {
+            if (el.id !== elementId) return el;
+            return { ...el, failures: (el.failures ?? []).map(f => f.id === failureId ? { ...f, ...data } : f) };
+          }),
+        };
+      });
+      try {
+        await fetch(
+          `/api/reports/${reportId}/pages/${pageId}/elements/${criterionId}/${elementId}/failures/${failureId}`,
+          { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) },
+        );
+      } catch (err) {
+        console.error('Failed to update element failure:', err);
+      }
+    },
+    [reportId, pageId],
+  );
+
+  const deleteElementFailure = useCallback(
+    async (criterionId: string, elementId: string, failureId: string) => {
+      setDetectedElements(prev => {
+        if (!prev?.[criterionId]) return prev;
+        return {
+          ...prev,
+          [criterionId]: prev[criterionId].map(el =>
+            el.id === elementId
+              ? { ...el, failures: (el.failures ?? []).filter(f => f.id !== failureId) }
+              : el,
+          ),
+        };
+      });
+      try {
+        await fetch(
+          `/api/reports/${reportId}/pages/${pageId}/elements/${criterionId}/${elementId}/failures/${failureId}`,
+          { method: 'DELETE' },
+        );
+      } catch (err) {
+        console.error('Failed to delete element failure:', err);
       }
     },
     [reportId, pageId],
@@ -294,5 +359,73 @@ export function useManualAudit(
     [reportId, pageId],
   );
 
-  return { audit, detectedElements, updateCheck, updateNotes, updateEvidence, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement };
+  const generateElementScreenshot = useCallback(
+    async (criterionId: string, elementId: string) => {
+      try {
+        const res = await fetch(
+          `/api/reports/${reportId}/pages/${pageId}/elements/${criterionId}/${elementId}/screenshot`,
+          { method: 'POST' },
+        );
+        const json = await res.json();
+        if (json.element) {
+          setDetectedElements(prev => {
+            if (!prev?.[criterionId]) return prev;
+            return {
+              ...prev,
+              [criterionId]: prev[criterionId].map(el => el.id === elementId ? { ...el, ...json.element } : el),
+            };
+          });
+        }
+      } catch (err) {
+        console.error('Failed to generate element screenshot:', err);
+      }
+    },
+    [reportId, pageId],
+  );
+
+  const detectFocusTriggers = useCallback(
+    async (criterionId: string) => {
+      try {
+        const res = await fetch(
+          `/api/reports/${reportId}/pages/${pageId}/elements/${criterionId}/detect`,
+          { method: 'POST' },
+        );
+        const json = await res.json();
+        if (json.detectedElements) setDetectedElements(json.detectedElements);
+      } catch (err) {
+        console.error('Failed to detect focus triggers:', err);
+      }
+    },
+    [reportId, pageId],
+  );
+
+  const generateFocusOrderScreenshot = useCallback(
+    async (elementId: string, colorScheme: 'light' | 'dark', viewportLabel: string) => {
+      try {
+        const res = await fetch(
+          `/api/reports/${reportId}/pages/${pageId}/elements/2.4.3/${elementId}/focus-order-screenshot`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ colorScheme, viewport: viewportLabel }),
+          },
+        );
+        const json = await res.json();
+        if (json.element) {
+          setDetectedElements(prev => {
+            if (!prev?.['2.4.3']) return prev;
+            return {
+              ...prev,
+              '2.4.3': prev['2.4.3'].map(el => el.id === elementId ? { ...el, ...json.element } : el),
+            };
+          });
+        }
+      } catch (err) {
+        console.error('Failed to generate focus order screenshot:', err);
+      }
+    },
+    [reportId, pageId],
+  );
+
+  return { audit, detectedElements, updateCheck, updateNotes, updateEvidence, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement, addElementFailure, updateElementFailure, deleteElementFailure, generateFocusOrderScreenshot, detectFocusTriggers, generateElementScreenshot };
 }

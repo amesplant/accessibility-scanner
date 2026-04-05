@@ -209,8 +209,10 @@ export const PREDEFINED_CHECKS: PredefinedCheck[] = [
     category: 'Keyboard & Focus',
     priority: 'medium',
     questions: [
-      'When you Tab to any element, does it cause a page navigation, form submission, or unexpected popup?',
-      'Do tooltip or flyout menus that appear on focus stay in place long enough to be read without causing a context change?',
+      'Tab to every interactive element — does focus on any element trigger a page navigation, URL change, or form submission without a deliberate user action?',
+      'Do any of the elements flagged below (those with JavaScript focus handlers or autofocus) cause a context change when tabbed to?',
+      'Does any element receive focus automatically on page load (autofocus) in a way that bypasses the expected reading order?',
+      'Do tooltips or fly-out menus that open on focus stay open long enough to be read without stealing focus or changing the page?',
     ],
   },
   {

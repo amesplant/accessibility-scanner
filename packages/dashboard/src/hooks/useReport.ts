@@ -31,5 +31,15 @@ export function useReport(id: string | undefined) {
       .finally(() => setLoading(false));
   }, [id]);
 
-  return { report, loading, error };
+  async function renameReport(pageTitle: string): Promise<void> {
+    if (!id) return;
+    await apiFetch(`/api/reports/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pageTitle }),
+    });
+    setReport(r => r ? { ...r, pageTitle: pageTitle.trim() || undefined } : r);
+  }
+
+  return { report, loading, error, renameReport };
 }

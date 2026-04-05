@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   ManualAudit,
   ManualAuditStatus,
@@ -14,7 +14,9 @@ import {
   MID_LEVEL_AUDIT_CHECK_IDS,
 } from '@accessibility-scanner/shared';
 import { cn } from '@/lib/utils';
+import { ExportModal } from '@/components/ExportModal';
 import { useCurrentReport } from '@/context/CurrentReportContext';
+import { useAIProviders } from '@/hooks/useAIProviders';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -49,6 +51,14 @@ import {
   RotateCcw,
   Copy,
   Check,
+  Wand2,
+  Loader2,
+  Save,
+  Lightbulb,
+  Download,
+  Info,
+  Sun,
+  Moon,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -339,36 +349,60 @@ function StatusSelect({
 function FailureInstanceItem({
   index,
   failure,
+  checkContext,
   onUpdate,
   onDelete,
 }: {
   index: number;
   failure: ManualFailureInstance;
-  onUpdate: (data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl'>>) => void;
+  checkContext?: { id: string; title: string; criterion?: string; description?: string };
+  onUpdate: (data: FailureUpdateData) => void;
   onDelete: () => void;
 }) {
   const [localNotes, setLocalNotes] = useState(failure.notes ?? '');
   const [localCode, setLocalCode] = useState(failure.codeSnippet ?? '');
+  const [localRemediation, setLocalRemediation] = useState(failure.remediationRecommendation ?? '');
   const [screenshot, setScreenshot] = useState<string | undefined>(failure.screenshotDataUrl);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [generatingRemediation, setGeneratingRemediation] = useState(false);
+  const [remediationError, setRemediationError] = useState<string | null>(null);
+  const aiProviders = useAIProviders();
+  const [dirty, setDirty] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const notesId = `failure-notes-${failure.id}`;
+  const codeId = `failure-code-${failure.id}`;
+  const remediationId = `failure-remediation-${failure.id}`;
+  const statusRegionId = `failure-status-${failure.id}`;
 
-  function commitNotes(value: string) {
-    if (value !== (failure.notes ?? '')) onUpdate({ notes: value || undefined });
+  function markDirty() {
+    setDirty(true);
+    setJustSaved(false);
   }
 
-  function commitCode(value: string) {
-    if (value !== (failure.codeSnippet ?? '')) onUpdate({ codeSnippet: value || undefined, screenshotDataUrl: screenshot });
+  function handleSave() {
+    onUpdate({
+      notes: localNotes || undefined,
+      codeSnippet: localCode || undefined,
+      screenshotDataUrl: screenshot,
+      remediationRecommendation: localRemediation || undefined,
+    });
+    setDirty(false);
+    setJustSaved(true);
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = setTimeout(() => setJustSaved(false), 2500);
   }
 
   function applyScreenshot(dataUrl: string) {
     setScreenshot(dataUrl);
-    onUpdate({ codeSnippet: localCode || undefined, screenshotDataUrl: dataUrl });
+    onUpdate({ screenshotDataUrl: dataUrl });
   }
 
   function removeScreenshot() {
     setScreenshot(undefined);
-    onUpdate({ codeSnippet: localCode || undefined, screenshotDataUrl: undefined });
+    onUpdate({ screenshotDataUrl: undefined });
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -400,8 +434,46 @@ function FailureInstanceItem({
     } catch { /* clipboard unavailable */ }
   }
 
+  async function handleGenerateRemediation(provider: string) {
+    setGeneratingRemediation(true);
+    setRemediationError(null);
+    try {
+      const res = await fetch('/api/ai/remediation-suggestion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          criterion: checkContext?.criterion,
+          checkTitle: checkContext?.title,
+          checkDescription: checkContext?.description,
+          notes: localNotes || undefined,
+          codeSnippet: localCode || undefined,
+          provider,
+        }),
+      });
+      // Parse JSON safely — a stale/unbuilt server may return HTML
+      let json: { recommendation?: string; error?: string } = {};
+      try { json = await res.json(); } catch { /* non-JSON body */ }
+
+      if (json.recommendation) {
+        setLocalRemediation(json.recommendation);
+        markDirty();
+      } else {
+        setRemediationError(
+          json.error
+            ?? (!res.ok && res.status === 404
+              ? 'Endpoint not found — rebuild the scanner server and restart it.'
+              : 'Generation failed. Please try again.')
+        );
+      }
+    } catch {
+      setRemediationError('Could not reach the scanner server on port 3003. Make sure it is running.');
+    } finally {
+      setGeneratingRemediation(false);
+    }
+  }
+
   return (
-    <div className="rounded border border-dashed border-border bg-muted/20 p-3 space-y-2">
+    <div className="rounded border border-dashed border-border bg-muted/20 p-3 space-y-3">
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1">
           <span className="text-xs font-medium text-muted-foreground mr-1">Instance {index}</span>
@@ -455,86 +527,184 @@ function FailureInstanceItem({
         </button>
       </div>
 
-      <input
-        type="text"
-        placeholder="Describe what failed…"
-        value={localNotes}
-        onChange={e => setLocalNotes(e.target.value)}
-        onBlur={() => commitNotes(localNotes)}
-        className="w-full text-sm border-0 border-b border-dashed border-muted-foreground/30 bg-transparent px-0 py-0.5 focus:outline-none focus:border-muted-foreground placeholder:text-muted-foreground/50"
-      />
+      {/* Issue description */}
+      <div className="space-y-1">
+        <Label htmlFor={notesId} className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          <AlignLeft className="h-3 w-3" aria-hidden="true" /> Describe the issue
+        </Label>
+        <Textarea
+          id={notesId}
+          value={localNotes}
+          onChange={e => { setLocalNotes(e.target.value); markDirty(); }}
+          rows={3}
+          className="text-sm resize-y"
+        />
+      </div>
 
-      <div className="space-y-3 pl-1">
-        <div className="space-y-1">
-          <label className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-            <Code2 className="h-3 w-3" aria-hidden="true" /> Code snippet
-          </label>
-          <textarea
-            value={localCode}
-            onChange={e => setLocalCode(e.target.value)}
-            onBlur={() => commitCode(localCode)}
-            placeholder="Paste relevant HTML or code here…"
-            rows={3}
-            spellCheck={false}
-            className="w-full font-mono text-xs rounded border border-border bg-muted/40 px-2 py-1.5 resize-y focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
-          />
-        </div>
-        <div className="space-y-1.5">
-          <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-            <ImageIcon className="h-3 w-3" aria-hidden="true" /> Screenshot
-          </span>
-          {screenshot ? (
-            <div className="relative inline-block">
-              {lightboxOpen && (
-                <div
-                  className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
-                  onClick={() => setLightboxOpen(false)}
-                  role="dialog"
-                  aria-modal="true"
-                  aria-label="Screenshot preview"
-                >
-                  <button
-                    type="button"
-                    onClick={() => setLightboxOpen(false)}
-                    aria-label="Close screenshot preview"
-                    className="absolute top-4 right-4 text-white hover:text-white/70 transition-colors"
-                  >
-                    <X className="h-6 w-6" aria-hidden="true" />
-                  </button>
-                  <img
-                    src={screenshot}
-                    alt="Full-size screenshot"
-                    className="max-w-full max-h-full rounded shadow-2xl object-contain"
-                    onClick={e => e.stopPropagation()}
-                  />
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={() => setLightboxOpen(true)}
-                aria-label="View full-size screenshot"
-                className="block rounded border border-border hover:opacity-80 transition-opacity focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+      {/* Code snippet */}
+      <div className="space-y-1">
+        <Label htmlFor={codeId} className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          <Code2 className="h-3 w-3" aria-hidden="true" /> Code snippet
+        </Label>
+        <textarea
+          id={codeId}
+          value={localCode}
+          onChange={e => { setLocalCode(e.target.value); markDirty(); }}
+          rows={3}
+          spellCheck={false}
+          className="w-full font-mono text-xs rounded border border-border bg-muted/40 px-2 py-1.5 resize-y focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+      </div>
+
+      {/* Screenshot */}
+      <div className="space-y-1.5">
+        <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          <ImageIcon className="h-3 w-3" aria-hidden="true" /> Screenshot
+        </span>
+        {screenshot ? (
+          <div className="relative inline-block">
+            {lightboxOpen && (
+              <div
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+                onClick={() => setLightboxOpen(false)}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Screenshot preview"
               >
-                <img src={screenshot} alt="Screenshot of failure" className="max-w-full max-h-48 rounded object-contain" />
-              </button>
-              <button type="button" onClick={removeScreenshot} aria-label="Remove screenshot" className="absolute -top-1.5 -right-1.5 h-6 w-6 flex items-center justify-center rounded-full bg-transparent">
-                <span aria-hidden="true" className="h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center hover:bg-destructive/80">
-                  <X className="h-3 w-3" aria-hidden="true" />
-                </span>
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <Button type="button" variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => fileInputRef.current?.click()}>
-                <Upload className="h-3 w-3" /> Upload
-              </Button>
-              <Button type="button" variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={handlePaste}>
-                <Clipboard className="h-3 w-3" /> Paste
-              </Button>
-              <input ref={fileInputRef} type="file" accept="image/*" className="sr-only" aria-hidden="true" tabIndex={-1} onChange={handleFileChange} />
-            </div>
+                <button
+                  type="button"
+                  onClick={() => setLightboxOpen(false)}
+                  aria-label="Close screenshot preview"
+                  className="absolute top-4 right-4 text-white hover:text-white/70 transition-colors"
+                >
+                  <X className="h-6 w-6" aria-hidden="true" />
+                </button>
+                <img
+                  src={screenshot}
+                  alt="Full-size screenshot"
+                  className="max-w-full max-h-full rounded shadow-2xl object-contain"
+                  onClick={e => e.stopPropagation()}
+                />
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setLightboxOpen(true)}
+              aria-label="View full-size screenshot"
+              className="block rounded border border-border hover:opacity-80 transition-opacity focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+            >
+              <img src={screenshot} alt="Screenshot of failure" className="max-w-full max-h-48 rounded object-contain" />
+            </button>
+            <button type="button" onClick={removeScreenshot} aria-label="Remove screenshot" className="absolute -top-1.5 -right-1.5 h-6 w-6 flex items-center justify-center rounded-full bg-transparent">
+              <span aria-hidden="true" className="h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center hover:bg-destructive/80">
+                <X className="h-3 w-3" aria-hidden="true" />
+              </span>
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => fileInputRef.current?.click()}>
+              <Upload className="h-3 w-3" aria-hidden="true" /> Upload
+            </Button>
+            <Button type="button" variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={handlePaste}>
+              <Clipboard className="h-3 w-3" aria-hidden="true" /> Paste
+            </Button>
+            <input ref={fileInputRef} type="file" accept="image/*" className="sr-only" aria-hidden="true" tabIndex={-1} onChange={handleFileChange} />
+          </div>
+        )}
+      </div>
+
+      {/* Remediation recommendation */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor={remediationId} className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+            <Lightbulb className="h-3 w-3" aria-hidden="true" /> Remediation recommendation
+          </Label>
+          {aiProviders.length > 0 && (
+            <Select
+              value=""
+              onValueChange={provider => { if (!generatingRemediation) handleGenerateRemediation(provider); }}
+            >
+              <SelectTrigger className="h-6 text-xs px-2 w-auto gap-1 border-0 shadow-none bg-transparent text-muted-foreground hover:text-foreground focus:ring-0" aria-label="Generate remediation recommendation with AI">
+                {generatingRemediation
+                  ? <><Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /><span>Generating…</span></>
+                  : <><Wand2 className="h-3 w-3" aria-hidden="true" /><span>Generate with AI</span></>
+                }
+              </SelectTrigger>
+              <SelectContent>
+                {aiProviders.map(p => (
+                  <SelectItem key={p.id} value={p.id} className="text-xs">{p.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
         </div>
+        {remediationError && (
+          <p role="alert" className="text-xs text-destructive mt-0.5">{remediationError}</p>
+        )}
+        <Textarea
+          id={remediationId}
+          value={localRemediation}
+          onChange={e => { setLocalRemediation(e.target.value); markDirty(); }}
+          rows={3}
+          className="text-sm resize-y"
+        />
+      </div>
+
+      {/* Save + Export buttons */}
+      <div className="flex items-center justify-end gap-2 pt-1">
+        {/* Polite live region — announces save confirmation to screen readers */}
+        <div
+          id={statusRegionId}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="sr-only"
+        >
+          {justSaved ? 'Changes saved.' : ''}
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs gap-1.5"
+          onClick={() => setExportOpen(true)}
+        >
+          <Download className="h-3.5 w-3.5" aria-hidden="true" /> Export issue
+        </Button>
+        {exportOpen && (
+          <ExportModal
+            report={null}
+            singleIssue={{
+              kind: 'failure',
+              data: {
+                notes: localNotes || undefined,
+                codeSnippet: localCode || undefined,
+                remediationRecommendation: localRemediation || undefined,
+                checkContext: checkContext
+                  ? { criterion: checkContext.criterion, title: checkContext.title, description: checkContext.description }
+                  : undefined,
+              },
+            }}
+            onClose={() => setExportOpen(false)}
+          />
+        )}
+        <Button
+          type="button"
+          size="sm"
+          className={cn(
+            'h-7 text-xs gap-1.5 transition-colors',
+            justSaved && 'text-green-700 dark:text-green-400',
+          )}
+          onClick={handleSave}
+          disabled={!dirty}
+          aria-describedby={statusRegionId}
+        >
+          {justSaved
+            ? <><CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> Saved</>
+            : <><Save className="h-3.5 w-3.5" aria-hidden="true" /> Save</>
+          }
+        </Button>
       </div>
     </div>
   );
@@ -557,6 +727,11 @@ const ELEMENT_TYPE_LABELS: Record<DetectedElement['elementType'], string> = {
   'audio': 'Audio',
   'video-only': 'Video',
   'link': 'Link',
+  'form-field': 'Form Field',
+  'data-table': 'Table',
+  'heading': 'Heading',
+  'focus-order-map': 'Focus Order',
+  'focus-trigger': 'Focus Trigger',
 };
 
 function CopyButton({ text }: { text: string }) {
@@ -579,29 +754,246 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function NonTextElementRow({
+// ---------------------------------------------------------------------------
+// FocusOrderRow — compact row with light/dark modal for WCAG 2.4.3
+// ---------------------------------------------------------------------------
+
+function FocusOrderRow({
   element,
-  onUpdate,
+  elementTitle,
+  criterionId,
+  showFailures,
+  toggleStatus,
+  onAddFailure,
+  onUpdateFailure,
+  onDeleteFailure,
+  onGenerateScreenshot,
 }: {
   element: DetectedElement;
-  onUpdate: (elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => void;
+  elementTitle: string;
+  criterionId?: string;
+  showFailures: boolean;
+  toggleStatus: (s: 'pass' | 'fail') => void;
+  onAddFailure?: () => void;
+  onUpdateFailure?: (failureId: string, data: FailureUpdateData) => void;
+  onDeleteFailure?: (failureId: string) => void;
+  onGenerateScreenshot?: (colorScheme: 'light' | 'dark') => Promise<void>;
 }) {
-  const [comment, setComment] = useState(element.auditComment ?? '');
-  const [contextOpen, setContextOpen] = useState(false);
-  const screenshotTriggerRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const [isDark, setIsDark] = useState(false);
+  const [generating, setGenerating] = useState<'light' | 'dark' | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
-  function toggleStatus(toggled: 'pass' | 'fail') {
-    const next = element.auditStatus === toggled ? 'not-reviewed' : toggled;
-    onUpdate(element.id, next, comment || undefined);
-  }
+  const lightUrl = element.screenshotDataUrl;
+  const darkUrl  = element.darkScreenshotDataUrl;
+  const activeUrl = isDark && darkUrl ? darkUrl : lightUrl;
 
-  function commitComment() {
-    if (comment !== (element.auditComment ?? '')) {
-      onUpdate(element.id, element.auditStatus, comment || undefined);
+  async function handleGenerate(colorScheme: 'light' | 'dark') {
+    if (!onGenerateScreenshot) return;
+    setGenerating(colorScheme);
+    try {
+      await onGenerateScreenshot(colorScheme);
+    } finally {
+      setGenerating(null);
     }
   }
 
+  async function handleViewMap() {
+    // Generate light mode first if we don't have it yet
+    if (!lightUrl && onGenerateScreenshot) {
+      await handleGenerate('light');
+    }
+    setOpen(true);
+  }
+
+  return (
+    <div className="px-3 py-3 space-y-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-medium">{element.textAlternative}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            ref={triggerRef}
+            type="button"
+            onClick={handleViewMap}
+            disabled={generating !== null}
+            aria-label={`View focus order map for ${element.textAlternative}`}
+            className="flex items-center gap-1.5 px-2 py-0.5 text-xs rounded border border-input text-muted-foreground hover:text-foreground hover:border-foreground font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            {generating === 'light' ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> : null}
+            View map
+          </button>
+          <Dialog open={open} onOpenChange={(o) => {
+            setOpen(o);
+            if (!o) { setIsDark(false); setTimeout(() => triggerRef.current?.focus(), 0); }
+          }}>
+            <DialogContent className="max-w-5xl flex flex-col" style={{ maxHeight: '90vh' }}>
+              <DialogHeader>
+                <DialogTitle>Focus Order — {element.textAlternative}</DialogTitle>
+                <DialogDescription>
+                  Tab-order sequence annotated with numbered badges. Review that the visual order matches a logical reading sequence.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex items-center justify-between gap-3">
+                {(lightUrl || darkUrl) && (
+                  <div
+                    className="flex items-center rounded-md bg-muted p-0.5 gap-0.5"
+                    role="group"
+                    aria-label="Color scheme"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setIsDark(false)}
+                      aria-pressed={!isDark}
+                      className={cn(
+                        'flex items-center gap-1.5 px-3 py-1.5 text-xs rounded font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+                        !isDark
+                          ? 'bg-background text-foreground shadow-sm ring-1 ring-border'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      <Sun className="h-3.5 w-3.5" aria-hidden="true" />
+                      Light
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!darkUrl) await handleGenerate('dark');
+                        setIsDark(true);
+                      }}
+                      disabled={generating !== null}
+                      aria-pressed={isDark}
+                      className={cn(
+                        'flex items-center gap-1.5 px-3 py-1.5 text-xs rounded font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed',
+                        isDark
+                          ? 'bg-foreground text-background shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      {generating === 'dark'
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                        : <Moon className="h-3.5 w-3.5" aria-hidden="true" />}
+                      {darkUrl ? 'Dark' : 'Generate dark'}
+                    </button>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 ml-auto">
+                  <button
+                    type="button"
+                    onClick={() => toggleStatus('pass')}
+                    aria-pressed={element.auditStatus === 'pass'}
+                    aria-label="Mark focus order as pass"
+                    className={cn(
+                      'px-2 py-0.5 text-xs rounded border font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                      element.auditStatus === 'pass'
+                        ? 'bg-green-600 text-white border-green-600'
+                        : 'border-input text-muted-foreground hover:text-green-700 hover:border-green-700',
+                    )}
+                  >
+                    Pass
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleStatus('fail')}
+                    aria-pressed={element.auditStatus === 'fail'}
+                    aria-label="Mark focus order as fail"
+                    className={cn(
+                      'px-2 py-0.5 text-xs rounded border font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                      element.auditStatus === 'fail'
+                        ? 'bg-red-600 text-white border-red-600'
+                        : 'border-input text-muted-foreground hover:text-red-700 hover:border-red-700',
+                    )}
+                  >
+                    Fail
+                  </button>
+                </div>
+              </div>
+              <div className={cn('flex-1 overflow-auto rounded border min-h-0', isDark ? 'bg-zinc-950' : 'bg-white')}>
+                {activeUrl ? (
+                  <img
+                    src={activeUrl}
+                    alt={`Focus order map — ${element.textAlternative}${isDark ? ' (dark mode)' : ' (light mode)'}`}
+                    className="w-full"
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-40 text-sm text-muted-foreground">
+                    No screenshot available.
+                  </div>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
+      {showFailures && onAddFailure && (
+        <FailureInstancesSection
+          failures={element.failures}
+          checkContext={{ id: element.id, title: elementTitle, criterion: criterionId }}
+          onAdd={onAddFailure}
+          onUpdate={(fid, data) => onUpdateFailure?.(fid, data)}
+          onDelete={fid => onDeleteFailure?.(fid)}
+          className="pt-1"
+        />
+      )}
+    </div>
+  );
+}
+
+function NonTextElementRow({
+  element,
+  criterionId,
+  onUpdate,
+  onAddFailure,
+  onUpdateFailure,
+  onDeleteFailure,
+  onGenerateFocusOrderScreenshot,
+  onCaptureScreenshot,
+}: {
+  element: DetectedElement;
+  criterionId?: string;
+  onUpdate: (elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => void;
+  onAddFailure?: () => void;
+  onUpdateFailure?: (failureId: string, data: FailureUpdateData) => void;
+  onDeleteFailure?: (failureId: string) => void;
+  onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
+  onCaptureScreenshot?: () => Promise<void>;
+}) {
+  const [contextOpen, setContextOpen] = useState(false);
+  const screenshotTriggerRef = useRef<HTMLButtonElement>(null);
+
+  const elementLabel = ELEMENT_TYPE_LABELS[element.elementType];
+  const elementTitle = element.textAlternative
+    ? `${elementLabel}: "${element.textAlternative}"`
+    : element.isDecorative
+    ? `${elementLabel}: (decorative)`
+    : elementLabel;
+
+  function toggleStatus(toggled: 'pass' | 'fail') {
+    const next = element.auditStatus === toggled ? 'not-reviewed' : toggled;
+    onUpdate(element.id, next);
+  }
+
+  const showFailures = element.auditStatus === 'fail' || (element.failures ?? []).length > 0;
+
   const hasScreenshot = !!(element.screenshotDataUrl || element.contextScreenshotDataUrl);
+
+  // Focus order maps are full-page annotated screenshots — compact row with modal viewer
+  if (element.elementType === 'focus-order-map') {
+    return (
+      <FocusOrderRow
+        element={element}
+        elementTitle={elementTitle}
+        criterionId={criterionId}
+        showFailures={showFailures}
+        toggleStatus={toggleStatus}
+        onAddFailure={onAddFailure}
+        onUpdateFailure={onUpdateFailure}
+        onDeleteFailure={onDeleteFailure}
+        onGenerateScreenshot={onGenerateFocusOrderScreenshot
+          ? (colorScheme) => onGenerateFocusOrderScreenshot(element.id, colorScheme)
+          : undefined}
+      />
+    );
+  }
 
   return (
     <>
@@ -660,6 +1052,9 @@ function NonTextElementRow({
           {!hasScreenshot && (
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-muted-foreground">{ELEMENT_TYPE_LABELS[element.elementType]}</span>
+              {onCaptureScreenshot && element.elementType !== 'focus-trigger' && (
+                <CaptureScreenshotButton onCapture={onCaptureScreenshot} />
+              )}
               {element.isDecorative ? (
                 <Badge variant="outline" className="text-xs h-4 px-1.5 py-0 text-muted-foreground">
                   Decorative
@@ -744,14 +1139,14 @@ function NonTextElementRow({
           </button>
         </div>
       </div>
-      {element.auditStatus === 'fail' && (
-        <Textarea
-          aria-label="Comment on this failure"
-          placeholder="Comment on this failure…"
-          value={comment}
-          onChange={e => setComment(e.target.value)}
-          onBlur={commitComment}
-          className="text-xs min-h-[48px]"
+      {showFailures && onAddFailure && (
+        <FailureInstancesSection
+          failures={element.failures}
+          checkContext={{ id: element.id, title: elementTitle, criterion: criterionId, description: undefined }}
+          onAdd={onAddFailure}
+          onUpdate={(fid, data) => onUpdateFailure?.(fid, data)}
+          onDelete={fid => onDeleteFailure?.(fid)}
+          className="pt-1"
         />
       )}
     </div>
@@ -759,16 +1154,97 @@ function NonTextElementRow({
   );
 }
 
+// ---------------------------------------------------------------------------
+// OnDemandDetectionPanel — shown when elements haven't been detected yet
+// ---------------------------------------------------------------------------
+
+function CaptureScreenshotButton({ onCapture }: { onCapture: () => Promise<void> }) {
+  const [running, setRunning] = useState(false);
+  async function handleCapture() {
+    setRunning(true);
+    try { await onCapture(); } finally { setRunning(false); }
+  }
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      className="h-6 text-xs px-2 gap-1 text-muted-foreground hover:text-foreground"
+      onClick={handleCapture}
+      disabled={running}
+    >
+      {running
+        ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+        : <ImageIcon className="h-3 w-3" aria-hidden="true" />
+      }
+      {running ? 'Capturing…' : 'Capture screenshot'}
+    </Button>
+  );
+}
+
+function OnDemandDetectionPanel({
+  criterionId,
+  onDetect,
+}: {
+  criterionId: string;
+  onDetect: () => Promise<void>;
+}) {
+  const [running, setRunning] = useState(false);
+
+  async function handleDetect() {
+    setRunning(true);
+    try {
+      await onDetect();
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="mt-2 rounded-md border border-dashed border-border bg-muted/30 p-3 flex flex-col gap-2">
+      <p className="text-xs text-muted-foreground flex items-start gap-1.5">
+        <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
+        Detection runs on demand — click below to scan this page for elements with JavaScript focus handlers or autofocus ({criterionId}).
+      </p>
+      <Button
+        size="sm"
+        variant="outline"
+        className="self-start text-xs h-7"
+        onClick={handleDetect}
+        disabled={running}
+      >
+        {running
+          ? <><Loader2 className="h-3 w-3 animate-spin mr-1" aria-hidden="true" />Detecting…</>
+          : 'Detect elements'
+        }
+      </Button>
+    </div>
+  );
+}
+
 function NonTextElementsPanel({
   elements,
+  criterionId,
   onUpdate,
+  onAddElementFailure,
+  onUpdateElementFailure,
+  onDeleteElementFailure,
   onAutoPass,
+  onAddCriterionFailure,
   emptyLabel = 'No non-text elements detected on this page — nothing to audit for 1.1.1.',
+  onGenerateFocusOrderScreenshot,
+  onGenerateElementScreenshot,
 }: {
   elements: DetectedElement[];
+  criterionId?: string;
   onUpdate?: (elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => void;
+  onAddElementFailure?: (elementId: string) => void;
+  onUpdateElementFailure?: (elementId: string, failureId: string, data: FailureUpdateData) => void;
+  onDeleteElementFailure?: (elementId: string, failureId: string) => void;
   onAutoPass?: () => void;
+  onAddCriterionFailure?: () => void;
   emptyLabel?: string;
+  onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
+  onGenerateElementScreenshot?: (elementId: string) => Promise<void>;
 }) {
   const reviewed = elements.filter(e => e.auditStatus !== 'not-reviewed').length;
   const failed = elements.filter(e => e.auditStatus === 'fail').length;
@@ -805,11 +1281,92 @@ function NonTextElementsPanel({
           )}
         </span>
       </div>
+      <div className="px-3 py-3 bg-muted/20 border-b flex items-start gap-2">
+        <Info className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" aria-hidden="true" />
+        <p className="text-sm text-muted-foreground leading-snug">
+          Detection is automated — also review the live page directly for issues not captured below.{' '}
+          {onAddCriterionFailure && (
+            <button
+              type="button"
+              onClick={onAddCriterionFailure}
+              className="font-medium underline hover:no-underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
+            >
+              Add a failure instance
+            </button>
+          )}{' '}
+          for anything found manually.
+        </p>
+      </div>
       <div className="divide-y">
         {elements.map(el => (
-          <NonTextElementRow key={el.id} element={el} onUpdate={onUpdate!} />
+          <NonTextElementRow
+            key={el.id}
+            element={el}
+            criterionId={criterionId}
+            onUpdate={onUpdate!}
+            onAddFailure={onAddElementFailure ? () => onAddElementFailure(el.id) : undefined}
+            onUpdateFailure={onUpdateElementFailure ? (fid, data) => onUpdateElementFailure(el.id, fid, data) : undefined}
+            onDeleteFailure={onDeleteElementFailure ? (fid) => onDeleteElementFailure(el.id, fid) : undefined}
+            onGenerateFocusOrderScreenshot={onGenerateFocusOrderScreenshot}
+            onCaptureScreenshot={onGenerateElementScreenshot ? () => onGenerateElementScreenshot(el.id) : undefined}
+          />
         ))}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// FailureUpdateData — shared type for failure instance patch payloads
+// ---------------------------------------------------------------------------
+
+type FailureUpdateData = Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>;
+
+// ---------------------------------------------------------------------------
+// FailureInstancesSection — reused in CheckRow, CustomCheckItem, NonTextElementRow
+// ---------------------------------------------------------------------------
+
+function FailureInstancesSection({
+  failures,
+  checkContext,
+  onAdd,
+  onUpdate,
+  onDelete,
+  className,
+}: {
+  failures?: ManualFailureInstance[];
+  checkContext: { id: string; title: string; criterion?: string; description?: string };
+  onAdd: () => void;
+  onUpdate: (failureId: string, data: FailureUpdateData) => void;
+  onDelete: (failureId: string) => void;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      {(failures ?? []).length > 0 && (
+        <div className="space-y-2 mb-2">
+          {failures!.map((failure, i) => (
+            <FailureInstanceItem
+              key={failure.id}
+              index={i + 1}
+              failure={failure}
+              checkContext={checkContext}
+              onUpdate={data => onUpdate(failure.id, data)}
+              onDelete={() => onDelete(failure.id)}
+            />
+          ))}
+        </div>
+      )}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={onAdd}
+        className="h-7 text-xs gap-1.5 border-dashed"
+      >
+        <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+        Add failure instance
+      </Button>
     </div>
   );
 }
@@ -827,102 +1384,136 @@ function CheckRow({
   onDeleteFailure,
   smartElements,
   onUpdateSmartElement,
+  onAddElementFailure,
+  onUpdateElementFailure,
+  onDeleteElementFailure,
+  onGenerateFocusOrderScreenshot,
+  onDetectElements,
+  onGenerateElementScreenshot,
 }: {
   check: ManualCheckResult;
   /** show level + category badges (used when the group doesn't already convey this) */
   showMeta?: boolean;
   onStatusChange: (status: ManualAuditStatus) => void;
   onAddFailure: () => void;
-  onUpdateFailure: (failureId: string, data: Partial<Pick<ManualFailureInstance, 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl'>>) => void;
+  onUpdateFailure: (failureId: string, data: FailureUpdateData) => void;
   onDeleteFailure: (failureId: string) => void;
   smartElements?: DetectedElement[];
   onUpdateSmartElement?: (elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => void;
+  onAddElementFailure?: (elementId: string) => void;
+  onUpdateElementFailure?: (elementId: string, failureId: string, data: FailureUpdateData) => void;
+  onDeleteElementFailure?: (elementId: string, failureId: string) => void;
+  onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
+  onDetectElements?: (criterionId: string) => Promise<void>;
+  onGenerateElementScreenshot?: (criterionId: string, elementId: string) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [autoExpanded, setAutoExpanded] = useState(false);
   const [showQuestions, setShowQuestions] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const meta = check.wcagCriterion ? PREDEFINED_MAP[check.wcagCriterion] : undefined;
   const bodyId = `check-body-${check.id}`;
   const howToTestId = `check-howtotest-${check.id}`;
   const questions = meta?.questions ?? [];
 
-  // Auto-expand the row when detected elements arrive (data loads asynchronously)
-  useEffect(() => {
-    if (smartElements?.length && !autoExpanded) {
-      setExpanded(true);
-      setAutoExpanded(true);
-    }
-  }, [smartElements]);
-
   const failCount = (check.failures ?? []).length;
   const elementFailCount = smartElements?.filter(e => e.auditStatus === 'fail').length ?? 0;
 
+  // Wrap element updates to auto-derive criterion status when all elements are reviewed
+  const handleSmartElementUpdate = useCallback(
+    (elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => {
+      onUpdateSmartElement?.(elementId, status, comment);
+      if (smartElements && smartElements.length > 0) {
+        const projected = smartElements.map(e => e.id === elementId ? { ...e, auditStatus: status } : e);
+        const allReviewed = projected.every(e => e.auditStatus !== 'not-reviewed');
+        if (allReviewed) {
+          const anyFailed = projected.some(e => e.auditStatus === 'fail' || (e.failures ?? []).length > 0);
+          onStatusChange(anyFailed ? 'fail' : 'pass');
+        }
+      }
+    },
+    [onUpdateSmartElement, smartElements, onStatusChange],
+  );
+
   return (
     <div className="border-b last:border-b-0">
-      {/* Always-visible header: chevron + criterion + title + badges + status */}
-      <button
-        type="button"
-        onClick={() => setExpanded(v => !v)}
-        aria-expanded={expanded}
-        aria-controls={bodyId}
-        className="w-full flex items-center gap-2 py-2.5 px-4 text-left hover:bg-muted/30 transition-colors group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-      >
-        <ChevronDown
-          className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', expanded && 'rotate-180')}
-          aria-hidden="true"
-        />
-        <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
-          {check.wcagCriterion && (
-            <span className="font-mono text-sm text-muted-foreground shrink-0">{check.wcagCriterion}</span>
-          )}
-          <span className="text-sm font-medium">{check.title}</span>
-          {showMeta && (
-            <>
-              {check.level && (
-                <Badge variant="outline" className={cn('text-xs h-5 px-1.5 py-0', LEVEL_COLORS[check.level])}>
-                  {check.level}
-                </Badge>
-              )}
-              {meta?.category && (() => {
-                const Icon = CATEGORY_ICONS[meta.category];
-                return (
-                  <Badge variant="outline" className={cn('text-xs h-5 px-1.5 py-0 font-normal gap-1', CATEGORY_COLORS[meta.category])}>
-                    {Icon && <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />}
-                    {meta.category}
-                  </Badge>
-                );
-              })()}
-            </>
-          )}
-          {/* Summary badges shown when collapsed */}
-          {!expanded && (
-            <>
-              {check.status === 'fail' && (
-                <span className="text-xs text-red-700 dark:text-red-400 font-medium">✗ Fail</span>
-              )}
-              {check.status === 'pass' && (
-                <span className="text-xs text-green-700 dark:text-green-400 font-medium">✓ Pass</span>
-              )}
-              {check.status === 'na' && (
-                <span className="text-xs text-muted-foreground">— N/A</span>
-              )}
-              {(failCount > 0 || elementFailCount > 0) && (
-                <span className="text-xs text-red-700 dark:text-red-400">
-                  {failCount + elementFailCount} issue{failCount + elementFailCount !== 1 ? 's' : ''}
-                </span>
-              )}
-            </>
-          )}
-        </div>
-        {/* Status select — stop propagation so clicking it doesn't toggle collapse */}
-        <div
-          className="shrink-0"
-          onClick={e => e.stopPropagation()}
-          onKeyDown={e => e.stopPropagation()}
+      {/* Always-visible header: toggle button (left) + actions (right, outside the button) */}
+      <div className="flex items-center pr-3 hover:bg-muted/30 transition-colors group">
+        <button
+          type="button"
+          onClick={() => setExpanded(v => !v)}
+          aria-expanded={expanded}
+          aria-controls={bodyId}
+          className="flex-1 min-w-0 flex items-center gap-2 py-2.5 pl-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
         >
+          <ChevronDown
+            className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', expanded && 'rotate-180')}
+            aria-hidden="true"
+          />
+          <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+            {check.wcagCriterion && (
+              <span className="font-mono text-sm text-muted-foreground shrink-0">{check.wcagCriterion}</span>
+            )}
+            <span className="text-sm font-medium">{check.title}</span>
+            {showMeta && (
+              <>
+                {check.level && (
+                  <Badge variant="outline" className={cn('text-xs h-5 px-1.5 py-0', LEVEL_COLORS[check.level])}>
+                    {check.level}
+                  </Badge>
+                )}
+                {meta?.category && (() => {
+                  const Icon = CATEGORY_ICONS[meta.category];
+                  return (
+                    <Badge variant="outline" className={cn('text-xs h-5 px-1.5 py-0 font-normal gap-1', CATEGORY_COLORS[meta.category])}>
+                      {Icon && <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />}
+                      {meta.category}
+                    </Badge>
+                  );
+                })()}
+              </>
+            )}
+            {/* Summary badges shown when collapsed */}
+            {!expanded && (
+              <>
+                {check.status === 'fail' && (
+                  <span className="text-xs text-red-700 dark:text-red-400 font-medium">✗ Fail</span>
+                )}
+                {check.status === 'pass' && (
+                  <span className="text-xs text-green-700 dark:text-green-400 font-medium">✓ Pass</span>
+                )}
+                {check.status === 'na' && (
+                  <span className="text-xs text-muted-foreground">— N/A</span>
+                )}
+                {(failCount > 0 || elementFailCount > 0) && (
+                  <span className="text-xs text-red-700 dark:text-red-400">
+                    {failCount + elementFailCount} issue{failCount + elementFailCount !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+        </button>
+        {/* Actions sit outside the toggle button — no nested <button> */}
+        <div className="flex items-center gap-1.5 shrink-0 pl-2">
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); setExportOpen(true); }}
+            aria-label={`Export "${check.title}"`}
+            className="inline-flex items-center gap-1 rounded border border-dashed border-muted-foreground/30 text-xs h-5 px-1.5 text-muted-foreground hover:border-muted-foreground/60 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <Download className="h-3 w-3" aria-hidden="true" />
+            Export
+          </button>
+          {exportOpen && (
+            <ExportModal
+              report={null}
+              singleIssue={{ kind: 'check', check }}
+              onClose={() => setExportOpen(false)}
+            />
+          )}
           <StatusSelect value={check.status} onChange={onStatusChange} />
         </div>
-      </button>
+      </div>
 
       {/* Expandable body */}
       {expanded && (
@@ -958,11 +1549,20 @@ function CheckRow({
           )}
 
           {/* Smart element panel */}
-          {smartElements !== undefined && (
+          {smartElements !== undefined ? (
             <NonTextElementsPanel
               elements={smartElements}
-              onUpdate={onUpdateSmartElement}
+              criterionId={check.wcagCriterion}
+              onUpdate={handleSmartElementUpdate}
+              onAddElementFailure={onAddElementFailure}
+              onUpdateElementFailure={onUpdateElementFailure}
+              onDeleteElementFailure={onDeleteElementFailure}
               onAutoPass={smartElements.length === 0 ? () => onStatusChange('pass') : undefined}
+              onAddCriterionFailure={() => { onAddFailure(); if (check.status !== 'fail') onStatusChange('fail'); }}
+              onGenerateFocusOrderScreenshot={onGenerateFocusOrderScreenshot}
+              onGenerateElementScreenshot={onGenerateElementScreenshot && check.wcagCriterion
+                ? (eid) => onGenerateElementScreenshot(check.wcagCriterion!, eid)
+                : undefined}
               emptyLabel={
                 check.wcagCriterion === '1.2.1'
                   ? 'No audio or video-only elements detected on this page — nothing to audit for 1.2.1.'
@@ -970,35 +1570,33 @@ function CheckRow({
                   ? 'No video elements with audio detected on this page — nothing to audit for 1.2.2.'
                   : check.wcagCriterion === '2.4.4'
                   ? 'No ambiguous links detected on this page — nothing to audit for 2.4.4.'
+                  : check.wcagCriterion === '1.3.1'
+                  ? 'No form fields, tables, or headings detected on this page — nothing to audit for 1.3.1.'
+                  : check.wcagCriterion === '2.4.3'
+                  ? 'No focus order data found — click "Detect elements" to scan this page.'
+                  : check.wcagCriterion === '3.2.1'
+                  ? 'No focus-triggered elements detected on this page — manually tab through all interactive elements to verify none cause a context change.'
                   : undefined
               }
             />
-          )}
+          ) : onDetectElements && (check.wcagCriterion === '3.2.1' || check.wcagCriterion === '2.4.3') ? (
+            <OnDemandDetectionPanel
+              criterionId={check.wcagCriterion}
+              onDetect={() => onDetectElements(check.wcagCriterion!)}
+            />
+          ) : null}
 
-          {/* Failure instances */}
-          {(check.failures ?? []).length > 0 && (
-            <div className="mt-3 space-y-2">
-              {check.failures!.map((failure, i) => (
-                <FailureInstanceItem
-                  key={failure.id}
-                  index={i + 1}
-                  failure={failure}
-                  onUpdate={data => onUpdateFailure(failure.id, data)}
-                  onDelete={() => onDeleteFailure(failure.id)}
-                />
-              ))}
-            </div>
+          {/* Failure instances — only shown when check is marked fail or has existing failures */}
+          {(check.status === 'fail' || (check.failures ?? []).length > 0) && (
+            <FailureInstancesSection
+              failures={check.failures}
+              checkContext={{ id: check.id, title: check.title, criterion: check.wcagCriterion, description: check.description }}
+              onAdd={onAddFailure}
+              onUpdate={(fid, data) => onUpdateFailure(fid, data)}
+              onDelete={onDeleteFailure}
+              className="mt-2 pt-0"
+            />
           )}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onAddFailure}
-            className="mt-2 h-7 text-xs gap-1.5 border-dashed"
-          >
-            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-            Add failure instance
-          </Button>
         </div>
       )}
     </div>
@@ -1015,14 +1613,23 @@ function CustomCheckItem({
   onStatusChange,
   onNotesChange,
   onDelete,
+  onAddFailure,
+  onUpdateFailure,
+  onDeleteFailure,
 }: {
   check: ManualCheckResult;
   showMeta?: boolean;
   onStatusChange: (status: ManualAuditStatus) => void;
   onNotesChange: (notes: string) => void;
   onDelete: () => void;
+  onAddFailure?: () => void;
+  onUpdateFailure?: (failureId: string, data: FailureUpdateData) => void;
+  onDeleteFailure?: (failureId: string) => void;
 }) {
   const [localNotes, setLocalNotes] = useState(check.notes ?? '');
+  const [exportOpen, setExportOpen] = useState(false);
+
+  const showFailures = check.status === 'fail' || (check.failures ?? []).length > 0;
 
   return (
     <div className="border rounded p-3 space-y-2">
@@ -1040,15 +1647,33 @@ function CustomCheckItem({
             <p className="text-xs text-muted-foreground">{check.description}</p>
           )}
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0"
-          onClick={onDelete}
-          aria-label={`Delete custom issue: ${check.title}`}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={() => setExportOpen(true)}
+            aria-label={`Export "${check.title}"`}
+            className="inline-flex items-center gap-1 rounded border border-dashed border-muted-foreground/30 text-xs h-5 px-1.5 text-muted-foreground hover:border-muted-foreground/60 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <Download className="h-3 w-3" aria-hidden="true" />
+            Export
+          </button>
+          {exportOpen && (
+            <ExportModal
+              report={null}
+              singleIssue={{ kind: 'check', check }}
+              onClose={() => setExportOpen(false)}
+            />
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+            onClick={onDelete}
+            aria-label={`Delete custom issue: ${check.title}`}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       </div>
       <div className="flex items-center gap-3 flex-wrap">
         {check.impact && (
@@ -1070,6 +1695,16 @@ function CustomCheckItem({
         }}
         className="w-full text-xs border-0 border-b border-dashed border-muted-foreground/30 bg-transparent px-0 py-0.5 focus:outline-none focus:border-muted-foreground placeholder:text-muted-foreground/50"
       />
+      {showFailures && onAddFailure && (
+        <FailureInstancesSection
+          failures={check.failures}
+          checkContext={{ id: check.id, title: check.title, criterion: check.wcagCriterion, description: check.description }}
+          onAdd={onAddFailure}
+          onUpdate={(fid, data) => onUpdateFailure?.(fid, data)}
+          onDelete={fid => onDeleteFailure?.(fid)}
+          className="pt-1"
+        />
+      )}
     </div>
   );
 }
@@ -1088,16 +1723,28 @@ function CheckGroupSection({
   onDeleteFailure,
   detectedElements,
   onUpdateDetectedElement,
+  onAddElementFailure,
+  onUpdateElementFailure,
+  onDeleteElementFailure,
+  onGenerateFocusOrderScreenshot,
+  onDetectElements,
+  onGenerateElementScreenshot,
 }: {
   group: CheckGroup;
   onStatusChange: (checkId: string, status: ManualAuditStatus) => void;
   onNotesChange: (checkId: string, notes: string) => void;
   onDeleteCustomCheck: (checkId: string) => void;
   onAddFailure: (checkId: string) => void;
-  onUpdateFailure: (checkId: string, failureId: string, data: Partial<Pick<ManualFailureInstance, 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl'>>) => void;
+  onUpdateFailure: (checkId: string, failureId: string, data: FailureUpdateData) => void;
   onDeleteFailure: (checkId: string, failureId: string) => void;
   detectedElements?: DetectedCriteriaElements;
   onUpdateDetectedElement?: (criterionId: string, elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => void;
+  onAddElementFailure?: (criterionId: string, elementId: string) => void;
+  onUpdateElementFailure?: (criterionId: string, elementId: string, failureId: string, data: FailureUpdateData) => void;
+  onDeleteElementFailure?: (criterionId: string, elementId: string, failureId: string) => void;
+  onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
+  onDetectElements?: (criterionId: string) => Promise<void>;
+  onGenerateElementScreenshot?: (criterionId: string, elementId: string) => Promise<void>;
 }) {
   const headingId = `group-${group.id}`;
   const contentId = `group-${group.id}-content`;
@@ -1158,6 +1805,9 @@ function CheckGroupSection({
                     onStatusChange={status => onStatusChange(check.id, status)}
                     onNotesChange={notes => onNotesChange(check.id, notes)}
                     onDelete={() => onDeleteCustomCheck(check.id)}
+                    onAddFailure={() => onAddFailure(check.id)}
+                    onUpdateFailure={(fid, data) => onUpdateFailure(check.id, fid, data)}
+                    onDeleteFailure={fid => onDeleteFailure(check.id, fid)}
                   />
                 ) : (
                   <div key={check.id} className="border rounded">
@@ -1172,6 +1822,18 @@ function CheckGroupSection({
                       onUpdateSmartElement={check.wcagCriterion && onUpdateDetectedElement
                         ? (eid, status, comment) => onUpdateDetectedElement!(check.wcagCriterion!, eid, status, comment)
                         : undefined}
+                      onAddElementFailure={check.wcagCriterion && onAddElementFailure
+                        ? (eid) => onAddElementFailure!(check.wcagCriterion!, eid)
+                        : undefined}
+                      onUpdateElementFailure={check.wcagCriterion && onUpdateElementFailure
+                        ? (eid, fid, data) => onUpdateElementFailure!(check.wcagCriterion!, eid, fid, data)
+                        : undefined}
+                      onDeleteElementFailure={check.wcagCriterion && onDeleteElementFailure
+                        ? (eid, fid) => onDeleteElementFailure!(check.wcagCriterion!, eid, fid)
+                        : undefined}
+                      onGenerateFocusOrderScreenshot={onGenerateFocusOrderScreenshot}
+                      onDetectElements={onDetectElements}
+                      onGenerateElementScreenshot={onGenerateElementScreenshot}
                     />
                   </div>
                 ),
@@ -1192,6 +1854,18 @@ function CheckGroupSection({
                   onUpdateSmartElement={check.wcagCriterion && onUpdateDetectedElement
                     ? (eid, status, comment) => onUpdateDetectedElement!(check.wcagCriterion!, eid, status, comment)
                     : undefined}
+                  onAddElementFailure={check.wcagCriterion && onAddElementFailure
+                    ? (eid) => onAddElementFailure!(check.wcagCriterion!, eid)
+                    : undefined}
+                  onUpdateElementFailure={check.wcagCriterion && onUpdateElementFailure
+                    ? (eid, fid, data) => onUpdateElementFailure!(check.wcagCriterion!, eid, fid, data)
+                    : undefined}
+                  onDeleteElementFailure={check.wcagCriterion && onDeleteElementFailure
+                    ? (eid, fid) => onDeleteElementFailure!(check.wcagCriterion!, eid, fid)
+                    : undefined}
+                  onGenerateFocusOrderScreenshot={onGenerateFocusOrderScreenshot}
+                  onDetectElements={onDetectElements}
+                  onGenerateElementScreenshot={onGenerateElementScreenshot}
                 />
               ))}
             </div>
@@ -1362,9 +2036,15 @@ interface ManualAuditTabProps {
   onAuditorNotesChange: (notes: string) => void;
   onToggleComplete?: (completed: boolean) => void;
   onAddFailure: (checkId: string) => void;
-  onUpdateFailure: (checkId: string, failureId: string, data: Partial<Pick<ManualFailureInstance, 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl'>>) => void;
+  onUpdateFailure: (checkId: string, failureId: string, data: FailureUpdateData) => void;
   onDeleteFailure: (checkId: string, failureId: string) => void;
   onUpdateDetectedElement?: (criterionId: string, elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => void;
+  onAddElementFailure?: (criterionId: string, elementId: string) => void;
+  onUpdateElementFailure?: (criterionId: string, elementId: string, failureId: string, data: FailureUpdateData) => void;
+  onDeleteElementFailure?: (criterionId: string, elementId: string, failureId: string) => void;
+  onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
+  onDetectElements?: (criterionId: string) => Promise<void>;
+  onGenerateElementScreenshot?: (criterionId: string, elementId: string) => Promise<void>;
 }
 
 export function ManualAuditTab({
@@ -1380,6 +2060,12 @@ export function ManualAuditTab({
   onUpdateFailure,
   onDeleteFailure,
   onUpdateDetectedElement,
+  onAddElementFailure,
+  onUpdateElementFailure,
+  onDeleteElementFailure,
+  onGenerateFocusOrderScreenshot,
+  onDetectElements,
+  onGenerateElementScreenshot,
 }: ManualAuditTabProps) {
   const { auditType } = useCurrentReport();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -1551,6 +2237,12 @@ export function ManualAuditTab({
           onDeleteFailure={onDeleteFailure}
           detectedElements={detectedElements}
           onUpdateDetectedElement={onUpdateDetectedElement}
+          onAddElementFailure={onAddElementFailure}
+          onUpdateElementFailure={onUpdateElementFailure}
+          onDeleteElementFailure={onDeleteElementFailure}
+          onGenerateFocusOrderScreenshot={onGenerateFocusOrderScreenshot}
+          onDetectElements={onDetectElements}
+          onGenerateElementScreenshot={onGenerateElementScreenshot}
         />
       ))}
 
@@ -1583,6 +2275,9 @@ export function ManualAuditTab({
                   onStatusChange={status => onStatusChange(check.id, status)}
                   onNotesChange={notes => onNotesChange(check.id, notes)}
                   onDelete={() => onDeleteCustomCheck(check.id)}
+                  onAddFailure={() => onAddFailure(check.id)}
+                  onUpdateFailure={(fid, data) => onUpdateFailure(check.id, fid, data)}
+                  onDeleteFailure={fid => onDeleteFailure(check.id, fid)}
                 />
               ))}
             </div>

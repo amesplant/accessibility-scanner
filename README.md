@@ -22,11 +22,13 @@ All findings live in a persistent dashboard organized by project and client enga
 - **Element screenshots** — each detected element gets a cropped screenshot and an annotated full-page context screenshot (element highlighted, surroundings dimmed)
 - **Manual audit checklists** scoped per audit type — 13 criteria for Rapid, 20 for Mid-Level, all 52 for All-Inclusive
 - **Failure instances** with scope tagging (Global / Common / Page Specific), code snippets, and screenshot capture
+- **AI-assisted remediation suggestions** — generate fix recommendations inline from Claude (Anthropic), GPT-4o mini (OpenAI), Gemini Flash (Google), or Llama 3.1 (Groq); any combination of providers can be active simultaneously
 - **Custom issues** — add findings that fall outside predefined WCAG criteria
 - **Audit coverage tracking** — report overview shows how many pages have been manually audited
 - **Background scanning** — scans continue running while you navigate; a floating pill shows progress and lets you abort from anywhere
 - **Projects** — group related scans by client or engagement, with inline create, assign, and unassign
-- **Export to Teamwork (.xlsx / .csv) or Jira (.csv)** — filterable by WCAG level, with structured descriptions, code snippets, and affected page lists
+- **Export to Teamwork (.xlsx) or Jira (.csv)** — filterable by WCAG level (All / Automated only / Manual only), with structured descriptions, code snippets, and affected page lists; individual issues can be exported directly from the manual audit tab
+- **Editable report names** — rename any report from the dashboard card or report detail header
 - **Local storage** in a simple JSON file — no database required
 
 ---
@@ -41,7 +43,7 @@ All findings live in a persistent dashboard organized by project and client enga
 ### Installation
 
 ```bash
-git clone git clone git@github.com:10up/accessibility-scanner.git
+git clone git@github.com:10up/accessibility-scanner.git
 cd accessibility-scanner
 npm install
 npm run build
@@ -97,21 +99,31 @@ The scanner CLI is in `packages/scanner/src/index.ts` and supports options:
 - `--batch-index <number>` (1-based, required when batch-size is set for selective chunk runs)
 - `--output <path>` (write report JSON to file instead of database; supports relative paths)
 
-Clear all scans via CLI
-```bash
-npm run scan -- clear
-```
+---
 
 ### Environment variables
 
-Optional `.env` in the repo root:
+Create `packages/scanner/.env` (copy from `.env.example` if present):
 
-- `FRONTEND_ORIGIN` — dashboard origin for CORS and redirects (default `http://localhost:5173`)
-- `PORT` — API server port (default `3003`)
+```bash
+# Server
+FRONTEND_ORIGIN=http://localhost:5173   # dashboard origin for CORS (default)
+PORT=3003                               # API server port (default)
+
+# AI providers — add any combination; the dashboard only shows providers with a key set
+# ANTHROPIC_API_KEY=sk-ant-api03-...   # console.anthropic.com
+# OPENAI_API_KEY=sk-proj-...           # platform.openai.com
+# GEMINI_API_KEY=AIza...               # aistudio.google.com (free tier available)
+# GROQ_API_KEY=gsk_...                 # console.groq.com (free tier available)
+```
+
+At least one AI provider key is required to use the **Generate with AI** feature for remediation suggestions. If no keys are configured the feature is hidden. Multiple keys can be active simultaneously — auditors choose the provider from a dropdown.
 
 ### Report storage
 
 Scan reports and project metadata are stored on disk under `packages/scanner/data/`: each full report is `reports/<report-id>.json`, with a `meta.json` index for listings and projects. There is no sign-in and no remote database in this build.
+
+---
 
 ## Audit Types
 
@@ -148,7 +160,25 @@ For the Non-text Content criterion, the scanner automatically detects images, SV
 
 ### Failure Instances
 
-Each failed criterion can have one or more recorded instances with scope (Global / Common / Page Specific), a description, a code snippet, and a screenshot.
+Each failed criterion can have one or more recorded instances with:
+
+- Scope tagging — Global, Common, or Page Specific
+- Description, code snippet, and screenshot
+- Remediation recommendation — written manually or generated with AI (see below)
+- Direct export to Teamwork or Jira from the instance card
+
+### AI-Assisted Remediation
+
+Within any failure instance, the **Generate with AI** dropdown calls the configured AI provider to produce a concise, code-specific remediation suggestion. The suggestion is pre-filled into the remediation field and can be edited before saving.
+
+Supported providers (configure in `packages/scanner/.env`):
+
+| Provider | Model | Key variable | Free tier |
+|----------|-------|-------------|-----------|
+| Anthropic | claude-haiku-4-5 | `ANTHROPIC_API_KEY` | No |
+| OpenAI | gpt-4o-mini | `OPENAI_API_KEY` | No |
+| Google | gemini-1.5-flash | `GEMINI_API_KEY` | Yes (60 req/min) |
+| Groq | llama-3.1-8b-instant | `GROQ_API_KEY` | Yes |
 
 ### Custom Issues
 
@@ -173,15 +203,18 @@ Group related scans together for a client or engagement.
 
 ## Exporting Results
 
-Every report has an **Export** button on the dashboard card and in the report detail header.
+Every report has an **Export** button on the dashboard card and in the report detail header. Individual manual audit checks and failure instances also have per-issue export buttons.
 
 | Format | Description |
 |--------|-------------|
 | **Teamwork .xlsx** | Excel file with task columns for Teamwork import |
-| **Teamwork .csv** | CSV equivalent |
 | **Jira .csv** | Jira wiki markup with `{code:html}` blocks and structured labels |
 
-Export options: tasklist name, filename, and WCAG level filter (A, AA, AAA, Best Practice).
+Export options:
+- **Tasklist name** — defaults to `Accessibility Audit YEAR | Report Name`
+- **Filename** — defaults to a slug of the report name with year
+- **Scope** — All issues, Automated only, or Manual only
+- **WCAG level filter** — A, AA, AAA, Best Practice (hidden for manual-only exports)
 
 Each exported issue includes a description, severity, code snippet, affected pages, remediation guidance, and QA steps placeholder.
 
@@ -189,19 +222,25 @@ Each exported issue includes a description, severity, code snippet, affected pag
 
 ## API Reference
 
-### Scanning & Reports
+### Reports
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/reports` | List all reports |
 | `GET` | `/api/reports/:id` | Get a single report |
+| `PATCH` | `/api/reports/:id` | Update report metadata (`pageTitle`) |
 | `DELETE` | `/api/reports/:id` | Delete a report |
+| `PATCH` | `/api/reports/:id/project` | Assign or unassign a report (`projectId` or `null`) |
+| `POST` | `/api/reports/:id/export/excel` | Export as Teamwork Excel |
+| `POST` | `/api/reports/:id/export/jira` | Export as Jira CSV |
+
+### Scanning
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
 | `POST` | `/api/scan` | Start a scan |
 | `GET` | `/api/scan/:jobId/events` | SSE stream for scan progress |
 | `DELETE` | `/api/scan/:jobId` | Abort a running scan |
-| `POST` | `/api/reports/:id/export/csv` | Export as Teamwork CSV |
-| `POST` | `/api/reports/:id/export/excel` | Export as Teamwork Excel |
-| `POST` | `/api/reports/:id/export/jira` | Export as Jira CSV |
 
 **Start a scan:**
 
@@ -225,7 +264,6 @@ POST /api/scan
 | `GET` | `/api/projects/:id` | Get a project and its reports |
 | `PATCH` | `/api/projects/:id` | Update name or description |
 | `DELETE` | `/api/projects/:id` | Delete a project |
-| `PATCH` | `/api/reports/:id/project` | Assign or unassign a report (`projectId` or `null`) |
 
 ### Manual Audit
 
@@ -240,3 +278,25 @@ POST /api/scan
 | `PATCH` | `/api/reports/:id/pages/:pageId/manual-audit/checks/:checkId/failures/:failureId` | Update a failure instance |
 | `DELETE` | `/api/reports/:id/pages/:pageId/manual-audit/checks/:checkId/failures/:failureId` | Delete a failure instance |
 | `PATCH` | `/api/reports/:id/pages/:pageId/elements/:criterionId/:elementId` | Update a detected element audit status |
+
+### AI
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/ai/providers` | List configured AI providers |
+| `POST` | `/api/ai/remediation-suggestion` | Generate a remediation suggestion |
+
+**Generate a suggestion:**
+
+```json
+POST /api/ai/remediation-suggestion
+{
+  "provider": "gemini",
+  "criterion": "1.1.1",
+  "checkTitle": "Non-text Content",
+  "notes": "Icon button has no accessible label",
+  "codeSnippet": "<button><svg>...</svg></button>"
+}
+```
+
+`provider` is optional — omit to use the first configured provider. Valid values: `"anthropic"`, `"openai"`, `"gemini"`, `"groq"`.

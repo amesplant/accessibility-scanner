@@ -28,5 +28,14 @@ export function useReports() {
     fetchReports();
   }, [fetchReports]);
 
-  return { reports, loading, error, refresh: fetchReports };
+  async function renameReport(id: string, pageTitle: string): Promise<void> {
+    await apiFetchJson(`/api/reports/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pageTitle }),
+    });
+    setReports(prev => prev.map(r => r.id === id ? { ...r, pageTitle: pageTitle.trim() || undefined } : r));
+  }
+
+  return { reports, loading, error, refresh: fetchReports, renameReport };
 }

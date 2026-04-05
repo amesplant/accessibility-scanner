@@ -17,7 +17,7 @@ export function PageWindow() {
   const location = useLocation();
   const initialTab = (location.state as { tab?: string } | null)?.tab ?? 'automated';
 
-  const { audit, detectedElements, updateCheck, updateNotes, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement } =
+  const { audit, detectedElements, updateCheck, updateNotes, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement, addElementFailure, updateElementFailure, deleteElementFailure, generateFocusOrderScreenshot, detectFocusTriggers, generateElementScreenshot } =
     useManualAudit(id ?? '', pageId ?? '', page?.manualAudit, page?.detectedElements);
 
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -72,9 +72,21 @@ export function PageWindow() {
   function toggleViolation(id: string) {
     setExpandedViolations(prev => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
+  }
+
+  async function handleGenerateFocusOrderScreenshot(elementId: string, colorScheme: 'light' | 'dark') {
+    // Derive viewport label from element's textAlternative (e.g. "Desktop (1280px) — 5 focusable elements")
+    const focusElements = detectedElements?.['2.4.3'] ?? [];
+    const el = focusElements.find(e => e.id === elementId);
+    const viewportLabel = el?.textAlternative?.split(' ')[0] ?? 'Desktop';
+    await generateFocusOrderScreenshot(elementId, colorScheme, viewportLabel);
   }
 
   useEffect(() => {
@@ -479,6 +491,12 @@ export function PageWindow() {
             onUpdateFailure={updateFailure}
             onDeleteFailure={deleteFailure}
             onUpdateDetectedElement={updateDetectedElement}
+            onAddElementFailure={addElementFailure}
+            onUpdateElementFailure={updateElementFailure}
+            onDeleteElementFailure={deleteElementFailure}
+            onGenerateFocusOrderScreenshot={handleGenerateFocusOrderScreenshot}
+            onDetectElements={detectFocusTriggers}
+            onGenerateElementScreenshot={generateElementScreenshot}
           />
         </TabsContent>
       </Tabs>

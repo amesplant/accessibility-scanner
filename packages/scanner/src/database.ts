@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
-import { ScanReport, Project, AxeViolation } from '../../shared/dist/index.js';
+import { AuditType, ScanReport, Project, AxeViolation } from '../../shared/dist/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_DATA_DIR = path.join(__dirname, '..', 'data');
@@ -112,6 +112,13 @@ export class DatabaseService {
 
   async reportIsBundle(id: string): Promise<boolean> {
     return this.pathExists(this.bundleManifestFile(id));
+  }
+
+  async getReportAuditType(reportId: string): Promise<AuditType | undefined> {
+    const single = await this.readJsonFile<Pick<ScanReport, 'auditType'>>(this.reportFile(reportId));
+    if (single) return single.auditType;
+    const bundle = await this.readBundleManifest(reportId);
+    return bundle?.auditType;
   }
 
   async streamReportPages(reportId: string, callback: (page: ScanReport['results'][number]) => Promise<void> | void): Promise<void> {
@@ -272,6 +279,123 @@ export class DatabaseService {
     };
   }
 
+  private violationGroupsFile(id: string): string {
+    return path.join(this.reportsDir, `${id}.violations.json`);
+  }
+
+  private async readViolationGroups(id: string): Promise<ViolationGroupSummary[] | undefined> {
+    return this.readJsonFile<ViolationGroupSummary[]>(this.violationGroupsFile(id));
+  }
+
+  private async writeViolationGroups(id: string, groups: ViolationGroupSummary[]): Promise<void> {
+    await fs.writeFile(this.violationGroupsFile(id), JSON.stringify(groups));
+  }
+
+  private violationPageIndexFile(id: string): string {
+    return path.join(this.reportsDir, `${id}.violation-pages.json`);
+  }
+
+  private async readViolationPageIndex(id: string): Promise<Record<string, ViolationPageSlice['items']> | undefined> {
+    return this.readJsonFile<Record<string, ViolationPageSlice['items']>>(this.violationPageIndexFile(id));
+  }
+
+  private async writeViolationPageIndex(id: string, index: Record<string, ViolationPageSlice['items']>): Promise<void> {
+    await fs.writeFile(this.violationPageIndexFile(id), JSON.stringify(index));
+  }
+
+  private buildViolationPagesFromReports(reports: ScanReport[]): Record<string, ViolationPageSlice['items']> {
+    const index: Record<string, ViolationPageSlice['items']> = {};
+    for (const report of reports) {
+      for (const page of report.results) {
+        for (const violation of page.violations) {
+          const list = index[violation.id] ??= [];
+          list.push({ pageId: page.id, url: page.url, violation });
+        }
+      }
+    }
+    return index;
+  }
+
+  private async buildViolationPageIndex(reportId: string): Promise<Record<string, ViolationPageSlice['items']>> {
+    const index: Record<string, ViolationPageSlice['items']> = {};
+    await this.iterateReportPages(reportId, (page) => {
+      for (const violation of page.violations) {
+        const list = index[violation.id] ??= [];
+        list.push({ pageId: page.id, url: page.url, violation });
+      }
+    });
+    return index;
+  }
+
+  private aggregateViolationGroupsFromPage(
+    page: ScanReport['results'][number],
+    aggregated: Map<string, ViolationGroupSummary>,
+  ): void {
+    for (const violation of page.violations) {
+      const existing = aggregated.get(violation.id);
+      if (existing) {
+        existing.count += 1;
+        existing.pageCount += 1;
+        continue;
+      }
+
+      aggregated.set(violation.id, {
+        kind: 'automated',
+        violation,
+        firstPageId: page.id,
+        firstPageUrl: page.url,
+        count: 1,
+        pageCount: 1,
+        impact: violation.impact,
+      });
+    }
+
+    const failedChecks = page.manualAudit?.checks.filter((check) => check.status === 'fail') ?? [];
+    for (const check of failedChecks) {
+      const existing = aggregated.get(`manual:${check.id}`);
+      const impact = (check.impact ?? 'moderate') as 'critical' | 'serious' | 'moderate' | 'minor';
+      if (existing) {
+        existing.count += 1;
+        existing.pageCount += 1;
+        continue;
+      }
+
+      aggregated.set(`manual:${check.id}`, {
+        kind: 'manual',
+        checkId: check.id,
+        title: check.title,
+        wcagCriterion: check.wcagCriterion,
+        level: check.level,
+        impact,
+        firstPageId: page.id,
+        firstPageUrl: page.url,
+        count: 1,
+        pageCount: 1,
+      });
+    }
+  }
+
+  private sortViolationGroups(groups: ViolationGroupSummary[]): ViolationGroupSummary[] {
+    const order = { critical: 0, serious: 1, moderate: 2, minor: 3 } as Record<string, number>;
+    return groups.sort((a, b) => order[a.impact] - order[b.impact]);
+  }
+
+  private buildViolationGroupsFromReports(reports: ScanReport[]): ViolationGroupSummary[] {
+    const aggregated = new Map<string, ViolationGroupSummary>();
+    for (const report of reports) {
+      for (const page of report.results) {
+        this.aggregateViolationGroupsFromPage(page, aggregated);
+      }
+    }
+    return this.sortViolationGroups([...aggregated.values()]);
+  }
+
+  private async buildViolationGroups(reportId: string): Promise<ViolationGroupSummary[]> {
+    const aggregated = new Map<string, ViolationGroupSummary>();
+    await this.iterateReportPages(reportId, (page) => this.aggregateViolationGroupsFromPage(page, aggregated));
+    return this.sortViolationGroups([...aggregated.values()]);
+  }
+
   private async readJsonFile<T>(filePath: string): Promise<T | undefined> {
     try {
       const raw = await fs.readFile(filePath, 'utf-8');
@@ -289,15 +413,13 @@ export class DatabaseService {
     const manifest = await this.readBundleManifest(id);
     if (!manifest) return undefined;
 
-    const shardReports = await Promise.all(
-      manifest.shards.map((shard) => this.readJsonFile<ScanReport>(path.join(this.bundleDir(id), shard.file))),
-    );
-
-    if (shardReports.some((report) => !report)) {
-      return undefined;
+    const reports: ScanReport[] = [];
+    for (const shard of manifest.shards) {
+      const shardReport = await this.readJsonFile<ScanReport>(path.join(this.bundleDir(id), shard.file));
+      if (!shardReport) return undefined;
+      reports.push(shardReport);
     }
 
-    const reports = shardReports as ScanReport[];
     const summary = this.aggregateSummaryFromReports(id, reports, {
       sitemap: manifest.sitemap,
       pageTitle: manifest.pageTitle,
@@ -394,6 +516,8 @@ export class DatabaseService {
     await this.ensureDirs();
     await fs.writeFile(this.reportFile(report.id), JSON.stringify(report));
     await this.upsertSummary(this.summaryOf(report));
+    await this.writeViolationGroups(report.id, this.buildViolationGroupsFromReports([report]));
+    await this.writeViolationPageIndex(report.id, this.buildViolationPagesFromReports([report]));
   }
 
   async saveReportBundle(
@@ -413,6 +537,8 @@ export class DatabaseService {
       await this.saveReportBundleShard(bundleId, report);
     }
     await this.saveReportBundleManifest(bundleId, manifest);
+    await this.writeViolationGroups(bundleId, this.buildViolationGroupsFromReports(reports));
+    await this.writeViolationPageIndex(bundleId, this.buildViolationPagesFromReports(reports));
 
     return bundleId;
   }
@@ -487,6 +613,18 @@ export class DatabaseService {
     return this.readReportPageByIndex(reportId, offset, limit);
   }
 
+  private pageManualStats(page: ScanReport['results'][number]): { manualFailCount: number; auditedPages: number } {
+    return {
+      manualFailCount: page.manualAudit?.checks.filter((check) => check.status === 'fail').length ?? 0,
+      auditedPages: page.manualAudit?.completed ? 1 : 0,
+    };
+  }
+
+  private summaryFromManifest(manifest: ReportBundleManifest): ReportSummary {
+    const { kind: _kind, shards: _shards, ...summary } = manifest;
+    return summary;
+  }
+
   async getReportPage(reportId: string, pageId: string): Promise<ScanReport['results'][number] | undefined> {
     const single = await this.readJsonFile<ScanReport>(this.reportFile(reportId));
     if (single) {
@@ -500,6 +638,60 @@ export class DatabaseService {
       const shardReport = await this.readJsonFile<ScanReport>(path.join(this.bundleDir(reportId), shard.file));
       const page = shardReport?.results.find((entry) => entry.id === pageId);
       if (page) return page;
+    }
+
+    return undefined;
+  }
+
+  async updateReportPage<T>(
+    reportId: string,
+    pageId: string,
+    patch: (page: ScanReport['results'][number]) => T | Promise<T>,
+  ): Promise<T | undefined> {
+    await this.ensureDirs();
+
+    const single = await this.readJsonFile<ScanReport>(this.reportFile(reportId));
+    if (single) {
+      const page = single.results.find((p) => p.id === pageId);
+      if (!page) return undefined;
+      const oldStats = this.pageManualStats(page);
+      const result = await patch(page);
+      await fs.writeFile(this.reportFile(reportId), JSON.stringify(single));
+      const newStats = this.pageManualStats(page);
+      if (oldStats.manualFailCount !== newStats.manualFailCount || oldStats.auditedPages !== newStats.auditedPages) {
+        await this.upsertSummary(this.summaryOf(single));
+      }
+      await this.writeViolationGroups(reportId, await this.buildViolationGroups(reportId));
+      await this.writeViolationPageIndex(reportId, await this.buildViolationPageIndex(reportId));
+      return result;
+    }
+
+    const manifest = await this.readBundleManifest(reportId);
+    if (!manifest) return undefined;
+
+    for (const shard of manifest.shards) {
+      const shardPath = path.join(this.bundleDir(reportId), shard.file);
+      const shardReport = await this.readJsonFile<ScanReport>(shardPath);
+      if (!shardReport) continue;
+
+      const page = shardReport.results.find((p) => p.id === pageId);
+      if (!page) continue;
+
+      const oldStats = this.pageManualStats(page);
+      const result = await patch(page);
+      await fs.writeFile(shardPath, JSON.stringify(shardReport));
+
+      const newStats = this.pageManualStats(page);
+      if (oldStats.manualFailCount !== newStats.manualFailCount || oldStats.auditedPages !== newStats.auditedPages) {
+        manifest.summary.manualFailCount = (manifest.summary.manualFailCount ?? 0) - oldStats.manualFailCount + newStats.manualFailCount;
+        manifest.summary.auditedPages = (manifest.summary.auditedPages ?? 0) - oldStats.auditedPages + newStats.auditedPages;
+        await fs.writeFile(this.bundleManifestFile(reportId), JSON.stringify(manifest));
+        await this.upsertSummary(this.summaryFromManifest(manifest));
+      }
+      await this.writeViolationGroups(reportId, await this.buildViolationGroups(reportId));
+      await this.writeViolationPageIndex(reportId, await this.buildViolationPageIndex(reportId));
+
+      return result;
     }
 
     return undefined;
@@ -530,57 +722,12 @@ export class DatabaseService {
   }
 
   async listViolationGroups(reportId: string): Promise<ViolationGroupSummary[]> {
-    const aggregated = new Map<string, ViolationGroupSummary>();
+    const persisted = await this.readViolationGroups(reportId);
+    if (persisted) return persisted;
 
-    await this.iterateReportPages(reportId, (page) => {
-      for (const violation of page.violations) {
-        const existing = aggregated.get(violation.id);
-        if (existing) {
-          existing.count += 1;
-          existing.pageCount += 1;
-          continue;
-        }
-
-        aggregated.set(violation.id, {
-          kind: 'automated',
-          violation,
-          firstPageId: page.id,
-          firstPageUrl: page.url,
-          count: 1,
-          pageCount: 1,
-          impact: violation.impact,
-        });
-      }
-
-      const failedChecks = page.manualAudit?.checks.filter((check) => check.status === 'fail') ?? [];
-      for (const check of failedChecks) {
-        const existing = aggregated.get(`manual:${check.id}`);
-        const impact = (check.impact ?? 'moderate') as 'critical' | 'serious' | 'moderate' | 'minor';
-        if (existing) {
-          existing.count += 1;
-          existing.pageCount += 1;
-          continue;
-        }
-
-        aggregated.set(`manual:${check.id}`, {
-          kind: 'manual',
-          checkId: check.id,
-          title: check.title,
-          wcagCriterion: check.wcagCriterion,
-          level: check.level,
-          impact,
-          firstPageId: page.id,
-          firstPageUrl: page.url,
-          count: 1,
-          pageCount: 1,
-        });
-      }
-    });
-
-    return [...aggregated.values()].sort((a, b) => {
-      const order = { critical: 0, serious: 1, moderate: 2, minor: 3 } as Record<string, number>;
-      return order[a.impact] - order[b.impact];
-    });
+    const groups = await this.buildViolationGroups(reportId);
+    await this.writeViolationGroups(reportId, groups);
+    return groups;
   }
 
   async getViolationGroup(reportId: string, violationId: string): Promise<ViolationGroupSummary | undefined> {
@@ -589,6 +736,17 @@ export class DatabaseService {
   }
 
   async listViolationPages(reportId: string, violationId: string, offset = 0, limit = 50): Promise<ViolationPageSlice> {
+    const persisted = await this.readViolationPageIndex(reportId);
+    if (persisted) {
+      const items = persisted[violationId] ?? [];
+      return {
+        items: items.slice(offset, offset + limit),
+        total: items.length,
+        offset,
+        limit,
+      };
+    }
+
     const matches: ViolationPageSlice['items'] = [];
     let total = 0;
 
@@ -602,6 +760,9 @@ export class DatabaseService {
         }
       }
     });
+
+    const index = await this.buildViolationPageIndex(reportId);
+    await this.writeViolationPageIndex(reportId, index);
 
     return {
       items: matches,
@@ -629,6 +790,13 @@ export class DatabaseService {
       await fs.rm(this.bundleDir(id), { recursive: true, force: true });
     }
 
+    if (await this.pathExists(this.violationGroupsFile(id))) {
+      await fs.unlink(this.violationGroupsFile(id));
+    }
+    if (await this.pathExists(this.violationPageIndexFile(id))) {
+      await fs.unlink(this.violationPageIndexFile(id));
+    }
+
     return this.removeSummary(id);
   }
 
@@ -638,16 +806,44 @@ export class DatabaseService {
     if (await this.pathExists(this.reportFile(report.id))) {
       await fs.writeFile(this.reportFile(report.id), JSON.stringify(report));
       await this.upsertSummary(this.summaryOf(report));
+      await this.writeViolationGroups(report.id, this.buildViolationGroupsFromReports([report]));
+      await this.writeViolationPageIndex(report.id, this.buildViolationPagesFromReports([report]));
       return true;
     }
 
     if (await this.pathExists(this.bundleManifestFile(report.id))) {
       await this.splitReportIntoBundle(report);
       await this.upsertSummary(this.summaryOf(report));
+      await this.writeViolationGroups(report.id, this.buildViolationGroupsFromReports([report]));
+      await this.writeViolationPageIndex(report.id, this.buildViolationPagesFromReports([report]));
       return true;
     }
 
     return false;
+  }
+
+  async updateReportMetadata(reportId: string, metadata: { projectId?: string; pageTitle?: string }): Promise<ReportSummary | undefined> {
+    await this.ensureDirs();
+
+    const single = await this.readJsonFile<ScanReport>(this.reportFile(reportId));
+    if (single) {
+      if (metadata.projectId !== undefined) single.projectId = metadata.projectId;
+      if (metadata.pageTitle !== undefined) single.pageTitle = metadata.pageTitle;
+      await fs.writeFile(this.reportFile(reportId), JSON.stringify(single));
+      const summary = this.summaryOf(single);
+      await this.upsertSummary(summary);
+      return summary;
+    }
+
+    const manifest = await this.readBundleManifest(reportId);
+    if (!manifest) return undefined;
+
+    if (metadata.projectId !== undefined) manifest.projectId = metadata.projectId;
+    if (metadata.pageTitle !== undefined) manifest.pageTitle = metadata.pageTitle;
+    await fs.writeFile(this.bundleManifestFile(reportId), JSON.stringify(manifest));
+    const summary = this.summaryFromManifest(manifest);
+    await this.upsertSummary(summary);
+    return summary;
   }
 
   async clearReports(): Promise<void> {
@@ -704,11 +900,7 @@ export class DatabaseService {
 
     await this.ensureDirs();
     await Promise.all(affected.map(async s => {
-      const report = await this.getReport(s.id);
-      if (report) {
-        report.projectId = undefined;
-        await this.updateReport(report);
-      }
+      await this.updateReportMetadata(s.id, { projectId: undefined });
     }));
 
     return true;
