@@ -63,7 +63,7 @@ export async function extract(page: any): Promise<Omit<DetectedElement, 'id'>[]>
         textAlternative: `${vp.label} (${vp.width}px) — ${count} focusable element${count !== 1 ? 's' : ''}`,
         isDecorative: false,
         auditStatus: 'not-reviewed' as const,
-        screenReaderText: `Focus order map at ${vp.label} viewport (${vp.width}px): ${count} focusable elements in tab order`,
+        screenReaderText: `${count} focusable element${count !== 1 ? 's' : ''} in tab order`,
       });
     } catch {
       // skip this viewport

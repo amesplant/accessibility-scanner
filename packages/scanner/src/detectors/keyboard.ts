@@ -56,7 +56,6 @@ export async function detectKeyboard(url: string): Promise<Omit<DetectedElement,
       html: string;
       selector: string;
       textAlternative: string | null;
-      screenReaderText: string;
       reason: string;
     };
 
@@ -91,7 +90,6 @@ export async function detectKeyboard(url: string): Promise<Omit<DetectedElement,
           html: truncHtml(el.outerHTML),
           selector: getSelector(el),
           textAlternative: textAlt ?? `${tag} — ${reason}`,
-          screenReaderText: `${tag} element with mouse-only interaction: ${reason}`,
           reason,
         });
       }
@@ -185,7 +183,7 @@ export async function detectKeyboard(url: string): Promise<Omit<DetectedElement,
         textAlternative: raw.textAlternative,
         isDecorative: false,
         auditStatus: 'not-reviewed' as const,
-        screenReaderText: raw.screenReaderText,
+        screenReaderText: raw.reason,
         screenshotDataUrl,
       });
     }

@@ -961,6 +961,7 @@ function NonTextElementRow({
   const [contextOpen, setContextOpen] = useState(false);
   const screenshotTriggerRef = useRef<HTMLButtonElement>(null);
 
+  const isDiagnosticElement = element.elementType === 'focus-trigger' || element.elementType === 'mouse-only' || element.elementType === 'focus-order-map';
   const elementLabel = ELEMENT_TYPE_LABELS[element.elementType];
   const elementTitle = element.textAlternative
     ? `${elementLabel}: "${element.textAlternative}"`
@@ -1096,9 +1097,11 @@ function NonTextElementRow({
               )}
               {element.screenReaderText !== undefined && (
                 <div className="flex items-center gap-1.5 text-xs min-w-0">
-                  <span className="text-zinc-500 dark:text-zinc-400 shrink-0 font-medium">Screen reader:</span>
+                  <span className="text-zinc-500 dark:text-zinc-400 shrink-0 font-medium">{isDiagnosticElement ? 'Note:' : 'Screen reader:'}</span>
                   {element.screenReaderText ? (
-                    <span className="font-mono text-foreground truncate">&ldquo;{element.screenReaderText}&rdquo;</span>
+                    isDiagnosticElement
+                      ? <span className="text-foreground truncate">{element.screenReaderText}</span>
+                      : <span className="font-mono text-foreground truncate">&ldquo;{element.screenReaderText}&rdquo;</span>
                   ) : (
                     <Badge variant="outline" className="text-xs h-5 px-1.5 py-0 bg-red-50 text-red-700 border-red-300 dark:bg-red-950/30 dark:text-red-300 dark:border-red-700 shrink-0">
                       Silent — not announced
