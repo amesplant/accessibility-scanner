@@ -732,6 +732,7 @@ const ELEMENT_TYPE_LABELS: Record<DetectedElement['elementType'], string> = {
   'heading': 'Heading',
   'focus-order-map': 'Focus Order',
   'focus-trigger': 'Focus Trigger',
+  'mouse-only': 'Mouse-Only Interaction',
 };
 
 function CopyButton({ text }: { text: string }) {
@@ -1576,10 +1577,16 @@ function CheckRow({
                   ? 'No focus order data found — click "Detect elements" to scan this page.'
                   : check.wcagCriterion === '3.2.1'
                   ? 'No focus-triggered elements detected on this page — manually tab through all interactive elements to verify none cause a context change.'
+                  : check.wcagCriterion === '2.1.1'
+                  ? 'No mouse-only interactions detected — manually tab through all functionality to verify keyboard accessibility.'
                   : undefined
               }
             />
-          ) : onDetectElements && (check.wcagCriterion === '3.2.1' || check.wcagCriterion === '2.4.3') ? (
+          ) : onDetectElements && (
+              check.wcagCriterion === '3.2.1' ||
+              check.wcagCriterion === '2.4.3' ||
+              check.wcagCriterion === '2.1.1'
+            ) ? (
             <OnDemandDetectionPanel
               criterionId={check.wcagCriterion}
               onDetect={() => onDetectElements(check.wcagCriterion!)}

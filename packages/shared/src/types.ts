@@ -63,7 +63,8 @@ export type DetectedElementType =
   | 'data-table'
   | 'heading'
   | 'focus-order-map'
-  | 'focus-trigger';
+  | 'focus-trigger'
+  | 'mouse-only';
 
 export interface DetectedElement {
   id: string;
