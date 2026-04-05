@@ -1696,7 +1696,8 @@ function CheckRow({
               check.wcagCriterion === '2.4.3' ||
               check.wcagCriterion === '2.1.1' ||
               check.wcagCriterion === '2.4.7' ||
-              check.wcagCriterion === '2.1.2'
+              check.wcagCriterion === '2.1.2' ||
+              check.wcagCriterion === '2.4.4'
             ) ? (
             <OnDemandDetectionPanel
               criterionId={check.wcagCriterion}

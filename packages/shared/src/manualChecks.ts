@@ -194,9 +194,11 @@ export const PREDEFINED_CHECKS: PredefinedCheck[] = [
     category: 'Links & Navigation',
     priority: 'high',
     questions: [
-      'Read every link\'s text in isolation — does it clearly describe where it goes or what it does?',
-      'Are there any "click here", "read more", "learn more", or "download" links that don\'t differentiate between targets?',
-      'For links that share the same text but go to different places, is each one distinguishable?',
+      'For each ambiguous link flagged below, does the surrounding paragraph or heading provide enough context to determine where it goes?',
+      'Are any "read more", "click here", or "learn more" links grouped with a visually adjacent heading that could serve as context — is that relationship programmatically exposed (e.g., aria-labelledby)?',
+      'Do any duplicate link texts (same text, different destinations) have an aria-label that distinguishes them?',
+      'Are image-only links missing an alt attribute or aria-label that describes the destination?',
+      'For links inside tables, does the row or column header make the purpose clear to screen reader users?',
     ],
   },
   {

@@ -16,6 +16,7 @@ import { detectOnPage } from './detectors/onFocus.js';
 import { detectKeyboard } from './detectors/keyboard.js';
 import { detectFocusVisible } from './detectors/focusVisible.js';
 import { detectKeyboardTrap } from './detectors/keyboardTrap.js';
+import { detectLinkPurpose } from './detectors/linkPurpose.js';
 import { captureElementScreenshot } from './detectors/captureScreenshots.js';
 
 const app = express();
@@ -1074,6 +1075,42 @@ app.post('/api/reports/:reportId/pages/:pageId/elements/2.4.7/detect', async (re
     console.error('Focus visible detection error:', err);
     send({ type: 'error', message: 'Failed to detect focus-style issues' });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Link Purpose — on-demand detection (WCAG 2.4.4)
+// ---------------------------------------------------------------------------
+
+// POST /api/reports/:reportId/pages/:pageId/elements/2.4.4/detect
+app.post('/api/reports/:reportId/pages/:pageId/elements/2.4.4/detect', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  const send = (event: object) => res.write(`data: ${JSON.stringify(event)}\n\n`);
+  try {
+    const allElements: any[] = [];
+    const detectedElements = await modifyReportPage(req.params.reportId, req.params.pageId, async (page) => {
+      await detectLinkPurpose(page.url, (event) => {
+        if (event.type === 'element') {
+          const withId = { ...event.element, id: randomUUID() };
+          allElements.push(withId);
+          send({ type: 'element', element: withId });
+        } else {
+          send(event);
+        }
+      });
+      if (!page.detectedElements) page.detectedElements = {};
+      page.detectedElements['2.4.4'] = allElements;
+      return page.detectedElements;
+    });
+    if (!detectedElements) { send({ type: 'error', message: 'Page not found' }); }
+    else { send({ type: 'done', detectedElements }); }
+  } catch (err) {
+    console.error('Link purpose detection error:', err);
+    send({ type: 'error', message: 'Failed to detect ambiguous links' });
+  }
+  res.end();
 });
 
 // ---------------------------------------------------------------------------

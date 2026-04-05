@@ -16,7 +16,6 @@ export { captureElementScreenshots } from './captureScreenshots.js';
 import * as nonTextElements from './nonTextElements.js';
 import * as mediaElements from './mediaElements.js';
 import * as captionsElements from './captionsElements.js';
-import * as linkPurpose from './linkPurpose.js';
 import * as infoRelationships from './infoRelationships.js';
 
 /**
@@ -27,7 +26,7 @@ export const DETECTORS: DetectorModule[] = [
   nonTextElements,
   mediaElements,
   captionsElements,
-  linkPurpose,
   infoRelationships,
-  // focusOrder — fully on-demand, not part of the scan pipeline
+  // linkPurpose (2.4.4) — moved to on-demand, not part of the scan pipeline
+  // focusOrder (2.4.3)  — fully on-demand, not part of the scan pipeline
 ];
