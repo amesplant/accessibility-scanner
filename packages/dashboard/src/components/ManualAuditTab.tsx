@@ -731,6 +731,7 @@ const ELEMENT_TYPE_LABELS: Record<DetectedElement['elementType'], string> = {
   'data-table': 'Table',
   'heading': 'Heading',
   'focus-order-map': 'Focus Order',
+  'focus-trigger': 'Focus Trigger',
 };
 
 function CopyButton({ text }: { text: string }) {
@@ -1148,6 +1149,50 @@ function NonTextElementRow({
   );
 }
 
+// ---------------------------------------------------------------------------
+// OnDemandDetectionPanel — shown when elements haven't been detected yet
+// ---------------------------------------------------------------------------
+
+function OnDemandDetectionPanel({
+  criterionId,
+  onDetect,
+}: {
+  criterionId: string;
+  onDetect: () => Promise<void>;
+}) {
+  const [running, setRunning] = useState(false);
+
+  async function handleDetect() {
+    setRunning(true);
+    try {
+      await onDetect();
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="mt-2 rounded-md border border-dashed border-border bg-muted/30 p-3 flex flex-col gap-2">
+      <p className="text-xs text-muted-foreground flex items-start gap-1.5">
+        <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
+        Detection runs on demand — click below to scan this page for elements with JavaScript focus handlers or autofocus ({criterionId}).
+      </p>
+      <Button
+        size="sm"
+        variant="outline"
+        className="self-start text-xs h-7"
+        onClick={handleDetect}
+        disabled={running}
+      >
+        {running
+          ? <><Loader2 className="h-3 w-3 animate-spin mr-1" aria-hidden="true" />Detecting…</>
+          : 'Detect elements'
+        }
+      </Button>
+    </div>
+  );
+}
+
 function NonTextElementsPanel({
   elements,
   criterionId,
@@ -1312,6 +1357,7 @@ function CheckRow({
   onUpdateElementFailure,
   onDeleteElementFailure,
   onGenerateFocusOrderScreenshot,
+  onDetectElements,
 }: {
   check: ManualCheckResult;
   /** show level + category badges (used when the group doesn't already convey this) */
@@ -1326,6 +1372,7 @@ function CheckRow({
   onUpdateElementFailure?: (elementId: string, failureId: string, data: FailureUpdateData) => void;
   onDeleteElementFailure?: (elementId: string, failureId: string) => void;
   onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
+  onDetectElements?: (criterionId: string) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showQuestions, setShowQuestions] = useState(false);
@@ -1469,7 +1516,7 @@ function CheckRow({
           )}
 
           {/* Smart element panel */}
-          {smartElements !== undefined && (
+          {smartElements !== undefined ? (
             <NonTextElementsPanel
               elements={smartElements}
               criterionId={check.wcagCriterion}
@@ -1491,10 +1538,17 @@ function CheckRow({
                   ? 'No form fields, tables, or headings detected on this page — nothing to audit for 1.3.1.'
                   : check.wcagCriterion === '2.4.3'
                   ? 'No focus order data found — rescan this page to detect focusable elements.'
+                  : check.wcagCriterion === '3.2.1'
+                  ? 'No focus-triggered elements detected on this page — manually tab through all interactive elements to verify none cause a context change.'
                   : undefined
               }
             />
-          )}
+          ) : onDetectElements && check.wcagCriterion === '3.2.1' ? (
+            <OnDemandDetectionPanel
+              criterionId={check.wcagCriterion}
+              onDetect={() => onDetectElements(check.wcagCriterion!)}
+            />
+          ) : null}
 
           {/* Failure instances — only shown when check is marked fail or has existing failures */}
           {(check.status === 'fail' || (check.failures ?? []).length > 0) && (
@@ -1637,6 +1691,7 @@ function CheckGroupSection({
   onUpdateElementFailure,
   onDeleteElementFailure,
   onGenerateFocusOrderScreenshot,
+  onDetectElements,
 }: {
   group: CheckGroup;
   onStatusChange: (checkId: string, status: ManualAuditStatus) => void;
@@ -1651,6 +1706,7 @@ function CheckGroupSection({
   onUpdateElementFailure?: (criterionId: string, elementId: string, failureId: string, data: FailureUpdateData) => void;
   onDeleteElementFailure?: (criterionId: string, elementId: string, failureId: string) => void;
   onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
+  onDetectElements?: (criterionId: string) => Promise<void>;
 }) {
   const headingId = `group-${group.id}`;
   const contentId = `group-${group.id}-content`;
@@ -1738,6 +1794,7 @@ function CheckGroupSection({
                         ? (eid, fid) => onDeleteElementFailure!(check.wcagCriterion!, eid, fid)
                         : undefined}
                       onGenerateFocusOrderScreenshot={onGenerateFocusOrderScreenshot}
+                      onDetectElements={onDetectElements}
                     />
                   </div>
                 ),
@@ -1768,6 +1825,7 @@ function CheckGroupSection({
                     ? (eid, fid) => onDeleteElementFailure!(check.wcagCriterion!, eid, fid)
                     : undefined}
                   onGenerateFocusOrderScreenshot={onGenerateFocusOrderScreenshot}
+                  onDetectElements={onDetectElements}
                 />
               ))}
             </div>
@@ -1945,6 +2003,7 @@ interface ManualAuditTabProps {
   onUpdateElementFailure?: (criterionId: string, elementId: string, failureId: string, data: FailureUpdateData) => void;
   onDeleteElementFailure?: (criterionId: string, elementId: string, failureId: string) => void;
   onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
+  onDetectElements?: (criterionId: string) => Promise<void>;
 }
 
 export function ManualAuditTab({
@@ -1964,6 +2023,7 @@ export function ManualAuditTab({
   onUpdateElementFailure,
   onDeleteElementFailure,
   onGenerateFocusOrderScreenshot,
+  onDetectElements,
 }: ManualAuditTabProps) {
   const { auditType } = useCurrentReport();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -2139,6 +2199,7 @@ export function ManualAuditTab({
           onUpdateElementFailure={onUpdateElementFailure}
           onDeleteElementFailure={onDeleteElementFailure}
           onGenerateFocusOrderScreenshot={onGenerateFocusOrderScreenshot}
+          onDetectElements={onDetectElements}
         />
       ))}
 

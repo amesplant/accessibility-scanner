@@ -359,6 +359,22 @@ export function useManualAudit(
     [reportId, pageId],
   );
 
+  const detectFocusTriggers = useCallback(
+    async (criterionId: string) => {
+      try {
+        const res = await fetch(
+          `/api/reports/${reportId}/pages/${pageId}/elements/${criterionId}/detect`,
+          { method: 'POST' },
+        );
+        const json = await res.json();
+        if (json.detectedElements) setDetectedElements(json.detectedElements);
+      } catch (err) {
+        console.error('Failed to detect focus triggers:', err);
+      }
+    },
+    [reportId, pageId],
+  );
+
   const generateFocusOrderScreenshot = useCallback(
     async (elementId: string, colorScheme: 'light' | 'dark', viewportLabel: string) => {
       try {
@@ -387,5 +403,5 @@ export function useManualAudit(
     [reportId, pageId],
   );
 
-  return { audit, detectedElements, updateCheck, updateNotes, updateEvidence, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement, addElementFailure, updateElementFailure, deleteElementFailure, generateFocusOrderScreenshot };
+  return { audit, detectedElements, updateCheck, updateNotes, updateEvidence, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement, addElementFailure, updateElementFailure, deleteElementFailure, generateFocusOrderScreenshot, detectFocusTriggers };
 }

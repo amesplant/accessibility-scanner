@@ -62,7 +62,8 @@ export type DetectedElementType =
   | 'form-field'
   | 'data-table'
   | 'heading'
-  | 'focus-order-map';
+  | 'focus-order-map'
+  | 'focus-trigger';
 
 export interface DetectedElement {
   id: string;

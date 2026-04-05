@@ -12,6 +12,7 @@ import { SitemapScanner } from './scanner.js';
 import { crawlSite } from './crawler.js';
 import { AuditType, createDefaultChecks, ManualAudit, ManualAuditStatus, ManualCheckResult, ManualFailureInstance, Project } from '@accessibility-scanner/shared';
 import { captureViewportScreenshot, ViewportLabel } from './detectors/focusOrder.js';
+import { detectOnPage } from './detectors/onFocus.js';
 
 const app = express();
 const db = new DatabaseService();
@@ -780,6 +781,33 @@ app.post('/api/reports/:reportId/pages/:pageId/elements/2.4.3/:elementId/focus-o
   } catch (err) {
     console.error('Focus order screenshot error:', err);
     return res.status(500).json({ error: 'Failed to capture focus order screenshot' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// On Focus — on-demand detection (WCAG 3.2.1)
+// ---------------------------------------------------------------------------
+
+// POST /api/reports/:reportId/pages/:pageId/elements/3.2.1/detect
+app.post('/api/reports/:reportId/pages/:pageId/elements/3.2.1/detect', async (req, res) => {
+  try {
+    const report = await db.getReport(req.params.reportId);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+
+    const page = report.results.find(r => r.id === req.params.pageId);
+    if (!page) return res.status(404).json({ error: 'Page not found' });
+
+    const raw = await detectOnPage(page.url);
+    const elements = raw.map(el => ({ ...el, id: randomUUID() }));
+
+    if (!page.detectedElements) page.detectedElements = {};
+    page.detectedElements['3.2.1'] = elements;
+
+    await db.updateReport(report);
+    return res.json({ detectedElements: page.detectedElements });
+  } catch (err) {
+    console.error('On Focus detection error:', err);
+    return res.status(500).json({ error: 'Failed to detect focus-triggered elements' });
   }
 });
 
