@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { DetectedElement } from '@accessibility-scanner/shared';
+import { BROWSER_UTILS_SCRIPT } from './browserUtils.js';
 
 /** WCAG 1.3.1 — Info and Relationships */
 export const CRITERION_ID = '1.3.1';
@@ -142,4 +143,91 @@ export async function extract(page: any): Promise<Omit<DetectedElement, 'id'>[]>
 
     return elements;
   }) as Promise<Omit<DetectedElement, 'id'>[]>;
+}
+
+// ---------------------------------------------------------------------------
+// On-demand standalone detection (WCAG 1.3.1)
+// ---------------------------------------------------------------------------
+
+type OnProgressEvent =
+  | { type: 'status'; message: string }
+  | { type: 'element'; element: Omit<DetectedElement, 'id'> };
+type OnProgressFn = (event: OnProgressEvent) => void;
+
+/** Launches its own browser and detects form fields, tables, and headings with per-element screenshots. */
+export async function detectInfoRelationships(url: string, onProgress?: OnProgressFn): Promise<Omit<DetectedElement, 'id'>[]> {
+  const puppeteer = (await import('puppeteer')).default;
+
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  });
+
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
+
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    await page.evaluate(() => new Promise<void>(r => setTimeout(r, 500)));
+    onProgress?.({ type: 'status', message: 'Page loaded — scanning for form fields, tables, and headings…' });
+
+    await page.addScriptTag({ content: BROWSER_UTILS_SCRIPT });
+
+    const rawElements = await extract(page);
+    onProgress?.({ type: 'status', message: `Found ${rawElements.length} element${rawElements.length !== 1 ? 's' : ''} — capturing screenshots…` });
+
+    const results: Omit<DetectedElement, 'id'>[] = [];
+
+    for (const raw of rawElements) {
+      let auditStatus: 'pass' | 'fail' | 'not-reviewed' = raw.auditStatus as any;
+      let auditComment: string | undefined;
+      if (raw.isDecorative) {
+        auditStatus = 'pass';
+        auditComment = 'Marked as presentational — hidden from assistive technology.';
+      } else if (raw.textAlternative === null) {
+        auditComment = raw.elementType === 'form-field'
+          ? 'No programmatic label — screen readers will not announce the purpose of this field.'
+          : raw.elementType === 'data-table'
+          ? 'No <th> header cells detected — screen readers cannot associate data cells with their headers.'
+          : 'No accessible name — verify structure is conveyed programmatically.';
+        auditStatus = 'fail';
+      }
+
+      let screenshotDataUrl: string | undefined;
+      try {
+        const handle = await page.$(raw.selector!);
+        if (handle) {
+          await page.evaluate(el => (el as HTMLElement).scrollIntoView({ block: 'center' }), handle);
+          await page.evaluate(() => new Promise<void>(r => setTimeout(r, 150)));
+          const box = await handle.boundingBox();
+          if (box && box.width > 0 && box.height > 0) {
+            const PADDING = 8;
+            const clip = {
+              x: Math.max(0, box.x - PADDING),
+              y: Math.max(0, box.y - PADDING),
+              width: box.width + PADDING * 2,
+              height: box.height + PADDING * 2,
+            };
+            const buf = await page.screenshot({ clip, type: 'jpeg', quality: 80 });
+            screenshotDataUrl = `data:image/jpeg;base64,${Buffer.from(buf as Uint8Array).toString('base64')}`;
+          }
+        }
+      } catch {
+        // screenshot failed — continue without it
+      }
+
+      const el: Omit<DetectedElement, 'id'> = {
+        ...raw,
+        auditStatus,
+        auditComment,
+        screenshotDataUrl,
+      };
+      results.push(el);
+      onProgress?.({ type: 'element', element: el });
+    }
+
+    return results;
+  } finally {
+    await browser.close();
+  }
 }

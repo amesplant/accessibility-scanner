@@ -21,9 +21,11 @@ export interface PredefinedCheck {
   priority: CheckPriority;
   /** Actionable testing questions the auditor works through while evaluating this criterion. */
   questions: string[];
+  /** Which audit tiers include this criterion. */
+  auditTags: ('rapid' | 'mid-level')[];
 }
 
-export const PREDEFINED_CHECKS: PredefinedCheck[] = [
+const _CHECKS: Omit<PredefinedCheck, 'auditTags'>[] = [
   // ── Level A ──────────────────────────────────────────────────────────────
   {
     id: '1.1.1', criterion: '1.1.1', level: 'A',
@@ -70,10 +72,12 @@ export const PREDEFINED_CHECKS: PredefinedCheck[] = [
     category: 'Content & Structure',
     priority: 'high',
     questions: [
-      'Do headings use proper heading elements (h1–h6) rather than styled text?',
-      'Are landmarks (main, nav, header, footer) used to identify page regions?',
-      'Do tables use proper <th> elements with scope attributes for headers?',
-      'Are lists coded as <ul>, <ol>, or <dl> rather than visual styling alone?',
+      'For each heading flagged below, is the visible heading text coded with an actual h1–h6 element rather than bold/large styled text?',
+      'Does the heading hierarchy make sense — is there exactly one h1, and do sub-headings use h2/h3 in logical nesting order?',
+      'For each form field flagged below, is every input, select, and textarea associated with a visible label via <label for>, aria-labelledby, or aria-label?',
+      'Do any data tables lack <th> header cells, or are <th> cells missing scope="col"/"row" attributes?',
+      'Are lists of items coded as <ul> or <ol> rather than visual dashes or line breaks?',
+      'Do page regions (header, main content, navigation, footer) use the correct ARIA landmark roles or HTML5 sectioning elements?',
     ],
   },
   {
@@ -616,6 +620,19 @@ export const MID_LEVEL_AUDIT_CHECK_IDS: string[] = [
   '3.3.1',  // Error Identification
   '3.3.2',  // Labels or Instructions
 ];
+
+/** Adds computed auditTags to every check based on tier membership. */
+export const PREDEFINED_CHECKS: PredefinedCheck[] = (() => {
+  const rapid = new Set(RAPID_AUDIT_CHECK_IDS);
+  const mid = new Set(MID_LEVEL_AUDIT_CHECK_IDS);
+  return _CHECKS.map(c => ({
+    ...c,
+    auditTags: [
+      ...(rapid.has(c.id) ? ['rapid' as const] : []),
+      ...(mid.has(c.id) ? ['mid-level' as const] : []),
+    ],
+  }));
+})();
 
 export function createDefaultChecks(auditType?: AuditType): ManualCheckResult[] {
   const now = new Date().toISOString();
