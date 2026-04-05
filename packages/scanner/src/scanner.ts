@@ -7,7 +7,7 @@ import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { ScanResult, ScanReport, DetectedElement } from '@accessibility-scanner/shared';
-import { DETECTORS, captureElementScreenshots, DetectorModule } from './detectors/index.js';
+import { DETECTORS, DetectorModule } from './detectors/index.js';
 import { BROWSER_UTILS_SCRIPT } from './detectors/browserUtils.js';
 
 export class SitemapScanner {
@@ -166,45 +166,8 @@ export class SitemapScanner {
         DETECTORS[i].processElements(raw as Omit<DetectedElement, 'id'>[]),
       );
 
-      // Add highlight + label styles once for all context screenshots
-      await page.addStyleTag({
-        content: `
-          [data-a11y-highlight] {
-            outline: 4px solid #facc15 !important;
-            outline-offset: 4px !important;
-            box-shadow: 0 0 0 9999px rgba(0,0,0,0.55) !important;
-            position: relative !important;
-            z-index: 2147483640 !important;
-          }
-          [data-a11y-label] {
-            position: fixed !important;
-            z-index: 2147483647 !important;
-            background: #facc15 !important;
-            color: #000 !important;
-            font: bold 12px/1.5 system-ui,sans-serif !important;
-            padding: 5px 10px !important;
-            border-radius: 4px !important;
-            max-width: 320px !important;
-            word-break: break-word !important;
-            pointer-events: none !important;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.5) !important;
-          }
-        `,
-      });
-
       const viewportWidth: number = await page.evaluate(() => window.innerWidth);
       const viewportHeight: number = await page.evaluate(() => window.innerHeight);
-
-      for (let i = 0; i < DETECTORS.length; i++) {
-        await captureElementScreenshots(
-          page,
-          allDetected[i],
-          DETECTORS[i].ATTR_PREFIX,
-          DETECTORS[i].getLabelText,
-          viewportWidth,
-          viewportHeight,
-        );
-      }
 
       const detectedElementsMap: NonNullable<ScanResult['detectedElements']> = {};
       for (let i = 0; i < DETECTORS.length; i++) {

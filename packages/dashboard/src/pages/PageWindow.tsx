@@ -19,7 +19,7 @@ export function PageWindow() {
 
   const page = report?.results.find(r => r.id === pageId) ?? null;
 
-  const { audit, detectedElements, updateCheck, updateNotes, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement, addElementFailure, updateElementFailure, deleteElementFailure, generateFocusOrderScreenshot, detectFocusTriggers } =
+  const { audit, detectedElements, updateCheck, updateNotes, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement, addElementFailure, updateElementFailure, deleteElementFailure, generateFocusOrderScreenshot, detectFocusTriggers, generateElementScreenshot } =
     useManualAudit(id ?? '', pageId ?? '', page?.manualAudit, page?.detectedElements);
 
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -495,6 +495,7 @@ export function PageWindow() {
             onDeleteElementFailure={deleteElementFailure}
             onGenerateFocusOrderScreenshot={handleGenerateFocusOrderScreenshot}
             onDetectElements={detectFocusTriggers}
+            onGenerateElementScreenshot={generateElementScreenshot}
           />
         </TabsContent>
       </Tabs>

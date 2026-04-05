@@ -75,6 +75,29 @@ export async function extract(page: any): Promise<Omit<DetectedElement, 'id'>[]>
 }
 
 // ---------------------------------------------------------------------------
+// On-demand detection (used by the server endpoint)
+// ---------------------------------------------------------------------------
+
+/**
+ * Detects focus-order placeholders for a URL by launching its own browser.
+ * Reuses extract() so viewport-switching logic stays in one place.
+ */
+export async function detectFocusOrder(url: string): Promise<Omit<DetectedElement, 'id'>[]> {
+  const puppeteer = (await import('puppeteer')).default;
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  });
+  try {
+    const page = await browser.newPage();
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
+    return await extract(page);
+  } finally {
+    await browser.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // On-demand screenshot capture (used by the server endpoint)
 // ---------------------------------------------------------------------------
 

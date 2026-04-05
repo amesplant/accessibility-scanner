@@ -11,8 +11,9 @@ import { Reporter } from './exporter.js';
 import { SitemapScanner } from './scanner.js';
 import { crawlSite } from './crawler.js';
 import { AuditType, createDefaultChecks, ManualAudit, ManualAuditStatus, ManualCheckResult, ManualFailureInstance, Project } from '@accessibility-scanner/shared';
-import { captureViewportScreenshot, ViewportLabel } from './detectors/focusOrder.js';
+import { captureViewportScreenshot, detectFocusOrder, ViewportLabel } from './detectors/focusOrder.js';
 import { detectOnPage } from './detectors/onFocus.js';
+import { captureElementScreenshot } from './detectors/captureScreenshots.js';
 
 const app = express();
 const db = new DatabaseService();
@@ -632,6 +633,38 @@ app.post('/api/ai/remediation-suggestion', async (req, res) => {
 // Detected Elements (WCAG criterion-level element audit)
 // ---------------------------------------------------------------------------
 
+// POST /api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/screenshot
+// Must be registered before the PATCH /:elementId route so Express doesn't treat
+// "screenshot" as a :failureId param.
+app.post('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/screenshot', async (req, res) => {
+  try {
+    const report = await db.getReport(req.params.reportId);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+
+    const page = report.results.find(r => r.id === req.params.pageId);
+    if (!page) return res.status(404).json({ error: 'Page not found' });
+
+    const elements = page.detectedElements?.[req.params.criterionId];
+    if (!elements) return res.status(404).json({ error: 'No detected elements for this criterion' });
+
+    const element = elements.find(e => e.id === req.params.elementId);
+    if (!element) return res.status(404).json({ error: 'Element not found' });
+
+    const labelText = element.textAlternative ?? element.elementType;
+    const { screenshotDataUrl, contextScreenshotDataUrl } =
+      await captureElementScreenshot(page.url, element.selector, labelText);
+
+    if (screenshotDataUrl)        element.screenshotDataUrl        = screenshotDataUrl;
+    if (contextScreenshotDataUrl) element.contextScreenshotDataUrl = contextScreenshotDataUrl;
+
+    await db.updateReport(report);
+    return res.json({ element });
+  } catch (err) {
+    console.error('Element screenshot error:', err);
+    return res.status(500).json({ error: 'Failed to capture element screenshot' });
+  }
+});
+
 // PATCH /api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId
 app.patch('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId', async (req, res) => {
   try {
@@ -781,6 +814,31 @@ app.post('/api/reports/:reportId/pages/:pageId/elements/2.4.3/:elementId/focus-o
   } catch (err) {
     console.error('Focus order screenshot error:', err);
     return res.status(500).json({ error: 'Failed to capture focus order screenshot' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Focus Order — on-demand detection (WCAG 2.4.3)
+// ---------------------------------------------------------------------------
+
+// POST /api/reports/:reportId/pages/:pageId/elements/2.4.3/detect
+app.post('/api/reports/:reportId/pages/:pageId/elements/2.4.3/detect', async (req, res) => {
+  try {
+    const report = await db.getReport(req.params.reportId);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+
+    const page = report.results.find(r => r.id === req.params.pageId);
+    if (!page) return res.status(404).json({ error: 'Page not found' });
+
+    const raw = await detectFocusOrder(page.url);
+    if (!page.detectedElements) page.detectedElements = {};
+    page.detectedElements['2.4.3'] = raw.map(el => ({ ...el, id: randomUUID() }));
+
+    await db.updateReport(report);
+    return res.json({ detectedElements: page.detectedElements });
+  } catch (err) {
+    console.error('Focus order detection error:', err);
+    return res.status(500).json({ error: 'Failed to detect focus order elements' });
   }
 });
 

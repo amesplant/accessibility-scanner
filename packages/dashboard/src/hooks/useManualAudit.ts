@@ -359,6 +359,30 @@ export function useManualAudit(
     [reportId, pageId],
   );
 
+  const generateElementScreenshot = useCallback(
+    async (criterionId: string, elementId: string) => {
+      try {
+        const res = await fetch(
+          `/api/reports/${reportId}/pages/${pageId}/elements/${criterionId}/${elementId}/screenshot`,
+          { method: 'POST' },
+        );
+        const json = await res.json();
+        if (json.element) {
+          setDetectedElements(prev => {
+            if (!prev?.[criterionId]) return prev;
+            return {
+              ...prev,
+              [criterionId]: prev[criterionId].map(el => el.id === elementId ? { ...el, ...json.element } : el),
+            };
+          });
+        }
+      } catch (err) {
+        console.error('Failed to generate element screenshot:', err);
+      }
+    },
+    [reportId, pageId],
+  );
+
   const detectFocusTriggers = useCallback(
     async (criterionId: string) => {
       try {
@@ -403,5 +427,5 @@ export function useManualAudit(
     [reportId, pageId],
   );
 
-  return { audit, detectedElements, updateCheck, updateNotes, updateEvidence, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement, addElementFailure, updateElementFailure, deleteElementFailure, generateFocusOrderScreenshot, detectFocusTriggers };
+  return { audit, detectedElements, updateCheck, updateNotes, updateEvidence, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement, addElementFailure, updateElementFailure, deleteElementFailure, generateFocusOrderScreenshot, detectFocusTriggers, generateElementScreenshot };
 }
