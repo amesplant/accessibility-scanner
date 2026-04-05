@@ -1688,6 +1688,8 @@ function CheckRow({
                   ? 'No focus-style issues detected — tab through the page to visually confirm every element has a visible focus indicator.'
                   : check.wcagCriterion === '2.1.2'
                   ? 'No keyboard trap risks detected — tab through all interactive elements and verify focus is never permanently stuck.'
+                  : check.wcagCriterion === '1.1.1'
+                  ? 'No non-text elements detected — manually review the page for images, icons, and controls that may lack a text alternative.'
                   : undefined
               }
             />
@@ -1697,7 +1699,8 @@ function CheckRow({
               check.wcagCriterion === '2.1.1' ||
               check.wcagCriterion === '2.4.7' ||
               check.wcagCriterion === '2.1.2' ||
-              check.wcagCriterion === '2.4.4'
+              check.wcagCriterion === '2.4.4' ||
+              check.wcagCriterion === '1.1.1'
             ) ? (
             <OnDemandDetectionPanel
               criterionId={check.wcagCriterion}

@@ -32,9 +32,12 @@ export const PREDEFINED_CHECKS: PredefinedCheck[] = [
     category: 'Images & Media',
     priority: 'high',
     questions: [
-      'Do all meaningful images have alt text that accurately describes their content or function?',
-      'Are purely decorative images hidden from assistive technology (empty alt="" or CSS background)?',
-      'Do icon-only buttons and controls have an accessible name (aria-label, title, or visually hidden text)?',
+      'For each image flagged below, does the alt text accurately convey the content or function — not just "image of" or the filename?',
+      'Are purely decorative images marked with empty alt="" or aria-hidden="true" so screen readers skip them?',
+      'Do icon-only buttons and controls have an accessible name (aria-label, title, or visually-hidden text) that describes the action — not the icon?',
+      'For complex images (charts, graphs, diagrams), is there a longer description via aria-describedby or a nearby caption?',
+      'Do SVGs used as meaningful content have a <title> element and role="img", or an aria-label?',
+      'Are CAPTCHA images accompanied by an audio alternative or other accessible challenge?',
     ],
   },
   {

@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { DetectedElement } from '@accessibility-scanner/shared';
+import { BROWSER_UTILS_SCRIPT } from './browserUtils.js';
 
 /** WCAG 1.1.1 — Non-text Content */
 export const CRITERION_ID = '1.1.1';
@@ -183,4 +184,88 @@ export async function extract(page: any): Promise<Omit<DetectedElement, 'id'>[]>
 
     return elements;
   }) as Promise<Omit<DetectedElement, 'id'>[]>;
+}
+
+// ---------------------------------------------------------------------------
+// On-demand standalone detection (WCAG 1.1.1)
+// ---------------------------------------------------------------------------
+
+type OnProgressEvent =
+  | { type: 'status'; message: string }
+  | { type: 'element'; element: Omit<DetectedElement, 'id'> };
+type OnProgressFn = (event: OnProgressEvent) => void;
+
+/** Launches its own browser and detects non-text elements with per-element screenshots. */
+export async function detectNonTextContent(url: string, onProgress?: OnProgressFn): Promise<Omit<DetectedElement, 'id'>[]> {
+  const puppeteer = (await import('puppeteer')).default;
+
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  });
+
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
+
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+    await page.evaluate(() => new Promise<void>(r => setTimeout(r, 500)));
+    onProgress?.({ type: 'status', message: 'Page loaded — scanning for non-text elements…' });
+
+    await page.addScriptTag({ content: BROWSER_UTILS_SCRIPT });
+
+    const rawElements = await extract(page);
+    onProgress?.({ type: 'status', message: `Found ${rawElements.length} element${rawElements.length !== 1 ? 's' : ''} — capturing screenshots…` });
+
+    const results: Omit<DetectedElement, 'id'>[] = [];
+
+    for (const raw of rawElements) {
+      // Apply pass/fail/decorative status
+      let auditStatus: 'pass' | 'fail' | 'not-reviewed' = raw.auditStatus as any;
+      let auditComment: string | undefined;
+      if (raw.isDecorative) {
+        auditStatus = 'pass';
+        auditComment = 'Decorative — correctly hidden from screen readers.';
+      } else if (raw.textAlternative === null) {
+        auditStatus = 'fail';
+        auditComment = 'No text alternative detected — screen reader will not announce this element.';
+      }
+
+      let screenshotDataUrl: string | undefined;
+      try {
+        const handle = await page.$(raw.selector!);
+        if (handle) {
+          await page.evaluate(el => (el as HTMLElement).scrollIntoView({ block: 'center' }), handle);
+          await page.evaluate(() => new Promise<void>(r => setTimeout(r, 150)));
+          const box = await handle.boundingBox();
+          if (box && box.width > 0 && box.height > 0) {
+            const PADDING = 8;
+            const clip = {
+              x: Math.max(0, box.x - PADDING),
+              y: Math.max(0, box.y - PADDING),
+              width: box.width + PADDING * 2,
+              height: box.height + PADDING * 2,
+            };
+            const buf = await page.screenshot({ clip, type: 'jpeg', quality: 80 });
+            screenshotDataUrl = `data:image/jpeg;base64,${Buffer.from(buf as Uint8Array).toString('base64')}`;
+          }
+        }
+      } catch {
+        // screenshot failed — continue without it
+      }
+
+      const el: Omit<DetectedElement, 'id'> = {
+        ...raw,
+        auditStatus,
+        auditComment,
+        screenshotDataUrl,
+      };
+      results.push(el);
+      onProgress?.({ type: 'element', element: el });
+    }
+
+    return results;
+  } finally {
+    await browser.close();
+  }
 }

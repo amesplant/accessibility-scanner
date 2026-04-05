@@ -13,7 +13,6 @@ export interface DetectorModule {
 
 export { captureElementScreenshots } from './captureScreenshots.js';
 
-import * as nonTextElements from './nonTextElements.js';
 import * as mediaElements from './mediaElements.js';
 import * as captionsElements from './captionsElements.js';
 import * as infoRelationships from './infoRelationships.js';
@@ -23,10 +22,10 @@ import * as infoRelationships from './infoRelationships.js';
  * To add a new WCAG criterion: create a new detector module and append it here.
  */
 export const DETECTORS: DetectorModule[] = [
-  nonTextElements,
   mediaElements,
   captionsElements,
   infoRelationships,
-  // linkPurpose (2.4.4) — moved to on-demand, not part of the scan pipeline
-  // focusOrder (2.4.3)  — fully on-demand, not part of the scan pipeline
+  // nonTextElements (1.1.1) — moved to on-demand, not part of the scan pipeline
+  // linkPurpose     (2.4.4) — moved to on-demand, not part of the scan pipeline
+  // focusOrder      (2.4.3) — fully on-demand, not part of the scan pipeline
 ];
