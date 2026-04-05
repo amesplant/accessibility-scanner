@@ -64,7 +64,8 @@ export type DetectedElementType =
   | 'heading'
   | 'focus-order-map'
   | 'focus-trigger'
-  | 'mouse-only';
+  | 'mouse-only'
+  | 'no-focus-style';
 
 export interface DetectedElement {
   id: string;

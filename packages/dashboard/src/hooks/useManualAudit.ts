@@ -384,16 +384,37 @@ export function useManualAudit(
   );
 
   const detectFocusTriggers = useCallback(
-    async (criterionId: string) => {
+    async (criterionId: string, onProgress?: (event: { type: 'status'; message: string } | { type: 'element'; element: any }) => void) => {
       try {
         const res = await fetch(
           `/api/reports/${reportId}/pages/${pageId}/elements/${criterionId}/detect`,
           { method: 'POST' },
         );
-        const json = await res.json();
-        if (json.detectedElements) setDetectedElements(json.detectedElements);
+        if (!res.body) return;
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const chunks = buffer.split('\n\n');
+          buffer = chunks.pop() ?? '';
+          for (const chunk of chunks) {
+            const line = chunk.trim();
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const event = JSON.parse(line.slice(6));
+              if (event.type === 'done' && event.detectedElements) {
+                setDetectedElements(event.detectedElements);
+              } else if (event.type === 'element' || event.type === 'status') {
+                onProgress?.(event);
+              }
+            } catch { /* malformed chunk — skip */ }
+          }
+        }
       } catch (err) {
-        console.error('Failed to detect focus triggers:', err);
+        console.error('Failed to detect elements:', err);
       }
     },
     [reportId, pageId],

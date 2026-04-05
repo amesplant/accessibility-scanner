@@ -733,6 +733,7 @@ const ELEMENT_TYPE_LABELS: Record<DetectedElement['elementType'], string> = {
   'focus-order-map': 'Focus Order',
   'focus-trigger': 'Focus Trigger',
   'mouse-only': 'Mouse-Only Interaction',
+  'no-focus-style': 'No Focus Style',
 };
 
 function CopyButton({ text }: { text: string }) {
@@ -961,7 +962,7 @@ function NonTextElementRow({
   const [contextOpen, setContextOpen] = useState(false);
   const screenshotTriggerRef = useRef<HTMLButtonElement>(null);
 
-  const isDiagnosticElement = element.elementType === 'focus-trigger' || element.elementType === 'mouse-only' || element.elementType === 'focus-order-map';
+  const isDiagnosticElement = element.elementType === 'focus-trigger' || element.elementType === 'mouse-only' || element.elementType === 'focus-order-map' || element.elementType === 'no-focus-style';
   const elementLabel = ELEMENT_TYPE_LABELS[element.elementType];
   const elementTitle = element.textAlternative
     ? `${elementLabel}: "${element.textAlternative}"`
@@ -1162,6 +1163,11 @@ function NonTextElementRow({
 // OnDemandDetectionPanel — shown when elements haven't been detected yet
 // ---------------------------------------------------------------------------
 
+type DetectionProgressHandler = (event:
+  | { type: 'status'; message: string }
+  | { type: 'element'; element: DetectedElement }
+) => void;
+
 function CaptureScreenshotButton({ onCapture }: { onCapture: () => Promise<void> }) {
   const [running, setRunning] = useState(false);
   async function handleCapture() {
@@ -1190,15 +1196,28 @@ function OnDemandDetectionPanel({
   onDetect,
 }: {
   criterionId: string;
-  onDetect: () => Promise<void>;
+  onDetect: (onProgress: DetectionProgressHandler) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [previewElements, setPreviewElements] = useState<DetectedElement[]>([]);
+  const [liveAnnouncement, setLiveAnnouncement] = useState('');
 
   async function handleDetect() {
     setRunning(true);
+    setStatusMessage('');
+    setPreviewElements([]);
+    setOpen(true);
     try {
-      await onDetect();
+      await onDetect((event) => {
+        if (event.type === 'status') {
+          setStatusMessage(event.message);
+          setLiveAnnouncement(event.message);
+        } else if (event.type === 'element') {
+          setPreviewElements(prev => [...prev, event.element]);
+        }
+      });
     } finally {
       setRunning(false);
     }
@@ -1206,27 +1225,65 @@ function OnDemandDetectionPanel({
 
   return (
     <div className="mt-3 mb-3 border rounded overflow-hidden">
+      {/* Polite live region: announces status messages and completion to screen readers */}
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {liveAnnouncement}
+      </div>
       <button
         type="button"
         onClick={() => setOpen(v => !v)}
         aria-expanded={open}
         className="w-full flex items-center justify-between px-3 py-2 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
       >
-        <span className="text-base font-medium">Detected Elements</span>
+        <span className="text-base font-medium flex items-center gap-2">
+          Detected Elements
+          {running && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" aria-hidden="true" />}
+          {previewElements.length > 0 && (
+            <span className="text-sm font-normal text-muted-foreground">
+              — {previewElements.length} found{running ? '…' : ''}
+            </span>
+          )}
+        </span>
         <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')} aria-hidden="true" />
       </button>
       {open && (
-        <div className="px-3 py-3 flex flex-col gap-2">
-          <p className="text-base text-muted-foreground flex items-start gap-1.5">
-            <Info className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
-            Detection runs on demand — click below to scan this page ({criterionId}).
-          </p>
+        <div className="px-3 py-3 flex flex-col gap-3">
+          {statusMessage && (
+            <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+              {running && <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" aria-hidden="true" />}
+              {statusMessage}
+            </p>
+          )}
+          {!running && !previewElements.length && (
+            <p className="text-base text-muted-foreground flex items-start gap-1.5">
+              <Info className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+              Detection runs on demand — click below to scan this page ({criterionId}).
+            </p>
+          )}
+          {previewElements.length > 0 && (
+            <ul
+              className="flex flex-col divide-y text-sm"
+              aria-label={`${previewElements.length} element${previewElements.length !== 1 ? 's' : ''} found so far`}
+            >
+              {previewElements.map((el) => (
+                <li key={el.id} className="flex items-center gap-2 py-1.5">
+                  <span className="text-xs bg-muted px-1.5 py-0.5 rounded shrink-0 text-muted-foreground">
+                    {ELEMENT_TYPE_LABELS[el.elementType]}
+                  </span>
+                  <span className="truncate text-muted-foreground">
+                    {el.textAlternative ?? el.screenReaderText ?? '—'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
           <Button
             size="sm"
             variant="outline"
             className="self-start h-8"
             onClick={handleDetect}
             disabled={running}
+            aria-busy={running}
           >
             {running
               ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" aria-hidden="true" />Detecting…</>
@@ -1435,7 +1492,7 @@ function CheckRow({
   onUpdateElementFailure?: (elementId: string, failureId: string, data: FailureUpdateData) => void;
   onDeleteElementFailure?: (elementId: string, failureId: string) => void;
   onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
-  onDetectElements?: (criterionId: string) => Promise<void>;
+  onDetectElements?: (criterionId: string, onProgress?: DetectionProgressHandler) => Promise<void>;
   onGenerateElementScreenshot?: (criterionId: string, elementId: string) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -1626,17 +1683,20 @@ function CheckRow({
                   ? 'No focus-triggered elements detected on this page — manually tab through all interactive elements to verify none cause a context change.'
                   : check.wcagCriterion === '2.1.1'
                   ? 'No mouse-only interactions detected — manually tab through all functionality to verify keyboard accessibility.'
+                  : check.wcagCriterion === '2.4.7'
+                  ? 'No focus-style issues detected — tab through the page to visually confirm every element has a visible focus indicator.'
                   : undefined
               }
             />
           ) : onDetectElements && (
               check.wcagCriterion === '3.2.1' ||
               check.wcagCriterion === '2.4.3' ||
-              check.wcagCriterion === '2.1.1'
+              check.wcagCriterion === '2.1.1' ||
+              check.wcagCriterion === '2.4.7'
             ) ? (
             <OnDemandDetectionPanel
               criterionId={check.wcagCriterion}
-              onDetect={() => onDetectElements(check.wcagCriterion!)}
+              onDetect={(onProgress) => onDetectElements(check.wcagCriterion!, onProgress)}
             />
           ) : null}
 
@@ -1797,7 +1857,7 @@ function CheckGroupSection({
   onUpdateElementFailure?: (criterionId: string, elementId: string, failureId: string, data: FailureUpdateData) => void;
   onDeleteElementFailure?: (criterionId: string, elementId: string, failureId: string) => void;
   onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
-  onDetectElements?: (criterionId: string) => Promise<void>;
+  onDetectElements?: (criterionId: string, onProgress?: DetectionProgressHandler) => Promise<void>;
   onGenerateElementScreenshot?: (criterionId: string, elementId: string) => Promise<void>;
 }) {
   const headingId = `group-${group.id}`;
@@ -2097,7 +2157,7 @@ interface ManualAuditTabProps {
   onUpdateElementFailure?: (criterionId: string, elementId: string, failureId: string, data: FailureUpdateData) => void;
   onDeleteElementFailure?: (criterionId: string, elementId: string, failureId: string) => void;
   onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
-  onDetectElements?: (criterionId: string) => Promise<void>;
+  onDetectElements?: (criterionId: string, onProgress?: DetectionProgressHandler) => Promise<void>;
   onGenerateElementScreenshot?: (criterionId: string, elementId: string) => Promise<void>;
 }
 

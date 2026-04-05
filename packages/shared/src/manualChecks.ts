@@ -355,9 +355,11 @@ export const PREDEFINED_CHECKS: PredefinedCheck[] = [
     category: 'Keyboard & Focus',
     priority: 'high',
     questions: [
-      'Tab through every interactive element — is there always a clearly visible focus indicator (outline, ring, or highlight)?',
-      'Has outline: none or outline: 0 been applied to any element without a replacement focus style?',
+      'Tab to every interactive element — is there always a clearly visible focus indicator (outline, ring, border, or background change)?',
+      'Do any of the elements flagged below have outline: none or outline: 0 without a visible replacement style such as box-shadow or border?',
       'Is the focus indicator visible against both light and dark backgrounds it may appear on?',
+      'Does the focus indicator have at least 3:1 contrast against the adjacent background color?',
+      'For custom focus styles using box-shadow or border-color, do they remain visible in Windows High Contrast Mode?',
     ],
   },
   {
