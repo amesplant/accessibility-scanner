@@ -71,7 +71,7 @@ export function Projects() {
         <div className="flex flex-col items-center justify-center py-24 text-center text-muted-foreground gap-3">
           <FolderOpen className="h-12 w-12 opacity-30" aria-hidden="true" />
           <p className="text-lg font-medium">No projects yet</p>
-          <p className="text-sm">Create a project to group related scans together.</p>
+          <p className="text-base">Create a project to group related scans together.</p>
           <Button variant="outline" onClick={() => setShowCreate(true)} className="mt-2">
             <Plus className="h-4 w-4 mr-1.5" aria-hidden="true" />
             New Project
@@ -113,19 +113,19 @@ export function Projects() {
                 </div>
               </div>
               {project.description && (
-                <p className="text-sm text-muted-foreground mb-3">{project.description}</p>
+                <p className="text-base text-muted-foreground mb-3">{project.description}</p>
               )}
               <p className="text-xs text-muted-foreground">
                 Created {new Date(project.createdAt).toLocaleDateString()}
               </p>
             </div>
             <div className="px-5 py-3 border-t border-border flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">
+              <span className="text-base text-muted-foreground">
                 {project.reportCount} {project.reportCount === 1 ? 'report' : 'reports'}
               </span>
               <Link
                 to={`/projects/${project.id}`}
-                className="text-sm text-link hover:underline"
+                className="text-base text-link hover:underline"
               >
                 View reports →
               </Link>
@@ -160,7 +160,7 @@ export function Projects() {
                   onChange={e => setNewDescription(e.target.value)}
                 />
               </div>
-              {createError && <p className="text-sm text-destructive">{createError}</p>}
+              {createError && <p className="text-base text-destructive">{createError}</p>}
             </div>
             <DialogFooter className="gap-2 mt-4">
               <DialogClose asChild>

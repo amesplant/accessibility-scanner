@@ -41,7 +41,7 @@ export function LevelChart({ data }: LevelChartProps) {
           const pct = total > 0 ? Math.round((d.count / total) * 100) : 0;
           return (
             <div key={d.level} className="flex items-center">
-              <span className="w-24 text-sm font-medium capitalize">{d.level}</span>
+              <span className="w-24 text-base font-medium capitalize">{d.level}</span>
               <div className="flex-1 ml-2 h-6 rounded bg-muted/30">
                 <div
                   className="h-full rounded"

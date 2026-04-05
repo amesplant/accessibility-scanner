@@ -44,7 +44,7 @@ export function ImpactChart({ data }: ImpactChartProps) {
           const pct = total > 0 ? Math.round((d.count / total) * 100) : 0;
           return (
             <div key={d.impact} className="flex items-center">
-              <span className="w-24 text-sm font-medium capitalize">{d.impact}</span>
+              <span className="w-24 text-base font-medium capitalize">{d.impact}</span>
               <div className="flex-1 ml-2 h-6 rounded bg-muted/30">
                 <div
                   className="h-full rounded"

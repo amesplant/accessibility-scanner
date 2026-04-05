@@ -26,12 +26,12 @@ const impactColors = {
 export function ViolationsTable({ reportId }: ViolationsTableProps) {
   const { items, total, loading, error, page, setPage, totalPages } = useViolationGroups(reportId);
 
-  if (loading) return <div className="text-sm text-muted-foreground">Loading violations…</div>;
-  if (error) return <div className="text-sm text-destructive">{error}</div>;
+  if (loading) return <div className="text-base text-muted-foreground">Loading violations…</div>;
+  if (error) return <div className="text-base text-destructive">{error}</div>;
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm text-muted-foreground">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-base text-muted-foreground">
         <span>Page {page} of {totalPages} — {total} violation groups</span>
         <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
       </div>

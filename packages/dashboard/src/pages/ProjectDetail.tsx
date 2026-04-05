@@ -115,7 +115,7 @@ export function ProjectDetail() {
 
   return (
     <div className="container mx-auto p-6">
-      <Link to="/projects" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-link mb-6">
+      <Link to="/projects" className="inline-flex items-center gap-1.5 text-base text-muted-foreground hover:text-link mb-6">
         <ArrowLeft className="h-4 w-4" aria-hidden="true" />
         All Projects
       </Link>
@@ -171,7 +171,7 @@ export function ProjectDetail() {
             </div>
           ) : (
             <div className="flex items-center gap-2 mt-1 group">
-              <p className="text-sm text-muted-foreground">
+              <p className="text-base text-muted-foreground">
                 {project.description || <span className="italic">No description</span>}
               </p>
               <button
@@ -203,8 +203,8 @@ export function ProjectDetail() {
       {/* Reports list */}
       {project.reports.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground">
-          <p className="text-sm">No reports in this project yet.</p>
-          <p className="text-sm mt-1">
+          <p className="text-base">No reports in this project yet.</p>
+          <p className="text-base mt-1">
             <button
               type="button"
               onClick={() => navigate('/', { state: { newScan: true, projectId: project.id } })}
@@ -223,7 +223,7 @@ export function ProjectDetail() {
                 <div className="min-w-0">
                   <p className="font-semibold truncate">{report.pageTitle || report.sitemap}</p>
                   {report.pageTitle && report.sitemap.startsWith('http') && (
-                    <ExternalLink href={report.sitemap} className="text-sm text-muted-foreground break-all">
+                    <ExternalLink href={report.sitemap} className="text-base text-muted-foreground break-all">
                       {report.sitemap}
                     </ExternalLink>
                   )}
@@ -237,7 +237,7 @@ export function ProjectDetail() {
                       {new Date(report.startTime).toLocaleString()}
                     </span>
                   </div>
-                  <div className="flex gap-6 mt-3 text-sm">
+                  <div className="flex gap-6 mt-3 text-base">
                     <span><strong>{report.summary.totalPages}</strong> <span className="text-muted-foreground">pages</span></span>
                     <span><strong className="text-red-400">{report.summary.totalViolations}</strong> <span className="text-muted-foreground">violations</span></span>
                     <span><strong>{report.summary.violationsByImpact?.critical ?? 0}</strong> <span className="text-muted-foreground">critical</span></span>
@@ -246,14 +246,14 @@ export function ProjectDetail() {
                 <div className="flex items-center gap-2 shrink-0">
                   <Link
                     to={`/reports/${report.id}`}
-                    className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors"
+                    className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-base font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors"
                   >
                     View Report
                   </Link>
                   <button
                     type="button"
                     onClick={() => setExportReport(report)}
-                    className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-primary/20 hover:border-primary"
+                    className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border px-4 py-2 text-base font-medium text-foreground transition-colors hover:bg-primary/20 hover:border-primary"
                   >
                     <Download className="h-4 w-4" aria-hidden="true" />
                     Export

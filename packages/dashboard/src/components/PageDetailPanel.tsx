@@ -39,7 +39,7 @@ export function PageDetailPanel({ page, onClose }: PageDetailPanelProps) {
         </CardTitle>
         <Button size="sm" variant="outline" onClick={onClose} className="ml-4 shrink-0">Close</Button>
       </CardHeader>
-      <CardContent className="space-y-4 text-sm">
+      <CardContent className="space-y-4 text-base">
 
         <div className="flex flex-wrap gap-3">
           <div>

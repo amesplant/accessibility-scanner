@@ -37,7 +37,7 @@ export function ViolationDetail() {
         <ul className="list-disc ml-6">
           {urls.map((u) => (
             <li key={u}>
-              <ExternalLink href={u} className="text-sm">{u}</ExternalLink>
+              <ExternalLink href={u} className="text-base">{u}</ExternalLink>
             </li>
           ))}
         </ul>
@@ -46,7 +46,7 @@ export function ViolationDetail() {
       <div className="space-y-4">
         <div>
           <h2 className="font-semibold">Description</h2>
-          <p className="text-sm">{violation.description}</p>
+          <p className="text-base">{violation.description}</p>
         </div>
 
         <div>
@@ -86,17 +86,17 @@ export function ViolationDetail() {
               <pre className="p-2 rounded text-xs overflow-x-auto">
                 <code>{node.html}</code>
               </pre>
-              <p className="text-sm">
+              <p className="text-base">
                 Target: {node.target.join(' > ')}
               </p>
-              <p className="text-sm">{node.failureSummary}</p>
+              <p className="text-base">{node.failureSummary}</p>
             </div>
           ))}
         </div>
 
         <div>
           <h2 className="font-semibold">Help URL</h2>
-          <ExternalLink href={violation.helpUrl} className="text-sm">
+          <ExternalLink href={violation.helpUrl} className="text-base">
             {violation.helpUrl}
           </ExternalLink>
         </div>
