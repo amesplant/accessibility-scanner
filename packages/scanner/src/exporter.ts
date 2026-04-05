@@ -22,25 +22,6 @@ export class Reporter {
    * newlines are preserved; description text may contain Markdown and
    * will typically span multiple lines.
    */
-  exportToCsv(report: ScanReport, selectedViolations?: string[], tasklistName?: string, selectedLevels?: string[]): string {
-    const rows = this.buildRows(report, selectedViolations, tasklistName, selectedLevels);
-    const manualRows = this.buildManualAuditRows(report);
-
-    const allRows = manualRows.length > 0 ? [...rows, ...manualRows] : rows;
-
-    return allRows
-      .map((row: string[]) =>
-        row
-          .map((cell: string) =>
-            cell.includes(',') || cell.includes('"') || cell.includes('\n')
-              ? `"${cell.replace(/"/g, '""')}"`
-              : cell
-          )
-          .join(',')
-      )
-      .join('\n');
-  }
-
   /**
    * Produce an xlsx workbook buffer suitable for writing to disk or
    * streaming back to an HTTP client.  The sheet uses the same headers
@@ -497,29 +478,6 @@ h3. Recommended Assignment
       }
     }
     return result;
-  }
-
-  private buildManualAuditRows(report: ScanReport): string[][] {
-    const entries = this.collectManualChecks(report);
-    if (entries.length === 0) return [];
-
-    const rows: string[][] = [];
-    rows.push(['--- MANUAL AUDIT ---']);
-    rows.push(['Criterion', 'Level', 'Title', 'Status', 'Notes', 'Impact']);
-    for (const { check, failedElements } of entries) {
-      const extraNotes = failedElements.length > 0
-        ? `${check.notes ?? ''}\n\nFailed elements (${failedElements.length}):\n${failedElements.map(e => `- ${e.html}${e.auditComment ? ` — ${e.auditComment}` : ''}`).join('\n')}`.trim()
-        : (check.notes ?? '');
-      rows.push([
-        check.wcagCriterion ?? '',
-        check.level ?? '',
-        check.title,
-        check.status,
-        extraNotes,
-        check.impact ?? '',
-      ]);
-    }
-    return rows;
   }
 
   private wcagCriteriaTags(tags: string[]): string[] {

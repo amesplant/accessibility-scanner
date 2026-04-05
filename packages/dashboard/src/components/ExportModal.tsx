@@ -78,14 +78,13 @@ export function ExportModal({ report, onClose }: ExportModalProps) {
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
               <Label id={formatLabelId}>Format</Label>
-              <Select value={format} onValueChange={v => setFormat(v as 'csv' | 'excel' | 'jira')}>
+              <Select value={format} onValueChange={v => setFormat(v as 'excel' | 'jira')}>
                 <SelectTrigger aria-labelledby={formatLabelId}>
                   <SelectValue>{EXPORT_FORMAT_LABELS[format]}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="excel">{EXPORT_FORMAT_LABELS.excel}</SelectItem>
                   <SelectItem value="jira">{EXPORT_FORMAT_LABELS.jira}</SelectItem>
-                  <SelectItem value="csv">{EXPORT_FORMAT_LABELS.csv}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

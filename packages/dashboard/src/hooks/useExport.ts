@@ -1,8 +1,7 @@
 import { useState } from 'react';
 
-export const EXPORT_FORMAT_LABELS: Record<'csv' | 'excel' | 'jira', string> = {
+export const EXPORT_FORMAT_LABELS: Record<'excel' | 'jira', string> = {
   excel: 'Teamwork (.xlsx)',
-  csv: 'CSV (.csv)',
   jira: 'Jira (.csv)',
 };
 
@@ -16,7 +15,7 @@ function triggerDownload(blob: Blob, filename: string) {
 }
 
 export function useExport(reportId: string) {
-  const [format, setFormat] = useState<'csv' | 'excel' | 'jira'>('excel');
+  const [format, setFormat] = useState<'excel' | 'jira'>('excel');
   const [tasklistName, setTasklistName] = useState('Accessibility Audit');
   const [isExporting, setIsExporting] = useState(false);
 
@@ -33,13 +32,6 @@ export function useExport(reportId: string) {
           body: JSON.stringify({ selectedLevels: levels }),
         });
         triggerDownload(new Blob([await res.text()], { type: 'text/csv' }), `${name}-jira.csv`);
-      } else if (format === 'csv') {
-        const res = await fetch(`/api/reports/${reportId}/export/csv`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tasklistName: tasklistName.trim() || undefined, selectedLevels: levels }),
-        });
-        triggerDownload(new Blob([await res.text()], { type: 'text/csv' }), `${name}.csv`);
       } else {
         const res = await fetch(`/api/reports/${reportId}/export/excel`, {
           method: 'POST',

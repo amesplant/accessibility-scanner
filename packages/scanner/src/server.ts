@@ -173,22 +173,6 @@ app.delete('/api/reports', async (_req, res) => {
 // Exports
 // ---------------------------------------------------------------------------
 
-app.post('/api/reports/:id/export/csv', async (req, res) => {
-  try {
-    const report = await db.getReport(req.params.id);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
-    const { selectedViolations, tasklistName, selectedLevels } = req.body;
-    const exporter = new Reporter();
-    const csvData = exporter.exportToCsv(report, selectedViolations, tasklistName, selectedLevels);
-    res.header('Content-Type', 'text/csv');
-    res.header('Content-Disposition', `attachment; filename="accessibility-export-${req.params.id}.csv"`);
-    return res.send(csvData);
-  } catch (error) {
-    console.error('CSV export error:', error);
-    return res.status(500).json({ error: 'CSV export failed' });
-  }
-});
-
 app.post('/api/reports/:id/export/excel', async (req, res) => {
   try {
     const report = await db.getReport(req.params.id);
