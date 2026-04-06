@@ -50,6 +50,7 @@ const LEVELS = [
   { value: 'best-practice', label: 'Best Practice' },
 ] as const;
 
+
 const SCOPE_OPTIONS: { value: 'all' | 'automated' | 'manual'; label: string; description: string }[] = [
   { value: 'all',       label: 'All issues',      description: 'Automated violations + manual audit checks' },
   { value: 'automated', label: 'Automated only',   description: 'Only axe-detected violations' },

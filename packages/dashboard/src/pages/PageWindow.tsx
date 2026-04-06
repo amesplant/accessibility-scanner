@@ -17,7 +17,7 @@ export function PageWindow() {
   const location = useLocation();
   const initialTab = (location.state as { tab?: string } | null)?.tab ?? 'automated';
 
-  const { audit, detectedElements, updateCheck, updateNotes, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement, addElementFailure, updateElementFailure, deleteElementFailure, generateFocusOrderScreenshot, detectFocusTriggers, generateElementScreenshot } =
+  const { audit, detectedElements, updateCheck, updateNotes, updateQuestionStatuses, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement, addElementFailure, updateElementFailure, deleteElementFailure, generateFocusOrderScreenshot, detectFocusTriggers, generateElementScreenshot } =
     useManualAudit(id ?? '', pageId ?? '', page?.manualAudit, page?.detectedElements);
 
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -482,6 +482,7 @@ export function PageWindow() {
             audit={audit}
             detectedElements={detectedElements}
             onStatusChange={updateCheck}
+            onUpdateQuestionStatuses={updateQuestionStatuses}
             onNotesChange={updateNotes}
             onAddCustomCheck={addCustomCheck}
             onDeleteCustomCheck={deleteCustomCheck}

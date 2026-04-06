@@ -59,6 +59,8 @@ import {
   Info,
   Sun,
   Moon,
+  Flag,
+  Layers,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -123,6 +125,20 @@ const INSTANCE_STATUS_OPTIONS: { value: 'fail' | 'pass'; label: string }[] = [
 const INSTANCE_STATUS_COLORS: Record<'fail' | 'pass', string> = {
   'fail': 'bg-red-100   text-red-800   border-red-200',
   'pass': 'bg-green-100 text-green-800 border-green-200',
+};
+
+const IMPACT_OPTIONS: { value: ImpactLevel; label: string }[] = [
+  { value: 'critical', label: 'Critical' },
+  { value: 'serious',  label: 'Serious' },
+  { value: 'moderate', label: 'Moderate' },
+  { value: 'minor',    label: 'Minor' },
+];
+
+const IMPACT_COLORS: Record<ImpactLevel, string> = {
+  critical: 'bg-red-100    text-red-800    border-red-200',
+  serious:  'bg-orange-100 text-orange-800 border-orange-200',
+  moderate: 'bg-amber-100  text-amber-800  border-amber-200',
+  minor:    'bg-sky-100    text-sky-800    border-sky-200',
 };
 
 // ---------------------------------------------------------------------------
@@ -403,10 +419,11 @@ function FailureInstanceItem({
 }: {
   index: number;
   failure: ManualFailureInstance;
-  checkContext?: { id: string; title: string; criterion?: string; description?: string };
+  checkContext?: { id: string; title: string; criterion?: string; description?: string; level?: string };
   onUpdate: (data: FailureUpdateData) => void;
   onDelete: () => void;
 }) {
+  const [localTitle, setLocalTitle] = useState(failure.title ?? '');
   const [localNotes, setLocalNotes] = useState(failure.notes ?? '');
   const [localCode, setLocalCode] = useState(failure.codeSnippet ?? '');
   const [localRemediation, setLocalRemediation] = useState(failure.remediationRecommendation ?? '');
@@ -432,6 +449,7 @@ function FailureInstanceItem({
 
   function handleSave() {
     onUpdate({
+      title: localTitle || undefined,
       notes: localNotes || undefined,
       codeSnippet: localCode || undefined,
       screenshotDataUrl: screenshot,
@@ -545,6 +563,10 @@ function FailureInstanceItem({
             );
           })}
           <span className="text-muted-foreground/30 select-none px-0.5" aria-hidden="true">|</span>
+          <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground select-none" aria-label="Scope">
+            <Layers className="h-3 w-3" aria-hidden="true" />
+            <span className="sr-only">Scope</span>
+          </span>
           {SCOPE_OPTIONS.map(opt => {
             const active = failure.scope === opt.value;
             return (
@@ -564,6 +586,30 @@ function FailureInstanceItem({
               </button>
             );
           })}
+          <span className="text-muted-foreground/30 select-none px-0.5" aria-hidden="true">|</span>
+          <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground select-none" aria-label="Severity">
+            <Flag className="h-3 w-3" aria-hidden="true" />
+            <span className="sr-only">Severity</span>
+          </span>
+          {IMPACT_OPTIONS.map(opt => {
+            const active = failure.impact === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => onUpdate({ impact: active ? undefined : opt.value })}
+                aria-pressed={active}
+                className={cn(
+                  'inline-flex items-center rounded border text-xs h-5 px-1.5 py-0 font-medium transition-opacity',
+                  active
+                    ? IMPACT_COLORS[opt.value]
+                    : 'bg-transparent text-muted-foreground border-dashed border-muted-foreground/30 hover:border-muted-foreground/60',
+                )}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
         </div>
         <button
           type="button"
@@ -573,6 +619,19 @@ function FailureInstanceItem({
         >
           <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
+      </div>
+
+      {/* Issue title */}
+      <div className="space-y-1">
+        <Label htmlFor={`failure-title-${failure.id}`} className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          Issue title
+        </Label>
+        <Input
+          id={`failure-title-${failure.id}`}
+          value={localTitle}
+          onChange={e => { setLocalTitle(e.target.value); markDirty(); }}
+          className="h-7 text-xs"
+        />
       </div>
 
       {/* Issue description */}
@@ -726,11 +785,20 @@ function FailureInstanceItem({
             singleIssue={{
               kind: 'failure',
               data: {
+                title: localTitle || failure.title || undefined,
                 notes: localNotes || undefined,
                 codeSnippet: localCode || undefined,
+                screenshotDataUrl: screenshot,
                 remediationRecommendation: localRemediation || undefined,
+                impact: failure.impact,
                 checkContext: checkContext
-                  ? { criterion: checkContext.criterion, title: checkContext.title, description: checkContext.description }
+                  ? {
+                      criterion: checkContext.criterion,
+                      criterionTitle: checkContext.criterion ? PREDEFINED_MAP[checkContext.criterion]?.title : undefined,
+                      title: checkContext.title,
+                      description: checkContext.description,
+                      level: checkContext.level,
+                    }
                   : undefined,
               },
             }}
@@ -979,7 +1047,7 @@ function FocusOrderRow({
       {showFailures && onAddFailure && (
         <FailureInstancesSection
           failures={element.failures}
-          checkContext={{ id: element.id, title: elementTitle, criterion: criterionId }}
+          checkContext={{ id: element.id, title: elementTitle, criterion: criterionId, level: criterionId ? PREDEFINED_MAP[criterionId]?.level : undefined }}
           onAdd={onAddFailure}
           onUpdate={(fid, data) => onUpdateFailure?.(fid, data)}
           onDelete={fid => onDeleteFailure?.(fid)}
@@ -1237,7 +1305,7 @@ function NonTextElementRow({
       {showFailures && onAddFailure && (
         <FailureInstancesSection
           failures={element.failures}
-          checkContext={{ id: element.id, title: elementTitle, criterion: criterionId, description: undefined }}
+          checkContext={{ id: element.id, title: elementTitle, criterion: criterionId, description: undefined, level: criterionId ? PREDEFINED_MAP[criterionId]?.level : undefined }}
           onAdd={onAddFailure}
           onUpdate={(fid, data) => onUpdateFailure?.(fid, data)}
           onDelete={fid => onDeleteFailure?.(fid)}
@@ -1498,7 +1566,7 @@ function NonTextElementsPanel({
 // FailureUpdateData — shared type for failure instance patch payloads
 // ---------------------------------------------------------------------------
 
-type FailureUpdateData = Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>;
+type FailureUpdateData = Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'impact' | 'title' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>;
 type FailureSeedData = Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>;
 function buildSeededIssueNotes(element: DetectedElement): string | undefined {
   const text = element.textAlternative?.trim();
@@ -1583,7 +1651,7 @@ function FailureInstancesSection({
   className,
 }: {
   failures?: ManualFailureInstance[];
-  checkContext: { id: string; title: string; criterion?: string; description?: string };
+  checkContext: { id: string; title: string; criterion?: string; description?: string; level?: string };
   onAdd: () => void;
   onUpdate: (failureId: string, data: FailureUpdateData) => void;
   onDelete: (failureId: string) => void;
@@ -1627,6 +1695,7 @@ function CheckRow({
   check,
   showMeta,
   onStatusChange,
+  onUpdateQuestionStatuses,
   onAddFailure,
   onUpdateFailure,
   onDeleteFailure,
@@ -1643,6 +1712,7 @@ function CheckRow({
   /** show level + category badges (used when the group doesn't already convey this) */
   showMeta?: boolean;
   onStatusChange: (status: ManualAuditStatus) => void;
+  onUpdateQuestionStatuses?: (statuses: ManualAuditStatus[]) => void;
   onAddFailure: () => void;
   onUpdateFailure: (failureId: string, data: FailureUpdateData) => void;
   onDeleteFailure: (failureId: string) => void;
@@ -1660,7 +1730,9 @@ function CheckRow({
   const meta = check.wcagCriterion ? PREDEFINED_MAP[check.wcagCriterion] : undefined;
   const bodyId = `check-body-${check.id}`;
   const questions = meta?.questions ?? [];
-  const [questionStatuses, setQuestionStatuses] = useState<ManualAuditStatus[]>(() => questions.map(() => 'not-tested'));
+  const [questionStatuses, setQuestionStatuses] = useState<ManualAuditStatus[]>(
+    () => check.questionStatuses ?? questions.map(() => 'not-tested'),
+  );
 
   const QUESTION_STATUS_OPTIONS: { value: ManualAuditStatus; label: string }[] = [
     { value: 'pass', label: 'Pass' },
@@ -1805,7 +1877,11 @@ function CheckRow({
                             key={value}
                             type="button"
                             aria-pressed={selected}
-                            onClick={() => setQuestionStatuses(prev => prev.map((s, idx) => idx === i ? value : s))}
+                            onClick={() => {
+                              const next = questionStatuses.map((s, idx) => idx === i ? value : s);
+                              setQuestionStatuses(next);
+                              onUpdateQuestionStatuses?.(next);
+                            }}
                             className={cn(
                               'inline-flex items-center rounded px-2 py-0.5 text-xs font-medium border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
                               selected ? colorClass : cn('border-transparent', colorClass),
@@ -1821,6 +1897,20 @@ function CheckRow({
               </ol>
             </div>
           )}
+
+          {/* Quick-add failure instance — between How to Test and Detected Elements */}
+          <div className="mb-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => { onAddFailure(); if (check.status !== 'fail') onStatusChange('fail'); }}
+              className="h-7 text-xs gap-1.5 border-dashed"
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+              Add failure instance
+            </Button>
+          </div>
 
           {/* Smart element panel */}
           {smartElements !== undefined ? (
@@ -1884,7 +1974,7 @@ function CheckRow({
           {(check.status === 'fail' || (check.failures ?? []).length > 0) && (
             <FailureInstancesSection
               failures={check.failures}
-              checkContext={{ id: check.id, title: check.title, criterion: check.wcagCriterion, description: check.description }}
+              checkContext={{ id: check.id, title: check.title, criterion: check.wcagCriterion, description: check.description, level: check.level }}
               onAdd={onAddFailure}
               onUpdate={(fid, data) => onUpdateFailure(fid, data)}
               onDelete={onDeleteFailure}
@@ -1992,7 +2082,7 @@ function CustomCheckItem({
       {showFailures && onAddFailure && (
         <FailureInstancesSection
           failures={check.failures}
-          checkContext={{ id: check.id, title: check.title, criterion: check.wcagCriterion, description: check.description }}
+          checkContext={{ id: check.id, title: check.title, criterion: check.wcagCriterion, description: check.description, level: check.level }}
           onAdd={onAddFailure}
           onUpdate={(fid, data) => onUpdateFailure?.(fid, data)}
           onDelete={fid => onDeleteFailure?.(fid)}
@@ -2010,6 +2100,7 @@ function CustomCheckItem({
 function CheckGroupSection({
   group,
   onStatusChange,
+  onUpdateQuestionStatuses,
   onNotesChange,
   onDeleteCustomCheck,
   onAddFailure,
@@ -2026,6 +2117,7 @@ function CheckGroupSection({
 }: {
   group: CheckGroup;
   onStatusChange: (checkId: string, status: ManualAuditStatus) => void;
+  onUpdateQuestionStatuses?: (checkId: string, statuses: ManualAuditStatus[]) => void;
   onNotesChange: (checkId: string, notes: string) => void;
   onDeleteCustomCheck: (checkId: string) => void;
   onAddFailure: (checkId: string) => void;
@@ -2109,6 +2201,9 @@ function CheckGroupSection({
                       check={check}
                       showMeta
                       onStatusChange={status => onStatusChange(check.id, status)}
+                      onUpdateQuestionStatuses={onUpdateQuestionStatuses
+                        ? statuses => onUpdateQuestionStatuses(check.id, statuses)
+                        : undefined}
                       onAddFailure={() => onAddFailure(check.id)}
                       onUpdateFailure={(fid, data) => onUpdateFailure(check.id, fid, data)}
                       onDeleteFailure={fid => onDeleteFailure(check.id, fid)}
@@ -2141,6 +2236,9 @@ function CheckGroupSection({
                   check={check}
                   showMeta
                   onStatusChange={status => onStatusChange(check.id, status)}
+                  onUpdateQuestionStatuses={onUpdateQuestionStatuses
+                    ? statuses => onUpdateQuestionStatuses(check.id, statuses)
+                    : undefined}
                   onAddFailure={() => onAddFailure(check.id)}
                   onUpdateFailure={(fid, data) => onUpdateFailure(check.id, fid, data)}
                   onDeleteFailure={fid => onDeleteFailure(check.id, fid)}
@@ -2318,6 +2416,7 @@ interface ManualAuditTabProps {
   audit: ManualAudit;
   detectedElements?: DetectedCriteriaElements;
   onStatusChange: (checkId: string, status: ManualAuditStatus) => void;
+  onUpdateQuestionStatuses?: (checkId: string, statuses: ManualAuditStatus[]) => void;
   onNotesChange: (checkId: string, notes: string) => void;
   onAddCustomCheck: (data: {
     title: string;
@@ -2345,6 +2444,7 @@ export function ManualAuditTab({
   audit,
   detectedElements,
   onStatusChange,
+  onUpdateQuestionStatuses,
   onNotesChange,
   onAddCustomCheck,
   onDeleteCustomCheck,
@@ -2529,6 +2629,7 @@ export function ManualAuditTab({
           key={group.id}
           group={group}
           onStatusChange={onStatusChange}
+          onUpdateQuestionStatuses={onUpdateQuestionStatuses}
           onNotesChange={onNotesChange}
           onDeleteCustomCheck={onDeleteCustomCheck}
           onAddFailure={onAddFailure}

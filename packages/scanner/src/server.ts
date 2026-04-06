@@ -357,11 +357,12 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId', a
     const manualAudit = await modifyReportPage(req.params.reportId, req.params.pageId, (page, { auditType }) => {
       if (!page.manualAudit) page.manualAudit = initManualAudit(auditType);
 
-      const { status, notes, codeSnippet, screenshotDataUrl } = req.body as {
+      const { status, notes, codeSnippet, screenshotDataUrl, questionStatuses } = req.body as {
         status: ManualAuditStatus;
         notes?: string;
         codeSnippet?: string;
         screenshotDataUrl?: string;
+        questionStatuses?: ManualAuditStatus[];
       };
       const check = page.manualAudit.checks.find(c => c.id === req.params.checkId);
       if (check) {
@@ -369,6 +370,7 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId', a
         if (notes !== undefined) check.notes = notes;
         if (codeSnippet !== undefined) check.codeSnippet = codeSnippet;
         if (screenshotDataUrl !== undefined) check.screenshotDataUrl = screenshotDataUrl;
+        if (questionStatuses !== undefined) check.questionStatuses = questionStatuses;
         check.updatedAt = new Date().toISOString();
       }
       page.manualAudit.lastUpdated = new Date().toISOString();
@@ -538,8 +540,10 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fai
       const failure = (check.failures ?? []).find(f => f.id === req.params.failureId);
       if (!failure) throw new Error('Failure instance not found');
 
-      const { scope, notes, codeSnippet, screenshotDataUrl, status, remediationRecommendation } = req.body;
+      const { scope, impact, title, notes, codeSnippet, screenshotDataUrl, status, remediationRecommendation } = req.body;
       if (scope !== undefined) failure.scope = scope;
+      if (impact !== undefined) failure.impact = impact;
+      if (title !== undefined) failure.title = title;
       if (notes !== undefined) failure.notes = notes;
       if (codeSnippet !== undefined) failure.codeSnippet = codeSnippet;
       if (screenshotDataUrl !== undefined) failure.screenshotDataUrl = screenshotDataUrl;
