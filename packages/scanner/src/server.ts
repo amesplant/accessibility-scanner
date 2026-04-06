@@ -831,8 +831,15 @@ app.post('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/
 
       const element = elements.find(e => e.id === req.params.elementId);
       if (!element) throw new Error('Element not found');
-
-      const failure = { id: `ef_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, createdAt: new Date().toISOString() };
+      const { notes, codeSnippet, screenshotDataUrl, remediationRecommendation } = req.body as Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>;
+      const failure: ManualFailureInstance = {
+        id: `ef_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        notes,
+        codeSnippet,
+        screenshotDataUrl,
+        remediationRecommendation,
+        createdAt: new Date().toISOString(),
+      };
       element.failures = [...(element.failures ?? []), failure];
       return page.detectedElements;
     });
