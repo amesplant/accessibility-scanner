@@ -275,6 +275,54 @@ function LevelFilterSelector({
 }
 
 // ---------------------------------------------------------------------------
+// TierFilterSelector
+// ---------------------------------------------------------------------------
+
+type TierFilter = 'all' | 'rapid' | 'mid-level';
+
+const TIER_FILTER_OPTIONS: { value: TierFilter; label: string }[] = [
+  { value: 'all',       label: 'All' },
+  { value: 'rapid',     label: 'Rapid' },
+  { value: 'mid-level', label: 'Mid-level' },
+];
+
+function TierFilterSelector({
+  value,
+  onChange,
+}: {
+  value: TierFilter;
+  onChange: (v: TierFilter) => void;
+}) {
+  return (
+    <div className="flex items-center gap-0.5">
+      <span className="text-xs text-muted-foreground mr-2 shrink-0">Tier</span>
+      <div
+        className="inline-flex items-center rounded-md border bg-muted p-0.5 gap-0.5"
+        role="group"
+        aria-label="Filter by audit tier"
+      >
+        {TIER_FILTER_OPTIONS.map(o => (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => onChange(o.value)}
+            aria-pressed={value === o.value}
+            className={cn(
+              'px-2.5 py-1 text-xs rounded font-medium transition-colors',
+              value === o.value
+                ? 'bg-background shadow-sm text-foreground'
+                : 'text-muted-foreground hover:text-foreground cursor-pointer',
+            )}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // ViewModeSelector
 // ---------------------------------------------------------------------------
 
@@ -735,6 +783,7 @@ const ELEMENT_TYPE_LABELS: Record<DetectedElement['elementType'], string> = {
   'mouse-only': 'Mouse-Only Interaction',
   'no-focus-style': 'No Focus Style',
   'keyboard-trap': 'Keyboard Trap Risk',
+  'low-contrast': 'Low Contrast Text',
 };
 
 function CopyButton({ text }: { text: string }) {
@@ -963,7 +1012,7 @@ function NonTextElementRow({
   const [contextOpen, setContextOpen] = useState(false);
   const screenshotTriggerRef = useRef<HTMLButtonElement>(null);
 
-  const isDiagnosticElement = element.elementType === 'focus-trigger' || element.elementType === 'mouse-only' || element.elementType === 'focus-order-map' || element.elementType === 'no-focus-style' || element.elementType === 'keyboard-trap';
+  const isDiagnosticElement = element.elementType === 'focus-trigger' || element.elementType === 'mouse-only' || element.elementType === 'focus-order-map' || element.elementType === 'no-focus-style' || element.elementType === 'keyboard-trap' || element.elementType === 'low-contrast';
   const elementLabel = ELEMENT_TYPE_LABELS[element.elementType];
   const elementTitle = element.textAlternative
     ? `${elementLabel}: "${element.textAlternative}"`
@@ -1699,6 +1748,8 @@ function CheckRow({
                   ? 'No keyboard trap risks detected — tab through all interactive elements and verify focus is never permanently stuck.'
                   : check.wcagCriterion === '1.1.1'
                   ? 'No non-text elements detected — manually review the page for images, icons, and controls that may lack a text alternative.'
+                  : check.wcagCriterion === '1.4.3'
+                  ? 'No contrast failures detected — manually verify text against gradient or image backgrounds where computed colors may not reflect the true contrast.'
                   : undefined
               }
             />
@@ -1710,7 +1761,8 @@ function CheckRow({
               check.wcagCriterion === '2.1.2' ||
               check.wcagCriterion === '2.4.4' ||
               check.wcagCriterion === '1.1.1' ||
-              check.wcagCriterion === '1.3.1'
+              check.wcagCriterion === '1.3.1' ||
+              check.wcagCriterion === '1.4.3'
             ) ? (
             <OnDemandDetectionPanel
               criterionId={check.wcagCriterion}
@@ -2203,15 +2255,17 @@ export function ManualAuditTab({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('wcag');
   const [levelFilter, setLevelFilter] = useState<LevelFilter>('all');
+  const [tierFilter, setTierFilter] = useState<TierFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [auditorNotes, setAuditorNotes] = useState(audit.auditorNotes ?? '');
   const markCompleteRef = useRef<HTMLButtonElement>(null);
   const reopenRef = useRef<HTMLButtonElement>(null);
 
-  // Apply level + category filters — custom checks always visible
+  // Apply level, tier, and category filters — custom checks always visible
   const visibleChecks = audit.checks.filter(c => {
     if (c.type === 'custom') return true;
     if (levelFilter !== 'all' && c.level !== levelFilter) return false;
+    if (tierFilter !== 'all' && !PREDEFINED_MAP[c.id]?.auditTags.includes(tierFilter)) return false;
     if (categoryFilter && PREDEFINED_MAP[c.id]?.category !== categoryFilter) return false;
     return true;
   });
@@ -2329,7 +2383,10 @@ export function ManualAuditTab({
       <div className="space-y-2">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <ViewModeSelector value={viewMode} onChange={setViewMode} />
-          <LevelFilterSelector value={levelFilter} onChange={setLevelFilter} />
+          <div className="flex items-center gap-3 flex-wrap">
+            <TierFilterSelector value={tierFilter} onChange={setTierFilter} />
+            <LevelFilterSelector value={levelFilter} onChange={setLevelFilter} />
+          </div>
         </div>
         {categoryFilter && (
           <div className="flex items-center gap-2">

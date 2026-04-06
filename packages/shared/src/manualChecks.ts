@@ -297,9 +297,11 @@ const _CHECKS: Omit<PredefinedCheck, 'auditTags'>[] = [
     category: 'Color & Visual',
     priority: 'high',
     questions: [
-      'Does all normal-sized body text meet a 4.5:1 contrast ratio against its background?',
+      'For each element flagged below, verify the contrast ratio shown is accurate — check whether a background image or gradient affects the true ratio.',
+      'Does all normal-sized body text (below 18pt / 24px regular or 14pt / ~19px bold) meet a 4.5:1 contrast ratio?',
       'Does all large text (18pt+ regular or 14pt+ bold) meet at least 3:1 contrast?',
-      'Do placeholder texts, disabled labels, and decorative text that conveys information meet the minimum threshold?',
+      'Do any links that are distinguished from surrounding body text by color alone (no underline) meet at least 3:1 against the surrounding text?',
+      'Are placeholder texts, ghost text, and disabled-state labels either below the threshold intentionally, or do they convey information users need?',
     ],
   },
   {
