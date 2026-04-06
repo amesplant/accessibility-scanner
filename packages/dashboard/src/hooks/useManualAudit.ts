@@ -66,6 +66,30 @@ export function useManualAudit(
     [reportId, pageId],
   );
 
+  const updateQuestionStatuses = useCallback(
+    async (checkId: string, questionStatuses: ManualAuditStatus[]) => {
+      setAudit(prev => ({
+        ...prev,
+        checks: prev.checks.map(c =>
+          c.id === checkId ? { ...c, questionStatuses, updatedAt: new Date().toISOString() } : c,
+        ),
+      }));
+
+      try {
+        const check = audit.checks.find(c => c.id === checkId);
+        if (!check) return;
+        await fetch(`/api/reports/${reportId}/pages/${pageId}/manual-audit/checks/${checkId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: check.status, questionStatuses }),
+        });
+      } catch (err) {
+        console.error('Failed to update question statuses:', err);
+      }
+    },
+    [reportId, pageId, audit],
+  );
+
   const updateNotes = useCallback(
     async (checkId: string, notes: string) => {
       setAudit(prev => ({
@@ -452,5 +476,5 @@ export function useManualAudit(
     [reportId, pageId],
   );
 
-  return { audit, detectedElements, updateCheck, updateNotes, updateEvidence, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement, addElementFailure, updateElementFailure, deleteElementFailure, generateFocusOrderScreenshot, detectFocusTriggers, generateElementScreenshot };
+  return { audit, detectedElements, updateCheck, updateNotes, updateQuestionStatuses, updateEvidence, addCustomCheck, deleteCustomCheck, updateAuditorNotes, toggleComplete, addFailure, updateFailure, deleteFailure, updateDetectedElement, addElementFailure, updateElementFailure, deleteElementFailure, generateFocusOrderScreenshot, detectFocusTriggers, generateElementScreenshot };
 }

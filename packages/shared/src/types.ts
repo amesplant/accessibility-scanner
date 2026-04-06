@@ -15,6 +15,8 @@ export interface ManualFailureInstance {
   id: string;
   status?: 'pass' | 'fail';
   scope?: FailureScope;
+  impact?: 'minor' | 'moderate' | 'serious' | 'critical';
+  title?: string;
   notes?: string;
   codeSnippet?: string;
   screenshotDataUrl?: string;
@@ -35,6 +37,7 @@ export interface ManualCheckResult {
   screenshotDataUrl?: string; // base64 data URL of screenshot
   impact?: 'minor' | 'moderate' | 'serious' | 'critical';
   failures?: ManualFailureInstance[];
+  questionStatuses?: ManualAuditStatus[];
   updatedAt: string;         // ISO date
 }
 

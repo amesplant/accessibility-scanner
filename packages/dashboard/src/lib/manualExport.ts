@@ -6,11 +6,14 @@ import type { ManualCheckResult } from '@accessibility-scanner/shared';
 // ---------------------------------------------------------------------------
 
 export interface FailureExportData {
+  title?: string;
   notes?: string;
   codeSnippet?: string;
+  screenshotDataUrl?: string;
   remediationRecommendation?: string;
-  checkContext?: { criterion?: string; title?: string; level?: string; description?: string };
+  checkContext?: { criterion?: string; criterionTitle?: string; title?: string; level?: string; description?: string };
   tasklistName?: string;
+  impact?: 'minor' | 'moderate' | 'serious' | 'critical';
 }
 
 // ---------------------------------------------------------------------------
@@ -231,16 +234,28 @@ export function exportCheckAsJiraCsv(check: ManualCheckResult, fileName?: string
 // Teamwork / XLSX — failure instance level
 // ---------------------------------------------------------------------------
 
+function issueLabel(title: string | undefined, notes: string | undefined): string {
+  const raw = title?.trim() || notes?.trim().split('\n')[0].trim() || '';
+  return raw.length > 60 ? raw.slice(0, 57) + '…' : raw;
+}
+
 export function exportFailureAsTeamworkXlsx(data: FailureExportData, fileName?: string) {
-  const { notes, codeSnippet, remediationRecommendation, checkContext, tasklistName = 'Accessibility Audit' } = data;
+  const { title: instanceTitle, notes, codeSnippet, screenshotDataUrl, remediationRecommendation, checkContext, tasklistName = 'Accessibility Audit', impact } = data;
   const criterion = checkContext?.criterion ?? '';
   const level = checkContext?.level ?? '';
   const levelLabel = level || 'Manual';
-  const title = checkContext?.title ?? 'Manual Issue';
+  const title = checkContext?.criterionTitle ?? checkContext?.title ?? 'Manual Issue';
 
-  const taskName = criterion ? `${criterion} ${title} | ${levelLabel}` : `${title} | Manual`;
+  const label = issueLabel(instanceTitle, notes);
+  const labelSuffix = label ? ` [${label}]` : '';
+  const taskName = criterion
+    ? `${criterion} ${title} | ${levelLabel}${labelSuffix}`
+    : `${title} | Manual${labelSuffix}`;
 
   const noteText = notes ?? 'No description provided.';
+  const screenshotBlock = screenshotDataUrl
+    ? `\n**b. Screenshot**\n\n> Screenshot captured — attach image to this task.\n`
+    : `\n**b. Screenshot**\n\n> *No screenshot provided — attach one if available.*\n`;
   const codeBlock = codeSnippet ? `\n**c. Code Snippet**\n\n\`\`\`html\n${codeSnippet}\n\`\`\`\n` : '';
   const remediationText = remediationRecommendation ?? '*Replace with the steps required to fix this issue.*';
 
@@ -251,7 +266,7 @@ export function exportFailureAsTeamworkXlsx(data: FailureExportData, fileName?: 
 **a. Description of Issue**
 
 > ${noteText}
-${codeBlock}
+${screenshotBlock}${codeBlock}
 ---
 
 ### 2. Remediation
@@ -274,13 +289,18 @@ ${codeBlock}
 > - [ ] Engineer
 `;
 
-  const tagParts = ['Accessibility', 'Manual'];
+  const tagParts = ['Accessibility', 'Manual', 'Verified Issue'];
   if (level) tagParts.push(level);
+  if (impact) tagParts.push(impact.charAt(0).toUpperCase() + impact.slice(1) + ' Issue');
+
+  const priorityMap: Record<string, string> = { critical: 'Urgent', serious: 'High', moderate: 'Medium', minor: 'Low' };
+  const priority = impact ? (priorityMap[impact] ?? '') : '';
 
   const dataRow: string[] = new Array(10).fill('');
   dataRow[0] = tasklistName;
   dataRow[1] = taskName;
   dataRow[2] = description;
+  dataRow[6] = priority;
   dataRow[8] = tagParts.join(', ');
   dataRow[9] = 'Active';
 
@@ -298,22 +318,29 @@ ${codeBlock}
 // ---------------------------------------------------------------------------
 
 export function exportFailureAsJiraCsv(data: FailureExportData, fileName?: string) {
-  const { notes, codeSnippet, remediationRecommendation, checkContext } = data;
+  const { title: instanceTitle, notes, codeSnippet, screenshotDataUrl, remediationRecommendation, checkContext, impact } = data;
   const criterion = checkContext?.criterion ?? '';
   const level = checkContext?.level ?? '';
   const levelLabel = level || 'Manual';
-  const title = checkContext?.title ?? 'Manual Issue';
+  const title = checkContext?.criterionTitle ?? checkContext?.title ?? 'Manual Issue';
 
-  const summary = criterion ? `${criterion} ${title} | ${levelLabel}` : `${title} | Manual`;
+  const label = issueLabel(instanceTitle, notes);
+  const labelSuffix = label ? ` [${label}]` : '';
+  const summary = criterion
+    ? `${criterion} ${title} | ${levelLabel}${labelSuffix}`
+    : `${title} | Manual${labelSuffix}`;
 
   const noteText = notes || '_No description provided._';
+  const screenshotSection = screenshotDataUrl
+    ? `\nh3. Screenshot\n\nScreenshot captured — attach image to this issue.\n`
+    : `\nh3. Screenshot\n\n_No screenshot provided — attach one if available._\n`;
   const codeBlock = codeSnippet ? `\nh3. Code Snippet\n\n{code:html}\n${codeSnippet}\n{code}\n` : '';
   const remediationSection = remediationRecommendation || '_Replace this section with the steps required to fix this issue._';
 
   const description = `h3. Issue Description
 
 ${noteText}
-${codeBlock}
+${screenshotSection}${codeBlock}
 h3. Remediation
 
 ${remediationSection}
@@ -329,13 +356,17 @@ h3. Recommended Assignment
 * [ ] Engineer
 `;
 
-  const labelParts = ['Accessibility', 'Manual'];
+  const impactMap: Record<string, string> = { critical: 'Highest', serious: 'High', moderate: 'Medium', minor: 'Low' };
+  const priority = impact ? (impactMap[impact] ?? 'Medium') : 'Medium';
+
+  const labelParts = ['Accessibility', 'Manual', 'Verified'];
   if (level) labelParts.push(`WCAG-${level}`);
   if (criterion) labelParts.push(`WCAG-${criterion.replace(/\./g, '')}`);
+  if (impact) labelParts.push(impact.charAt(0).toUpperCase() + impact.slice(1));
 
   const rows = [
     ['Summary', 'Issue Type', 'Priority', 'Labels', 'Description'],
-    [summary, 'Task', 'Medium', labelParts.join(' '), description],
+    [summary, 'Task', priority, labelParts.join(' '), description],
   ];
 
   triggerCsvDownload(rowsToCsv(rows), fileName ? `${fileName}-jira` : `${failureSlug(data)}-jira`);
