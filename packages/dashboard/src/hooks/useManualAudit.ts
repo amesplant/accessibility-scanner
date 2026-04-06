@@ -239,11 +239,15 @@ export function useManualAudit(
   );
 
   const addElementFailure = useCallback(
-    async (criterionId: string, elementId: string) => {
+    async (
+      criterionId: string,
+      elementId: string,
+      data?: Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>,
+    ) => {
       try {
         const res = await fetch(
           `/api/reports/${reportId}/pages/${pageId}/elements/${criterionId}/${elementId}/failures`,
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) },
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data ?? {}) },
         );
         const json = await res.json();
         if (json.detectedElements) setDetectedElements(json.detectedElements);

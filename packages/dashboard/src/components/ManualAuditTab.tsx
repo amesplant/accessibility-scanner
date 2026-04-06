@@ -1402,7 +1402,7 @@ function NonTextElementsPanel({
   elements: DetectedElement[];
   criterionId?: string;
   onUpdate?: (elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => void;
-  onAddElementFailure?: (elementId: string) => void;
+  onAddElementFailure?: (elementId: string, data?: FailureSeedData) => void;
   onUpdateElementFailure?: (elementId: string, failureId: string, data: FailureUpdateData) => void;
   onDeleteElementFailure?: (elementId: string, failureId: string) => void;
   onAutoPass?: () => void;
@@ -1480,7 +1480,7 @@ function NonTextElementsPanel({
                 element={el}
                 criterionId={criterionId}
                 onUpdate={onUpdate!}
-                onAddFailure={onAddElementFailure ? () => onAddElementFailure(el.id) : undefined}
+                onAddFailure={onAddElementFailure ? () => onAddElementFailure(el.id, buildFailureSeedFromElement(el)) : undefined}
                 onUpdateFailure={onUpdateElementFailure ? (fid, data) => onUpdateElementFailure(el.id, fid, data) : undefined}
                 onDeleteFailure={onDeleteElementFailure ? (fid) => onDeleteElementFailure(el.id, fid) : undefined}
                 onGenerateFocusOrderScreenshot={onGenerateFocusOrderScreenshot}
@@ -1499,6 +1499,76 @@ function NonTextElementsPanel({
 // ---------------------------------------------------------------------------
 
 type FailureUpdateData = Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>;
+type FailureSeedData = Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>;
+function buildSeededIssueNotes(element: DetectedElement): string | undefined {
+  const text = element.textAlternative?.trim();
+  const sr = element.screenReaderText?.trim();
+
+  switch (element.elementType) {
+    case 'img':
+    case 'input-image':
+    case 'object':
+    case 'canvas':
+    case 'area':
+      if (element.isDecorative) return 'Decorative image/object should use empty alt text (alt="") or be hidden from assistive technology.';
+      if (!text) return 'Non-text content is missing a meaningful text alternative.';
+      return `Text alternative may not be accurate for this non-text content: “${text}”.`;
+    case 'button-icon':
+      if (!text) return 'Icon-only control is missing an accessible name (e.g., aria-label or visible text).';
+      return `Icon-only control accessible name may be unclear: “${text}”.`;
+    case 'svg':
+      if (!text && !sr) return 'Meaningful SVG content may be missing an accessible name or equivalent text alternative.';
+      return `SVG accessible name may be unclear: “${text ?? sr}”.`;
+    case 'video':
+    case 'video-only':
+    case 'audio':
+      if (!text) return 'Media element may be missing an accessible label/description for assistive technology users.';
+      return `Media accessible label may be unclear: “${text}”.`;
+    case 'link':
+      if (!sr) return 'Link purpose is ambiguous and may not be understandable out of context.';
+      return `Link purpose may be ambiguous: “${sr}”.`;
+    case 'form-field':
+      return 'Form field may be missing a proper programmatic label or associated instructions.';
+    case 'data-table':
+      return 'Data table may be missing proper headers or structural relationships for assistive technology.';
+    case 'heading':
+      return 'Heading structure may be missing, out of order, or not programmatically identifiable.';
+    case 'focus-order-map':
+      return 'Focus order may not follow a logical sequence.';
+    case 'focus-trigger':
+      return 'Element may trigger an unexpected context change when it receives focus.';
+    case 'mouse-only':
+      return 'Interaction appears mouse-dependent and may not be keyboard accessible.';
+    case 'no-focus-style':
+      return 'Focusable control may not have a visible focus indicator.';
+    case 'keyboard-trap':
+      return 'Keyboard focus may become trapped in this region/control.';
+    case 'low-contrast':
+      return 'Text contrast may be below WCAG minimum contrast requirements.';
+    case 'role-img':
+      if (!text) return 'Element with role="img" is missing an accessible name/text alternative.';
+      return `role="img" accessible name may be unclear: “${text}”.`;
+    default:
+      return undefined;
+  }
+}
+
+function buildFailureSeedFromElement(element: DetectedElement): FailureSeedData {
+  const specificNotes = buildSeededIssueNotes(element);
+  const baseNotes = element.auditComment?.trim();
+  const screenReaderNotes =
+    element.screenReaderText !== undefined
+      ? element.screenReaderText
+        ? `Screen reader announces: “${element.screenReaderText}”`
+        : 'Screen reader announces nothing (silent).'
+      : undefined;
+  const notes = specificNotes || baseNotes || screenReaderNotes;
+  return {
+    notes,
+    codeSnippet: element.html || undefined,
+    screenshotDataUrl: element.contextScreenshotDataUrl || element.screenshotDataUrl || undefined,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // FailureInstancesSection — reused in CheckRow, CustomCheckItem, NonTextElementRow
@@ -1578,7 +1648,7 @@ function CheckRow({
   onDeleteFailure: (failureId: string) => void;
   smartElements?: DetectedElement[];
   onUpdateSmartElement?: (elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => void;
-  onAddElementFailure?: (elementId: string) => void;
+  onAddElementFailure?: (elementId: string, data?: FailureSeedData) => void;
   onUpdateElementFailure?: (elementId: string, failureId: string, data: FailureUpdateData) => void;
   onDeleteElementFailure?: (elementId: string, failureId: string) => void;
   onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
@@ -1963,7 +2033,7 @@ function CheckGroupSection({
   onDeleteFailure: (checkId: string, failureId: string) => void;
   detectedElements?: DetectedCriteriaElements;
   onUpdateDetectedElement?: (criterionId: string, elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => void;
-  onAddElementFailure?: (criterionId: string, elementId: string) => void;
+  onAddElementFailure?: (criterionId: string, elementId: string, data?: FailureSeedData) => void;
   onUpdateElementFailure?: (criterionId: string, elementId: string, failureId: string, data: FailureUpdateData) => void;
   onDeleteElementFailure?: (criterionId: string, elementId: string, failureId: string) => void;
   onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
@@ -2047,7 +2117,7 @@ function CheckGroupSection({
                         ? (eid, status, comment) => onUpdateDetectedElement!(check.wcagCriterion!, eid, status, comment)
                         : undefined}
                       onAddElementFailure={check.wcagCriterion && onAddElementFailure
-                        ? (eid) => onAddElementFailure!(check.wcagCriterion!, eid)
+                        ? (eid, data) => onAddElementFailure!(check.wcagCriterion!, eid, data)
                         : undefined}
                       onUpdateElementFailure={check.wcagCriterion && onUpdateElementFailure
                         ? (eid, fid, data) => onUpdateElementFailure!(check.wcagCriterion!, eid, fid, data)
@@ -2079,7 +2149,7 @@ function CheckGroupSection({
                     ? (eid, status, comment) => onUpdateDetectedElement!(check.wcagCriterion!, eid, status, comment)
                     : undefined}
                   onAddElementFailure={check.wcagCriterion && onAddElementFailure
-                    ? (eid) => onAddElementFailure!(check.wcagCriterion!, eid)
+                    ? (eid, data) => onAddElementFailure!(check.wcagCriterion!, eid, data)
                     : undefined}
                   onUpdateElementFailure={check.wcagCriterion && onUpdateElementFailure
                     ? (eid, fid, data) => onUpdateElementFailure!(check.wcagCriterion!, eid, fid, data)
@@ -2263,7 +2333,7 @@ interface ManualAuditTabProps {
   onUpdateFailure: (checkId: string, failureId: string, data: FailureUpdateData) => void;
   onDeleteFailure: (checkId: string, failureId: string) => void;
   onUpdateDetectedElement?: (criterionId: string, elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => void;
-  onAddElementFailure?: (criterionId: string, elementId: string) => void;
+  onAddElementFailure?: (criterionId: string, elementId: string, data?: FailureSeedData) => void;
   onUpdateElementFailure?: (criterionId: string, elementId: string, failureId: string, data: FailureUpdateData) => void;
   onDeleteElementFailure?: (criterionId: string, elementId: string, failureId: string) => void;
   onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
