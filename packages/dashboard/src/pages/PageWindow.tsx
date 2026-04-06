@@ -431,10 +431,10 @@ export function PageWindow() {
                                     <p className="text-base">{n.failureSummary}</p>
                                   )}
                                   {n.target.length > 0 && (
-                                    <p className="text-sm font-mono text-zinc-500 dark:text-zinc-400 break-all">{n.target.join(' > ')}</p>
+                                    <p className="text-sm font-mono text-muted-foreground break-all">{n.target.join(' > ')}</p>
                                   )}
                                   {n.html && (
-                                    <pre className="text-sm leading-relaxed font-mono bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all border border-zinc-200 dark:border-zinc-700">{n.html}</pre>
+                                    <pre className="text-sm leading-relaxed font-mono bg-muted text-foreground rounded p-2 overflow-x-auto whitespace-pre-wrap break-all border border-border">{n.html}</pre>
                                   )}
                                   {/* Screenshot */}
                                   {n.screenshotDataUrl ? (

@@ -799,7 +799,7 @@ function CopyButton({ text }: { text: string }) {
       type="button"
       onClick={handleCopy}
       aria-label={copied ? 'Copied to clipboard' : 'Copy code'}
-      className="p-0.5 rounded text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-50 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      className="p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
     >
       {copied ? <Check className="h-3 w-3 text-green-700 dark:text-green-400" aria-hidden="true" /> : <Copy className="h-3 w-3" aria-hidden="true" />}
     </button>
@@ -1134,7 +1134,7 @@ function NonTextElementRow({
         <div className="flex-1 min-w-0 space-y-1.5">
           {/* HTML code block with copy button */}
           <div className="relative">
-            <pre className="text-sm leading-relaxed font-mono bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 rounded p-2 pr-8 overflow-x-auto whitespace-pre-wrap break-all border border-zinc-200 dark:border-zinc-700">
+            <pre className="text-sm leading-relaxed font-mono bg-muted text-foreground rounded p-2 pr-8 overflow-x-auto whitespace-pre-wrap break-all border border-border">
               {element.html}
             </pre>
             <div className="absolute top-1.5 right-1.5">
@@ -1188,7 +1188,7 @@ function NonTextElementRow({
               )}
               {element.screenReaderText !== undefined && (
                 <div className="flex items-center gap-1.5 text-xs min-w-0">
-                  <span className="text-zinc-500 dark:text-zinc-400 shrink-0 font-medium">{isDiagnosticElement ? 'Note:' : 'Screen reader:'}</span>
+                  <span className="text-muted-foreground shrink-0 font-medium">{isDiagnosticElement ? 'Note:' : 'Screen reader:'}</span>
                   {element.screenReaderText ? (
                     isDiagnosticElement
                       ? <span className="text-foreground truncate">{element.screenReaderText}</span>
@@ -1717,7 +1717,7 @@ function CheckRow({
 
           {/* How to test */}
           {questions.length > 0 && (
-            <div className="mb-3 rounded-md bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 px-3 pt-3 pb-2">
+            <div className="mb-3 rounded-md bg-muted/40 border border-border px-3 pt-3 pb-2">
               <p className="text-base font-bold text-foreground mb-2.5">How to test</p>
               <ol className="space-y-3">
                 {questions.map((q, i) => (
@@ -1727,9 +1727,9 @@ function CheckRow({
                       {QUESTION_STATUS_OPTIONS.map(({ value, label }) => {
                         const selected = questionStatuses[i] === value;
                         const colorClass =
-                          value === 'pass' ? selected ? 'bg-green-100 text-green-800 border-green-300 dark:bg-green-950/40 dark:text-green-300 dark:border-green-700' : 'text-zinc-600 dark:text-zinc-400 hover:text-green-700 dark:hover:text-green-400'
-                          : value === 'fail' ? selected ? 'bg-red-100 text-red-800 border-red-300 dark:bg-red-950/40 dark:text-red-300 dark:border-red-700' : 'text-zinc-600 dark:text-zinc-400 hover:text-red-700 dark:hover:text-red-400'
-                          : selected ? 'bg-muted text-foreground border-border' : 'text-zinc-600 dark:text-zinc-400 hover:text-foreground';
+                          value === 'pass' ? selected ? 'bg-green-100 text-green-800 border-green-300 dark:bg-green-950/40 dark:text-green-300 dark:border-green-700' : 'text-muted-foreground hover:text-green-700 dark:hover:text-green-400'
+                          : value === 'fail' ? selected ? 'bg-red-100 text-red-800 border-red-300 dark:bg-red-950/40 dark:text-red-300 dark:border-red-700' : 'text-muted-foreground hover:text-red-700 dark:hover:text-red-400'
+                          : selected ? 'bg-muted text-foreground border-border' : 'text-muted-foreground hover:text-foreground';
                         return (
                           <button
                             key={value}
