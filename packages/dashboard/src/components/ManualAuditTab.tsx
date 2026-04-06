@@ -1010,6 +1010,7 @@ function NonTextElementRow({
   onCaptureScreenshot?: () => Promise<void>;
 }) {
   const [contextOpen, setContextOpen] = useState(false);
+  const [isDarkScreenshot, setIsDarkScreenshot] = useState(false);
   const screenshotTriggerRef = useRef<HTMLButtonElement>(null);
 
   const isDiagnosticElement = element.elementType === 'focus-trigger' || element.elementType === 'mouse-only' || element.elementType === 'focus-order-map' || element.elementType === 'no-focus-style' || element.elementType === 'keyboard-trap' || element.elementType === 'low-contrast';
@@ -1053,7 +1054,7 @@ function NonTextElementRow({
       {/* Screenshot modal — always rendered; focus manually returned to trigger on close */}
       <Dialog open={contextOpen} onOpenChange={(open) => {
         setContextOpen(open);
-        if (!open) setTimeout(() => screenshotTriggerRef.current?.focus(), 0);
+        if (!open) { setIsDarkScreenshot(false); setTimeout(() => screenshotTriggerRef.current?.focus(), 0); }
       }}>
         <DialogContent className="max-w-3xl flex flex-col" style={{ maxHeight: '90vh' }}>
           <DialogHeader className="shrink-0">
@@ -1064,6 +1065,45 @@ function NonTextElementRow({
               Screenshots captured for this {ELEMENT_TYPE_LABELS[element.elementType].toLowerCase()} element during the accessibility scan.
             </DialogDescription>
           </DialogHeader>
+          {/* Light / Dark toggle — shown only when both screenshots are available */}
+          {element.screenshotDataUrl && element.darkScreenshotDataUrl && (
+            <div className="shrink-0 flex justify-end">
+              <div
+                className="inline-flex items-center rounded-md bg-muted p-0.5 gap-0.5"
+                role="group"
+                aria-label="Color scheme"
+              >
+                <button
+                  type="button"
+                  onClick={() => setIsDarkScreenshot(false)}
+                  aria-pressed={!isDarkScreenshot}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 text-xs rounded font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+                    !isDarkScreenshot
+                      ? 'bg-background text-foreground shadow-sm ring-1 ring-border'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  <Sun className="h-3.5 w-3.5" aria-hidden="true" />
+                  Light
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsDarkScreenshot(true)}
+                  aria-pressed={isDarkScreenshot}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 text-xs rounded font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+                    isDarkScreenshot
+                      ? 'bg-foreground text-background shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  <Moon className="h-3.5 w-3.5" aria-hidden="true" />
+                  Dark
+                </button>
+              </div>
+            </div>
+          )}
           <div className="overflow-y-auto space-y-4 min-h-0">
             {element.contextScreenshotDataUrl && (
               <div className="space-y-1">
@@ -1075,11 +1115,11 @@ function NonTextElementRow({
                 />
               </div>
             )}
-            {element.screenshotDataUrl && (
+            {(element.screenshotDataUrl || element.darkScreenshotDataUrl) && (
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground font-medium">Element crop</p>
                 <img
-                  src={element.screenshotDataUrl}
+                  src={(isDarkScreenshot && element.darkScreenshotDataUrl) ? element.darkScreenshotDataUrl : element.screenshotDataUrl}
                   alt={element.textAlternative ?? `${ELEMENT_TYPE_LABELS[element.elementType]} element`}
                   className="max-w-full rounded border"
                 />
