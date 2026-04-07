@@ -1125,6 +1125,7 @@ app.post('/api/reports/:reportId/pages/:pageId/elements/2.4.3/detect', async (re
   try {
     const detectedElements = await modifyReportPage(req.params.reportId, req.params.pageId, async (page) => {
       const raw = await detectFocusOrder(page.url);
+      if (raw.length === 0) throw new Error('Detection failed: could not load the page at any viewport');
       if (!page.detectedElements) page.detectedElements = {};
       page.detectedElements['2.4.3'] = raw.map(el => ({ ...el, id: randomUUID() }));
       return page.detectedElements;
@@ -1243,6 +1244,7 @@ app.post('/api/reports/:reportId/pages/:pageId/elements/2.4.7/detect', async (re
     console.error('Focus visible detection error:', err);
     send({ type: 'error', message: 'Failed to detect focus-style issues' });
   }
+  res.end();
 });
 
 // ---------------------------------------------------------------------------
