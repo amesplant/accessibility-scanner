@@ -18,7 +18,7 @@ All findings live in a persistent dashboard organized by project and client enga
 
 - **Three audit types** — Rapid (up to 5 pages), Mid-Level (any page count), and All-Inclusive (full site via sitemap or crawl)
 - **Automated scanning** via sitemap URL, XML file upload, or site crawl — powered by axe-core for WCAG 2.2 A/AA/AAA
-- **Smart element detection** — during a scan, non-text elements (images, SVGs, icon buttons, canvas, video, etc.) are extracted with their computed text alternatives and screenshots for WCAG 1.1.1 review
+- **Smart element detection** — on-demand per page for 9 WCAG criteria, plus automatic scan-time detection for media elements (1.2.1, 1.2.2); each detected element shows its HTML, computed text alternative, and cropped screenshot
 - **Element screenshots** — each detected element gets a cropped screenshot and an annotated full-page context screenshot (element highlighted, surroundings dimmed)
 - **Manual audit checklists** scoped per audit type — 13 criteria for Rapid, 20 for Mid-Level, all 52 for All-Inclusive
 - **Failure instances** with scope tagging (Global / Common / Page Specific), code snippets, and screenshot capture
@@ -161,13 +161,22 @@ Several criteria surface a list of detected elements directly in the audit check
 
 **Automatic detection (runs at scan time):**
 
-- **WCAG 1.1.1 Non-text Content** — images, SVGs, icon buttons, canvas, video, and other non-text elements, each shown with its computed text alternative (or a "no text alternative" indicator), what a screen reader would announce, and cropped + annotated full-page screenshots.
+- **WCAG 1.2.1 Audio-only and Video-only** — detects `<audio>` and silent `<video>` elements that require a transcript or audio description.
+- **WCAG 1.2.2 Captions** — detects `<video>` elements with audio that require synchronized captions.
 
-**On-demand detection (triggered per page via "Detect elements"):**
+**On-demand detection (triggered per page via "Detect elements on page"):**
 
-- **WCAG 2.1.1 Keyboard** — scans the page for non-interactive elements (divs, spans, list items, etc.) that have JS mouse/drag event listeners, inline `onclick`/`ondragstart` attributes, a `cursor: pointer` style, or CSS `:hover` rules that show or hide content — all patterns that suggest mouse-only interactions with no keyboard equivalent. Each flagged element is a suspect for manual keyboard verification, not a guaranteed failure.
-- **WCAG 2.4.3 Focus Order** — renders the page and walks the tab sequence, capturing a screenshot at each focus stop so auditors can verify the order is logical.
+- **WCAG 1.1.1 Non-text Content** — images, SVGs, icon buttons, canvas, video, and other non-text elements, each shown with its computed text alternative (or a "no text alternative" indicator) and what a screen reader would announce.
+- **WCAG 1.3.1 Info and Relationships** — detects form fields, tables, and headings to verify that structure conveyed visually is also expressed in markup.
+- **WCAG 1.4.3 Contrast (Minimum)** — scans text elements against their computed background color in both light and dark modes and flags those failing the 4.5:1 / 3:1 ratio thresholds.
+- **WCAG 2.1.1 Keyboard** — scans for non-interactive elements (divs, spans, list items, etc.) that have JS mouse/drag event listeners, inline `onclick`/`ondragstart` attributes, a `cursor: pointer` style, or CSS `:hover` rules that show or hide content — all patterns that suggest mouse-only interactions with no keyboard equivalent. Each flagged element is a suspect, not a guaranteed failure.
+- **WCAG 2.1.2 No Keyboard Trap** — navigates through all focusable elements via keyboard simulation and flags any point where focus cannot escape.
+- **WCAG 2.4.3 Focus Order** — renders the page at mobile, tablet, and desktop viewports and captures an annotated screenshot of the tab sequence so auditors can verify the order is logical.
+- **WCAG 2.4.4 Link Purpose (In Context)** — detects links whose accessible name is ambiguous out of context (e.g. "Read more", "Click here").
+- **WCAG 2.4.7 Focus Visible** — scans for interactive elements whose focus indicator is absent or overridden by CSS, flagging elements that may be invisible to keyboard users.
 - **WCAG 3.2.1 On Focus** — intercepts JS `focus`/`focusin` event listeners and collects elements that could trigger a context change on focus.
+
+If detection fails (browser error, page unreachable, timeout), the report is left unchanged and an error message is shown in the panel. Once elements are detected, a **Re-detect elements on page** button remains available below the panel title to re-run detection at any time.
 
 All detected elements include a cropped screenshot, the element's HTML, and Pass / Fail / Not Reviewed status that auditors set inline.
 
@@ -291,9 +300,15 @@ POST /api/scan
 | `PATCH` | `/api/reports/:id/pages/:pageId/manual-audit/checks/:checkId/failures/:failureId` | Update a failure instance |
 | `DELETE` | `/api/reports/:id/pages/:pageId/manual-audit/checks/:checkId/failures/:failureId` | Delete a failure instance |
 | `PATCH` | `/api/reports/:id/pages/:pageId/elements/:criterionId/:elementId` | Update a detected element audit status |
-| `POST` | `/api/reports/:id/pages/:pageId/elements/2.1.1/detect` | On-demand: detect mouse-only interactions (keyboard, CSS hover) |
-| `POST` | `/api/reports/:id/pages/:pageId/elements/2.4.3/detect` | On-demand: detect focus order |
-| `POST` | `/api/reports/:id/pages/:pageId/elements/3.2.1/detect` | On-demand: detect focus-triggered elements |
+| `POST` | `/api/reports/:id/pages/:pageId/elements/1.1.1/detect` | On-demand: detect non-text elements (images, SVGs, icon buttons, canvas, video) |
+| `POST` | `/api/reports/:id/pages/:pageId/elements/1.3.1/detect` | On-demand: detect form fields, tables, and headings |
+| `POST` | `/api/reports/:id/pages/:pageId/elements/1.4.3/detect` | On-demand: detect contrast failures (light + dark mode) |
+| `POST` | `/api/reports/:id/pages/:pageId/elements/2.1.1/detect` | On-demand: detect mouse-only interactions (JS listeners, inline handlers, CSS hover) |
+| `POST` | `/api/reports/:id/pages/:pageId/elements/2.1.2/detect` | On-demand: detect keyboard trap risks |
+| `POST` | `/api/reports/:id/pages/:pageId/elements/2.4.3/detect` | On-demand: detect focus order (mobile / tablet / desktop screenshots) |
+| `POST` | `/api/reports/:id/pages/:pageId/elements/2.4.4/detect` | On-demand: detect ambiguous links |
+| `POST` | `/api/reports/:id/pages/:pageId/elements/2.4.7/detect` | On-demand: detect missing or overridden focus indicators |
+| `POST` | `/api/reports/:id/pages/:pageId/elements/3.2.1/detect` | On-demand: detect focus-triggered context changes |
 
 ### AI
 
