@@ -1580,6 +1580,74 @@ app.get('/api/scan/:jobId/events', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/feature-request/status — check if GitHub token is configured
+// ---------------------------------------------------------------------------
+
+app.get('/api/feature-request/status', (_req, res) => {
+  res.json({ configured: !!process.env.GITHUB_TOKEN });
+});
+
+// POST /api/feature-request — create GitHub issue
+// ---------------------------------------------------------------------------
+
+app.post('/api/feature-request', async (req, res) => {
+  try {
+    const { name, reportName, request, images } = req.body as {
+      name: string;
+      reportName?: string;
+      request: string;
+      images?: { filename: string; dataUrl: string }[];
+    };
+
+    if (!name?.trim() || !request?.trim()) {
+      return res.status(400).json({ error: 'name and request are required' });
+    }
+
+    const token = process.env.GITHUB_TOKEN;
+    if (!token) {
+      return res.status(500).json({ error: 'GITHUB_TOKEN is not configured' });
+    }
+
+    const reportLine = reportName ? `\n**Report:** ${reportName.trim()}\n` : '';
+    const imageLines = (images ?? []).length > 0
+      ? `\n---\n_${images!.length} screenshot(s) attached — upload via the GitHub issue editor._\n`
+      : '';
+
+    const body = `**Requested by:** ${name.trim()}${reportLine}
+
+---
+
+${request.trim()}${imageLines}`;
+
+    const response = await fetch('https://api.github.com/repos/10up/accessibility-scanner/issues', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      body: JSON.stringify({
+        title: `Feature Request: ${request.trim().split('\n')[0].slice(0, 80)}`,
+        body,
+        labels: ['feature request'],
+      }),
+    });
+
+    if (!response.ok) {
+      const json = await response.json().catch(() => ({})) as { message?: string };
+      throw new Error(json.message ?? `GitHub API error ${response.status}`);
+    }
+
+    const issue = await response.json() as { html_url: string; number: number };
+    return res.json({ ok: true, issueUrl: issue.html_url, issueNumber: issue.number });
+  } catch (err) {
+    console.error('Feature request error:', err);
+    return res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to create issue' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 
 app.listen(port, () => {
   console.log(`API server running on port ${port}`);

@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { FeatureRequestModal } from '@/components/FeatureRequestModal';
 
 type Props = { children: ReactNode };
 
@@ -95,6 +96,7 @@ export function Layout({ children }: Props) {
   const { scanning, aborting, scanState, elapsed, abortScan, completedReportId, clearCompletedReport } = useScanContext();
 
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [featureRequestOpen, setFeatureRequestOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : true,
   );
@@ -209,6 +211,18 @@ export function Layout({ children }: Props) {
           )}
         </nav>
 
+        <div className="px-3 pb-4 shrink-0">
+          <button
+            type="button"
+            onClick={() => { onNavigate?.(); setFeatureRequestOpen(true); }}
+            className="flex items-center gap-3.5 w-full px-4 py-2.5 rounded-lg text-sm font-medium text-zinc-400 hover:bg-white/5 hover:text-zinc-200 transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-[-1px] focus-visible:outline-ring"
+          >
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="18" height="18" aria-hidden="true">
+              <path d="M9 1a8 8 0 1 0 0 16A8 8 0 0 0 9 1zm0 7v4m0-7h.01" />
+            </svg>
+            Request a Feature
+          </button>
+        </div>
       </>
     );
   }
@@ -380,6 +394,9 @@ export function Layout({ children }: Props) {
           <p className="text-xs text-muted-foreground">Seymour — powered by axe-core</p>
         </footer>
       </div>
+
+      {/* ── Feature Request modal ── */}
+      <FeatureRequestModal open={featureRequestOpen} onClose={() => setFeatureRequestOpen(false)} />
 
       {/* ── Scan complete dialog ── */}
       <Dialog open={!!completedReportId} onOpenChange={open => { if (!open) clearCompletedReport(); }}>
