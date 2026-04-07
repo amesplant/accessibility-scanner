@@ -29,11 +29,12 @@ export function LevelChart({ data }: LevelChartProps) {
   }, [sortedData]);
 
   const total = sortedData.reduce((sum, d) => sum + d.count, 0);
+  const levelLabel = (level: string) => (level === 'best-practice' ? 'Best Practice' : `WCAG ${level}`);
 
   return (
     <figure role="img" aria-label="Bar chart: violations by WCAG level">
       <figcaption className="sr-only">
-        Violations by WCAG level: {sortedData.map(d => `${d.level}: ${d.count}`).join(', ')}
+        Violations by WCAG level: {sortedData.map(d => `${levelLabel(d.level)}: ${d.count}`).join(', ')}
       </figcaption>
       <div className="space-y-2" aria-hidden="true">
         {sortedData.map((d) => {
@@ -41,7 +42,7 @@ export function LevelChart({ data }: LevelChartProps) {
           const pct = total > 0 ? Math.round((d.count / total) * 100) : 0;
           return (
             <div key={d.level} className="flex items-center">
-              <span className="w-24 text-base font-medium capitalize">{d.level}</span>
+              <span className="w-24 text-base font-medium">{levelLabel(d.level)}</span>
               <div className="flex-1 ml-2 h-6 rounded bg-muted/30">
                 <div
                   className="h-full rounded"

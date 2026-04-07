@@ -10,7 +10,7 @@ import { DatabaseService } from './database.js';
 import { Reporter } from './exporter.js';
 import { SitemapScanner } from './scanner.js';
 import { crawlSite } from './crawler.js';
-import { AuditType, ScanReport, createDefaultChecks, ManualAudit, ManualAuditStatus, ManualCheckResult, ManualFailureInstance, Project } from '../../shared/dist/index.js';
+import { AuditType, ScanReport, createDefaultChecks, ManualAudit, ManualAuditStatus, ManualCheckResult, ManualFailureInstance, Project, normalizeRemediationAssignees } from '../../shared/dist/index.js';
 import { captureViewportScreenshot, detectFocusOrder, ViewportLabel } from './detectors/focusOrder.js';
 import { detectOnPage } from './detectors/onFocus.js';
 import { detectKeyboard } from './detectors/keyboard.js';
@@ -74,6 +74,14 @@ function sanitizeStringRecord(value: unknown): Record<string, string> | undefine
   );
   if (entries.length === 0) return undefined;
   return Object.fromEntries(entries);
+}
+
+function sanitizeRemediationAssignees(value: unknown): ManualCheckResult['assignedTo'] {
+  const allowed = new Set(['content', 'editor', 'engineer']);
+  const values = Array.isArray(value)
+    ? value.filter((entry): entry is 'content' | 'editor' | 'engineer' => typeof entry === 'string' && allowed.has(entry))
+    : [];
+  return values.length > 0 ? normalizeRemediationAssignees(values) : undefined;
 }
 
 function toSlug(text: string, maxLen = 60): string {
@@ -526,12 +534,14 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId', a
     const manualAudit = await modifyReportPage(req.params.reportId, req.params.pageId, (page, { auditType }) => {
       if (!page.manualAudit) page.manualAudit = initManualAudit(auditType);
 
-      const { status, notes, codeSnippet, screenshotDataUrl, questionStatuses } = req.body as {
+      const { status, notes, codeSnippet, screenshotDataUrl, questionStatuses, remediationRecommendation, assignedTo } = req.body as {
         status: ManualAuditStatus;
         notes?: string;
         codeSnippet?: string;
         screenshotDataUrl?: string;
         questionStatuses?: ManualAuditStatus[];
+        remediationRecommendation?: string;
+        assignedTo?: ManualCheckResult['assignedTo'];
       };
       const check = page.manualAudit.checks.find(c => c.id === req.params.checkId);
       if (check) {
@@ -540,6 +550,11 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId', a
         if (codeSnippet !== undefined) check.codeSnippet = codeSnippet;
         if (screenshotDataUrl !== undefined) check.screenshotDataUrl = screenshotDataUrl;
         if (questionStatuses !== undefined) check.questionStatuses = questionStatuses;
+        if (remediationRecommendation !== undefined) check.remediationRecommendation = remediationRecommendation;
+        if (assignedTo !== undefined) {
+          const normalized = normalizeRemediationAssignees(assignedTo);
+          check.assignedTo = normalized.length > 0 ? normalized : undefined;
+        }
         check.updatedAt = new Date().toISOString();
       }
       page.manualAudit.lastUpdated = new Date().toISOString();
@@ -560,7 +575,7 @@ app.post('/api/reports/:reportId/pages/:pageId/manual-audit/checks', async (req,
     const manualAudit = await modifyReportPage(req.params.reportId, req.params.pageId, (page, { auditType }) => {
       if (!page.manualAudit) page.manualAudit = initManualAudit(auditType);
 
-      const { title, description, impact, status, notes } = req.body as Partial<ManualCheckResult>;
+      const { title, description, impact, status, notes, remediationRecommendation, assignedTo } = req.body as Partial<ManualCheckResult>;
       if (!title) throw new Error('title is required');
 
       const newCheck: ManualCheckResult = {
@@ -571,6 +586,8 @@ app.post('/api/reports/:reportId/pages/:pageId/manual-audit/checks', async (req,
         impact,
         status: status ?? 'not-tested',
         notes,
+        remediationRecommendation,
+        assignedTo: assignedTo ? normalizeRemediationAssignees(assignedTo) : undefined,
         updatedAt: new Date().toISOString(),
       };
       page.manualAudit.checks.push(newCheck);
@@ -675,6 +692,7 @@ app.post('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fail
         notes: req.body.notes,
         codeSnippet: req.body.codeSnippet,
         screenshotDataUrl: req.body.screenshotDataUrl,
+        assignedTo: sanitizeRemediationAssignees(req.body.assignedTo),
         relatedCriteria: sanitizeStringArray(req.body.relatedCriteria),
         relatedCriteriaNotes: sanitizeStringRecord(req.body.relatedCriteriaNotes),
         createdAt: new Date().toISOString(),
@@ -711,7 +729,7 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fai
       const failure = (check.failures ?? []).find(f => f.id === req.params.failureId);
       if (!failure) throw new Error('Failure instance not found');
 
-      const { scope, impact, title, notes, codeSnippet, screenshotDataUrl, status, remediationRecommendation, relatedCriteria, relatedCriteriaNotes } = req.body;
+      const { scope, impact, title, notes, codeSnippet, screenshotDataUrl, status, remediationRecommendation, assignedTo, relatedCriteria, relatedCriteriaNotes } = req.body;
       if (scope !== undefined) failure.scope = scope;
       if (impact !== undefined) failure.impact = impact;
       if (title !== undefined) failure.title = title;
@@ -720,6 +738,10 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fai
       if (screenshotDataUrl !== undefined) failure.screenshotDataUrl = screenshotDataUrl;
       if (status !== undefined) failure.status = status;
       if (remediationRecommendation !== undefined) failure.remediationRecommendation = remediationRecommendation;
+      if (assignedTo !== undefined) {
+        const normalized = sanitizeRemediationAssignees(assignedTo);
+        failure.assignedTo = normalized;
+      }
       if (relatedCriteria !== undefined) {
         failure.relatedCriteria = sanitizeStringArray(relatedCriteria);
       }
@@ -1012,13 +1034,14 @@ app.post('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/
 
       const element = elements.find(e => e.id === req.params.elementId);
       if (!element) throw new Error('Element not found');
-      const { notes, codeSnippet, screenshotDataUrl, remediationRecommendation, relatedCriteria, relatedCriteriaNotes } = req.body as Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'relatedCriteria' | 'relatedCriteriaNotes'>>;
+      const { notes, codeSnippet, screenshotDataUrl, remediationRecommendation, assignedTo, relatedCriteria, relatedCriteriaNotes } = req.body as Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'assignedTo' | 'relatedCriteria' | 'relatedCriteriaNotes'>>;
       const failure: ManualFailureInstance = {
         id: `ef_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         notes,
         codeSnippet,
         screenshotDataUrl,
         remediationRecommendation,
+        assignedTo: sanitizeRemediationAssignees(assignedTo),
         relatedCriteria: sanitizeStringArray(relatedCriteria),
         relatedCriteriaNotes: sanitizeStringRecord(relatedCriteriaNotes),
         createdAt: new Date().toISOString(),
@@ -1050,7 +1073,12 @@ app.patch('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId
       const failure = (element.failures ?? []).find(f => f.id === req.params.failureId);
       if (!failure) throw new Error('Failure not found');
 
-      Object.assign(failure, req.body);
+      const { assignedTo, ...rest } = req.body as Partial<ManualFailureInstance>;
+      Object.assign(failure, rest);
+      if (assignedTo !== undefined) {
+        const normalized = sanitizeRemediationAssignees(assignedTo);
+        failure.assignedTo = normalized;
+      }
       return page.detectedElements;
     });
 

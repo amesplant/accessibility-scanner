@@ -5,10 +5,19 @@ import {
   ManualFailureInstance,
   DetectedCriteriaElements,
   createDefaultChecks,
+  normalizeRemediationAssignees,
 } from '@accessibility-scanner/shared';
 
 function buildInitialAudit(serverAudit: ManualAudit | undefined): ManualAudit {
-  if (serverAudit) return serverAudit;
+  if (serverAudit) {
+    return {
+      ...serverAudit,
+      checks: serverAudit.checks.map((check) => ({
+        ...check,
+        assignedTo: check.assignedTo ? normalizeRemediationAssignees(check.assignedTo) : undefined,
+      })),
+    };
+  }
   return {
     lastUpdated: new Date().toISOString(),
     checks: createDefaultChecks(),
@@ -121,6 +130,8 @@ export function useManualAudit(
       impact?: 'minor' | 'moderate' | 'serious' | 'critical';
       status: ManualAuditStatus;
       notes?: string;
+      remediationRecommendation?: string;
+      assignedTo?: Array<'content' | 'editor' | 'engineer'>;
     }) => {
       try {
         const res = await fetch(`/api/reports/${reportId}/pages/${pageId}/manual-audit/checks`, {

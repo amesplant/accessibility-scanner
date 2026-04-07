@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { PREDEFINED_CHECKS, type ManualCheckResult, type FailureScope } from '@accessibility-scanner/shared';
+import { PREDEFINED_CHECKS, normalizeRemediationAssignees, type ManualCheckResult, type FailureScope, type RemediationAssignee } from '@accessibility-scanner/shared';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -11,6 +11,7 @@ export interface FailureExportData {
   codeSnippet?: string;
   screenshotDataUrl?: string;
   remediationRecommendation?: string;
+  assignedTo?: RemediationAssignee[];
   relatedCriteria?: string[];
   relatedCriteriaNotes?: Record<string, string>;
   checkContext?: { criterion?: string; criterionTitle?: string; title?: string; level?: string; description?: string };
@@ -67,6 +68,42 @@ const SCOPE_LABELS: Record<FailureScope, string> = {
   common: 'Common',
   'page-specific': 'Page Specific',
 };
+
+const ASSIGNEE_LABELS: Record<RemediationAssignee, string> = {
+  content: 'Content',
+  editor: 'Editor',
+  engineer: 'Engineer',
+};
+
+function buildTeamworkAssignmentChecklist(assignedTo?: RemediationAssignee[]): string {
+  const selected = normalizeRemediationAssignees(assignedTo);
+  return [
+    '### 4. Recommend Assigning Remediation To',
+    '',
+    '> *Select one or more*',
+    ...(['content', 'editor', 'engineer'] as RemediationAssignee[]).map(option => {
+      const marker = selected.includes(option) ? 'x' : ' ';
+      return `> - [${marker}] ${ASSIGNEE_LABELS[option]}`;
+    }),
+  ].join('\n');
+}
+
+function buildJiraAssignmentChecklist(assignedTo?: RemediationAssignee[]): string {
+  const selected = normalizeRemediationAssignees(assignedTo);
+  return [
+    'h3. Recommended Assignment',
+    '',
+    ...(['content', 'editor', 'engineer'] as RemediationAssignee[]).map(option => {
+      const marker = selected.includes(option) ? 'x' : ' ';
+      return `* [${marker}] ${ASSIGNEE_LABELS[option]}`;
+    }),
+  ].join('\n');
+}
+
+function getCheckRemediation(check: ManualCheckResult): string {
+  const failureRemediation = (check.failures ?? []).map(f => f.remediationRecommendation).filter(Boolean).join('\n\n');
+  return check.remediationRecommendation || failureRemediation || '*Replace with the steps required to fix this issue.*';
+}
 
 const WCAG_CRITERIA_META = new Map(
   PREDEFINED_CHECKS.map((check) => [check.id, { title: check.title, level: check.level }]),
@@ -144,8 +181,7 @@ function buildTeamworkDescription(check: ManualCheckResult, pageUrl: string = ''
 
   const failuresSection = failureLines ? `\n**d. Failure Instances**\n\n${failureLines}\n` : '';
 
-  const failureRemediation = (check.failures ?? []).map(f => f.remediationRecommendation).filter(Boolean).join('\n\n');
-  const remediationText = failureRemediation || '*Replace with the steps required to fix this issue.*';
+  const remediationText = getCheckRemediation(check);
 
   return `${pageUrlLine}### 1. Describe the Issue
 
@@ -169,12 +205,7 @@ ${codeSnippet}${failuresSection}
 
 ---
 
-### 4. Recommend Assigning Remediation To
-
-> *Select one or more*
-> - [ ] Content
-> - [ ] Design
-> - [ ] Engineer
+${buildTeamworkAssignmentChecklist(check.assignedTo)}
 `;
 }
 
@@ -185,7 +216,7 @@ export function exportCheckAsTeamworkXlsx(check: ManualCheckResult, tasklistName
   const taskName = criterion ? `${criterion} ${check.title} | ${levelLabel}` : `${check.title} | Manual`;
 
   const tagParts = ['Accessibility', 'Manual'];
-  if (level) tagParts.push(level);
+  if (level) tagParts.push(`WCAG ${level}`);
   if (check.impact) tagParts.push(check.impact.charAt(0).toUpperCase() + check.impact.slice(1) + ' Issue');
 
   const priorityMap: Record<string, string> = { critical: 'Urgent', serious: 'High', moderate: 'Medium', minor: 'Low' };
@@ -231,8 +262,7 @@ function buildJiraDescription(check: ManualCheckResult, pageUrl: string = ''): s
     .join('\n\n');
 
   const failuresSection = failureLines ? `\nh3. Failure Instances\n\n${failureLines}\n` : '';
-  const failureRemediation = (check.failures ?? []).map(f => f.remediationRecommendation).filter(Boolean).join('\n\n');
-  const remediationSection = failureRemediation || '_Replace this section with the steps required to fix this issue._';
+  const remediationSection = getCheckRemediation(check);
 
   return `${pageUrlLine}h3. Issue Description
 
@@ -246,11 +276,7 @@ h3. Steps to QA
 
 _Replace this section with steps to validate the issue has been resolved._
 
-h3. Recommended Assignment
-
-* [ ] Content
-* [ ] Design
-* [ ] Engineer
+${buildJiraAssignmentChecklist(check.assignedTo)}
 `;
 }
 
@@ -333,17 +359,12 @@ ${screenshotBlock}${codeBlock}${relatedCriteriaBlock}
 
 ---
 
-### 4. Recommend Assigning Remediation To
-
-> *Select one or more*
-> - [ ] Content
-> - [ ] Design
-> - [ ] Engineer
+${buildTeamworkAssignmentChecklist(data.assignedTo)}
 `;
 
   const tagParts = ['Accessibility', 'Manual', 'Verified Issue'];
   if (scope) tagParts.push(SCOPE_LABELS[scope]);
-  if (level) tagParts.push(level);
+  if (level) tagParts.push(`WCAG ${level}`);
   if (impact) tagParts.push(impact.charAt(0).toUpperCase() + impact.slice(1) + ' Issue');
 
   const priorityMap: Record<string, string> = { critical: 'Urgent', serious: 'High', moderate: 'Medium', minor: 'Low' };
@@ -407,11 +428,7 @@ h3. Steps to QA
 
 _Replace this section with steps to validate the issue has been resolved._
 
-h3. Recommended Assignment
-
-* [ ] Content
-* [ ] Design
-* [ ] Engineer
+${buildJiraAssignmentChecklist(data.assignedTo)}
 `;
 
   const impactMap: Record<string, string> = { critical: 'Highest', serious: 'High', moderate: 'Medium', minor: 'Low' };

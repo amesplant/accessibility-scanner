@@ -5,6 +5,8 @@ import {
   ManualCheckResult,
   ManualFailureInstance,
   FailureScope,
+  RemediationAssignee,
+  normalizeRemediationAssignees,
   DetectedElement,
   DetectedCriteriaElements,
   PREDEFINED_CHECKS,
@@ -142,6 +144,24 @@ const IMPACT_COLORS: Record<ImpactLevel, string> = {
   minor:    'bg-sky-100    text-sky-800    border-sky-200',
 };
 
+const ASSIGNEE_OPTIONS: { value: RemediationAssignee; label: string }[] = [
+  { value: 'content', label: 'Content' },
+  { value: 'editor', label: 'Editor' },
+  { value: 'engineer', label: 'Engineer' },
+];
+
+const ASSIGNEE_LABELS: Record<RemediationAssignee, string> = {
+  content: 'Content',
+  editor: 'Editor',
+  engineer: 'Engineer',
+};
+
+function formatAssignedTo(assignedTo?: RemediationAssignee[]): string {
+  return normalizeRemediationAssignees(assignedTo)
+    .map((assignee) => ASSIGNEE_LABELS[assignee])
+    .join(', ');
+}
+
 const WCAG_CRITERIA_OPTIONS = PREDEFINED_CHECKS
   .map((check) => ({ id: check.id, label: `${check.id} ${check.title}` }))
   .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
@@ -260,9 +280,9 @@ type LevelFilter = 'all' | 'A' | 'AA' | 'AAA';
 
 const LEVEL_FILTER_OPTIONS: { value: LevelFilter; label: string }[] = [
   { value: 'all', label: 'All' },
-  { value: 'A',   label: 'A' },
-  { value: 'AA',  label: 'AA' },
-  { value: 'AAA', label: 'AAA' },
+  { value: 'A',   label: 'WCAG A' },
+  { value: 'AA',  label: 'WCAG AA' },
+  { value: 'AAA', label: 'WCAG AAA' },
 ];
 
 function LevelFilterSelector({
@@ -436,6 +456,7 @@ function FailureInstanceItem({
 }) {
   const pageUrl = useContext(PageUrlContext);
   const [localTitle, setLocalTitle] = useState(failure.title ?? '');
+  const [localAssignedTo, setLocalAssignedTo] = useState<RemediationAssignee[]>(normalizeRemediationAssignees(failure.assignedTo));
   const [localRelatedCriteria, setLocalRelatedCriteria] = useState<string[]>(failure.relatedCriteria ?? []);
   const [localRelatedCriteriaNotes, setLocalRelatedCriteriaNotes] = useState<Record<string, string>>(failure.relatedCriteriaNotes ?? {});
   const [relatedCriteriaSelection, setRelatedCriteriaSelection] = useState('');
@@ -471,6 +492,7 @@ function FailureInstanceItem({
 
     onUpdate({
       title: localTitle || undefined,
+      assignedTo: localAssignedTo.length > 0 ? localAssignedTo : undefined,
       relatedCriteria: localRelatedCriteria.length > 0 ? localRelatedCriteria : undefined,
       relatedCriteriaNotes: Object.keys(cleanedRelatedCriteriaNotes).length > 0 ? cleanedRelatedCriteriaNotes : undefined,
       notes: localNotes || undefined,
@@ -512,6 +534,15 @@ function FailureInstanceItem({
       ...prev,
       [criterionId]: note,
     }));
+    markDirty();
+  }
+
+  function toggleAssignedTo(assignee: RemediationAssignee) {
+    setLocalAssignedTo(prev => (
+      prev.includes(assignee)
+        ? prev.filter((value) => value !== assignee)
+        : [...prev, assignee]
+    ));
     markDirty();
   }
 
@@ -775,6 +806,31 @@ function FailureInstanceItem({
         </div>
       </div>
 
+      <div className="space-y-2">
+        <Label className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          Assign remediation to
+        </Label>
+        <div className="rounded border border-border bg-muted/20 p-2 space-y-2">
+          <p className="text-xs text-muted-foreground">Select one or more</p>
+          <div className="space-y-2">
+            {ASSIGNEE_OPTIONS.map(option => {
+              const checked = localAssignedTo.includes(option.value);
+              return (
+                <label key={`failure-assignee-${failure.id}-${option.value}`} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleAssignedTo(option.value)}
+                    className="h-4 w-4 cursor-pointer accent-primary"
+                  />
+                  <span className={checked ? 'font-medium text-foreground' : 'text-foreground'}>{option.label}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
       {/* Code snippet */}
       <div className="space-y-1">
         <Label htmlFor={codeId} className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
@@ -917,6 +973,7 @@ function FailureInstanceItem({
                 codeSnippet: localCode || undefined,
                 screenshotDataUrl: screenshot,
                 remediationRecommendation: localRemediation || undefined,
+                assignedTo: localAssignedTo.length > 0 ? localAssignedTo : undefined,
                 relatedCriteria: localRelatedCriteria.length > 0 ? localRelatedCriteria : undefined,
                 relatedCriteriaNotes: localRelatedCriteriaNotes,
                 impact: failure.impact,
@@ -1757,8 +1814,8 @@ function NonTextElementsPanel({
 // FailureUpdateData — shared type for failure instance patch payloads
 // ---------------------------------------------------------------------------
 
-type FailureUpdateData = Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'impact' | 'title' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'relatedCriteria' | 'relatedCriteriaNotes'>>;
-type FailureSeedData = Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'relatedCriteria' | 'relatedCriteriaNotes'>>;
+type FailureUpdateData = Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'impact' | 'title' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'assignedTo' | 'relatedCriteria' | 'relatedCriteriaNotes'>>;
+type FailureSeedData = Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'assignedTo' | 'relatedCriteria' | 'relatedCriteriaNotes'>>;
 function buildSeededIssueNotes(element: DetectedElement): string | undefined {
   const text = element.textAlternative?.trim();
   const sr = element.screenReaderText?.trim();
@@ -1976,7 +2033,7 @@ function CheckRow({
               <>
                 {check.level && (
                   <Badge variant="outline" className={cn('text-xs h-5 px-1.5 py-0', LEVEL_COLORS[check.level])}>
-                    {check.level}
+                    {`WCAG ${check.level}`}
                   </Badge>
                 )}
                 {meta?.category && (() => {
@@ -2267,6 +2324,11 @@ function CustomCheckItem({
             {check.impact}
           </Badge>
         )}
+        {normalizeRemediationAssignees(check.assignedTo).length > 0 && (
+          <Badge variant="outline" className="text-xs">
+            Assigned to {formatAssignedTo(check.assignedTo)}
+          </Badge>
+        )}
         <StatusSelect value={check.status} onChange={onStatusChange} />
       </div>
       <input
@@ -2281,6 +2343,12 @@ function CustomCheckItem({
         }}
         className="w-full text-xs border-0 border-b border-dashed border-muted-foreground/30 bg-transparent px-0 py-0.5 focus:outline-none focus:border-muted-foreground placeholder:text-muted-foreground/50"
       />
+      {check.remediationRecommendation && (
+        <div className="rounded border border-dashed border-border bg-muted/20 px-2.5 py-2 text-xs text-muted-foreground">
+          <p className="mb-1 font-medium text-foreground">Remediation</p>
+          <p className="whitespace-pre-wrap">{check.remediationRecommendation}</p>
+        </div>
+      )}
       {onAddFailure && (
         <FailureInstancesSection
           failures={check.failures}
@@ -2485,6 +2553,8 @@ interface CustomCheckFormData {
   impact: ImpactLevel | '';
   status: ManualAuditStatus;
   notes: string;
+  remediationRecommendation: string;
+  assignedTo: RemediationAssignee[];
 }
 
 function AddCustomCheckDialog({
@@ -2494,10 +2564,13 @@ function AddCustomCheckDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAdd: (data: Omit<CustomCheckFormData, 'impact'> & { impact?: ImpactLevel }) => void;
+  onAdd: (data: Omit<CustomCheckFormData, 'impact' | 'assignedTo' | 'remediationRecommendation'> & { impact?: ImpactLevel; remediationRecommendation?: string; assignedTo?: RemediationAssignee[] }) => void;
 }) {
   const impactRef = useRef<HTMLDivElement>(null);
   const statusRef = useRef<HTMLDivElement>(null);
+  const aiProviders = useAIProviders();
+  const [generatingRemediation, setGeneratingRemediation] = useState(false);
+  const [remediationError, setRemediationError] = useState<string | null>(null);
 
   const [form, setForm] = useState<CustomCheckFormData>({
     title: '',
@@ -2505,7 +2578,46 @@ function AddCustomCheckDialog({
     impact: '',
     status: 'not-tested',
     notes: '',
+    remediationRecommendation: '',
+    assignedTo: [],
   });
+
+  const remediationId = 'custom-remediation';
+
+  async function handleGenerateRemediation(provider: string) {
+    setGeneratingRemediation(true);
+    setRemediationError(null);
+    try {
+      const res = await fetch('/api/ai/remediation-suggestion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          checkTitle: form.title || undefined,
+          checkDescription: form.description || undefined,
+          notes: form.notes || undefined,
+          provider,
+        }),
+      });
+
+      let json: { recommendation?: string; error?: string } = {};
+      try { json = await res.json(); } catch { /* non-JSON body */ }
+
+      if (json.recommendation) {
+        setForm(prev => ({ ...prev, remediationRecommendation: json.recommendation ?? '' }));
+      } else {
+        setRemediationError(
+          json.error
+            ?? (!res.ok && res.status === 404
+              ? 'Endpoint not found — rebuild the scanner server and restart it.'
+              : 'Generation failed. Please try again.')
+        );
+      }
+    } catch {
+      setRemediationError('Could not reach the scanner server on port 3003. Make sure it is running.');
+    } finally {
+      setGeneratingRemediation(false);
+    }
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -2514,9 +2626,29 @@ function AddCustomCheckDialog({
       ...form,
       title: form.title.trim(),
       impact: form.impact || undefined,
+      remediationRecommendation: form.remediationRecommendation.trim() || undefined,
+      assignedTo: form.assignedTo.length > 0 ? form.assignedTo : undefined,
     });
-    setForm({ title: '', description: '', impact: '', status: 'not-tested', notes: '' });
+    setForm({
+      title: '',
+      description: '',
+      impact: '',
+      status: 'not-tested',
+      notes: '',
+      remediationRecommendation: '',
+      assignedTo: [],
+    });
+    setRemediationError(null);
     onOpenChange(false);
+  }
+
+  function toggleAssignee(assignee: RemediationAssignee) {
+    setForm((prev) => ({
+      ...prev,
+      assignedTo: prev.assignedTo.includes(assignee)
+        ? prev.assignedTo.filter((value) => value !== assignee)
+        : [...prev.assignedTo, assignee],
+    }));
   }
 
   return (
@@ -2590,6 +2722,28 @@ function AddCustomCheckDialog({
             </div>
           </div>
           <div className="space-y-1.5">
+            <Label>Assign remediation to</Label>
+            <div className="rounded-md border border-border p-3 space-y-2">
+              <p className="text-xs text-muted-foreground">Select one or more</p>
+              <div className="space-y-2">
+                {ASSIGNEE_OPTIONS.map((option) => {
+                  const checked = form.assignedTo.includes(option.value);
+                  return (
+                    <label key={option.value} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleAssignee(option.value)}
+                        className="h-4 w-4 cursor-pointer accent-primary"
+                      />
+                      <span className={checked ? 'font-medium text-foreground' : 'text-foreground'}>{option.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+          <div className="space-y-1.5">
             <Label htmlFor="custom-notes">Notes</Label>
             <Textarea
               id="custom-notes"
@@ -2597,6 +2751,48 @@ function AddCustomCheckDialog({
               onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
               placeholder="Additional context…"
               className="min-h-[60px]"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor={remediationId} className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                <Lightbulb className="h-3 w-3" aria-hidden="true" /> Remediation
+              </Label>
+              {aiProviders.length > 0 && (
+                <Select
+                  value=""
+                  onValueChange={provider => { if (!generatingRemediation) handleGenerateRemediation(provider); }}
+                >
+                  <SelectTrigger className="h-6 text-xs px-2 w-auto gap-1 border-0 shadow-none bg-transparent text-muted-foreground hover:text-foreground focus:ring-0" aria-label="Generate remediation recommendation with AI">
+                    {generatingRemediation
+                      ? (
+                        <span className="inline-flex items-center gap-1">
+                          <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> Generating...
+                        </span>
+                      )
+                      : (
+                        <span className="inline-flex items-center gap-1">
+                          <Wand2 className="h-3 w-3" aria-hidden="true" /> AI generate
+                        </span>
+                      )}
+                  </SelectTrigger>
+                  <SelectContent>
+                    {aiProviders.map(provider => (
+                      <SelectItem key={provider.id} value={provider.id}>{provider.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+            {remediationError && (
+              <p role="alert" className="text-xs text-destructive">{remediationError}</p>
+            )}
+            <Textarea
+              id={remediationId}
+              value={form.remediationRecommendation}
+              onChange={e => setForm(prev => ({ ...prev, remediationRecommendation: e.target.value }))}
+              placeholder="Optional remediation guidance…"
+              className="min-h-[90px]"
             />
           </div>
           <DialogFooter>
@@ -2630,6 +2826,8 @@ interface ManualAuditTabProps {
     impact?: ImpactLevel;
     status: ManualAuditStatus;
     notes?: string;
+    remediationRecommendation?: string;
+    assignedTo?: RemediationAssignee[];
   }) => void;
   onDeleteCustomCheck: (checkId: string) => void;
   onAuditorNotesChange: (notes: string) => void;

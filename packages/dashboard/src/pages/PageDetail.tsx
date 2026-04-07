@@ -106,7 +106,7 @@ export function PageDetail() {
                         </TableCell>
                         <TableCell rowSpan={nodes.length}>
                           {v.level
-                            ? <Badge variant="outline">{v.level}</Badge>
+                            ? <Badge variant="outline">{v.level === 'best-practice' ? 'Best Practice' : `WCAG ${v.level}`}</Badge>
                             : <span className="text-muted-foreground">—</span>}
                         </TableCell>
                         <TableCell rowSpan={nodes.length} className="min-w-[120px]">

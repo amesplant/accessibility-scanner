@@ -270,7 +270,7 @@ export function PageWindow() {
                       </button>
                       {LEVEL_ORDER.filter(l => levelCounts[l]).map(l => (
                         <button key={l} type="button" onClick={() => setLevelFilter(f => f === l ? '' : l)} aria-pressed={levelFilter === l} className={segBtn(levelFilter === l)}>
-                          {l === 'best-practice' ? 'Best Practice' : l} ({levelCounts[l]})
+                          {l === 'best-practice' ? 'Best Practice' : `WCAG ${l}`} ({levelCounts[l]})
                         </button>
                       ))}
                     </div>
@@ -317,10 +317,10 @@ export function PageWindow() {
                                   <button
                                     type="button"
                                     onClick={() => setLevelFilter(f => f === v.level ? '' : (v.level ?? ''))}
-                                    aria-label={`Filter by level: ${v.level}`}
+                                    aria-label={`Filter by level: ${v.level === 'best-practice' ? 'Best Practice' : `WCAG ${v.level}`}`}
                                     className="focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
                                   >
-                                    <Badge variant="outline" className="cursor-pointer hover:opacity-75 transition-opacity">{v.level}</Badge>
+                                    <Badge variant="outline" className="cursor-pointer hover:opacity-75 transition-opacity">{v.level === 'best-practice' ? 'Best Practice' : `WCAG ${v.level}`}</Badge>
                                   </button>
                                 )}
                                 {criteria.map(c => (

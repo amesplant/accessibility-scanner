@@ -64,7 +64,7 @@ export function ViolationDetail() {
 
         <div>
           <h2 className="font-semibold">WCAG Level</h2>
-          <p>{violation.level || 'best-practice'}</p>
+          <p>{violation.level === 'best-practice' || !violation.level ? 'Best Practice' : `WCAG ${violation.level}`}</p>
         </div>
 
         <div>

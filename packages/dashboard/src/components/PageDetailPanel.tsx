@@ -91,7 +91,7 @@ export function PageDetailPanel({ page, onClose }: PageDetailPanelProps) {
                             </TableCell>
                             <TableCell rowSpan={nodes.length}>
                               {v.level ? (
-                                <Badge variant="outline">{v.level}</Badge>
+                                <Badge variant="outline">{v.level === 'best-practice' ? 'Best Practice' : `WCAG ${v.level}`}</Badge>
                               ) : (
                                 <span className="text-muted-foreground">—</span>
                               )}
