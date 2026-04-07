@@ -3,6 +3,7 @@ import { Link, useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Download, Pencil, Trash2, X, Check } from 'lucide-react';
 import { ScanReport } from '@accessibility-scanner/shared';
 import { ExportModal } from '@/components/ExportModal';
+import { downloadReportJson } from '@/lib/reportTransfer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ExternalLink } from '@/components/ExternalLink';
@@ -36,6 +37,7 @@ export function ProjectDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exportReport, setExportReport] = useState<ScanReport | null>(null);
+  const [exportingJsonId, setExportingJsonId] = useState<string | null>(null);
   const [removeConfirmReport, setRemoveConfirmReport] = useState<ScanReport | null>(null);
   const [deleteConfirmReport, setDeleteConfirmReport] = useState<ScanReport | null>(null);
 
@@ -257,6 +259,24 @@ export function ProjectDetail() {
                   >
                     <Download className="h-4 w-4" aria-hidden="true" />
                     Export
+                  </button>
+                  <button
+                    type="button"
+                    disabled={exportingJsonId === report.id}
+                    onClick={async () => {
+                      try {
+                        setExportingJsonId(report.id);
+                        await downloadReportJson(report.id);
+                      } catch (err) {
+                        console.error('JSON export failed:', err);
+                      } finally {
+                        setExportingJsonId(null);
+                      }
+                    }}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border px-4 py-2 text-base font-medium text-foreground transition-colors hover:bg-primary/20 hover:border-primary"
+                  >
+                    <Download className="h-4 w-4" aria-hidden="true" />
+                    {exportingJsonId === report.id ? 'Saving…' : 'JSON'}
                   </button>
                   <button
                     type="button"
