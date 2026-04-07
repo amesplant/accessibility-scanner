@@ -30,6 +30,7 @@ All findings live in a persistent dashboard organized by project and client enga
 - **Export to Teamwork (.xlsx) or Jira (.csv)** — filterable by WCAG level (All / Automated only / Manual only), with structured descriptions, code snippets, and affected page lists; individual issues can be exported directly from the manual audit tab
 - **Editable report names** — rename any report from the dashboard card or report detail header
 - **Local storage** in a simple JSON file — no database required
+- **Feature requests** — submit ideas directly as GitHub issues from a persistent sidebar button
 
 ---
 
@@ -115,9 +116,14 @@ PORT=3003                               # API server port (default)
 # OPENAI_API_KEY=sk-proj-...           # platform.openai.com
 # GEMINI_API_KEY=AIza...               # aistudio.google.com (free tier available)
 # GROQ_API_KEY=gsk_...                 # console.groq.com (free tier available)
+
+# Feature requests — creates GitHub issues from the in-app "Request a Feature" button
+# GITHUB_TOKEN=ghp_...                 # github.com/settings/tokens — Issues: Read and write on this repo
 ```
 
 At least one AI provider key is required to use the **Generate with AI** feature for remediation suggestions. If no keys are configured the feature is hidden. Multiple keys can be active simultaneously — auditors choose the provider from a dropdown.
+
+To enable the **Request a Feature** button, add a `GITHUB_TOKEN` with **Issues: Read and write** permission on this repo. Create one at [github.com/settings/tokens](https://github.com/settings/tokens). If the token is not configured, the modal will display setup instructions.
 
 ### Report storage
 
@@ -295,6 +301,13 @@ POST /api/scan
 |--------|----------|-------------|
 | `GET` | `/api/ai/providers` | List configured AI providers |
 | `POST` | `/api/ai/remediation-suggestion` | Generate a remediation suggestion |
+
+### Feature Requests
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/feature-request/status` | Check if `GITHUB_TOKEN` is configured |
+| `POST` | `/api/feature-request` | Create a GitHub issue from a feature request |
 
 **Generate a suggestion:**
 
