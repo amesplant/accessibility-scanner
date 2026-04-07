@@ -68,7 +68,7 @@ export function ViolationWindow() {
         </div>
         <div>
           <p className="text-xs text-muted-foreground mb-1">WCAG Level</p>
-          <p className="font-medium">{violation.level || 'best-practice'}</p>
+          <p className="font-medium">{violation.level === 'best-practice' || !violation.level ? 'Best Practice' : `WCAG ${violation.level}`}</p>
         </div>
         <div>
           <p className="text-xs text-muted-foreground mb-1">Rule ID</p>

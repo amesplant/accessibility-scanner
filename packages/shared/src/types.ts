@@ -11,6 +11,8 @@ export type ManualAuditStatus = 'pass' | 'fail' | 'na' | 'not-tested';
 
 export type FailureScope = 'global' | 'common' | 'page-specific';
 
+export type RemediationAssignee = 'content' | 'editor' | 'engineer';
+
 export interface ManualFailureInstance {
   id: string;
   status?: 'pass' | 'fail';
@@ -36,6 +38,8 @@ export interface ManualCheckResult {
   codeSnippet?: string;      // relevant HTML/code fragment
   screenshotDataUrl?: string; // base64 data URL of screenshot
   impact?: 'minor' | 'moderate' | 'serious' | 'critical';
+  remediationRecommendation?: string;
+  assignedTo?: RemediationAssignee;
   failures?: ManualFailureInstance[];
   questionStatuses?: ManualAuditStatus[];
   updatedAt: string;         // ISO date

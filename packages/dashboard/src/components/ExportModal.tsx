@@ -44,9 +44,9 @@ export type SingleIssueData =
 // ---------------------------------------------------------------------------
 
 const LEVELS = [
-  { value: 'A', label: 'Level A' },
-  { value: 'AA', label: 'Level AA' },
-  { value: 'AAA', label: 'Level AAA' },
+  { value: 'A', label: 'WCAG A' },
+  { value: 'AA', label: 'WCAG AA' },
+  { value: 'AAA', label: 'WCAG AAA' },
   { value: 'best-practice', label: 'Best Practice' },
 ] as const;
 

@@ -511,12 +511,14 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId', a
     const manualAudit = await modifyReportPage(req.params.reportId, req.params.pageId, (page, { auditType }) => {
       if (!page.manualAudit) page.manualAudit = initManualAudit(auditType);
 
-      const { status, notes, codeSnippet, screenshotDataUrl, questionStatuses } = req.body as {
+      const { status, notes, codeSnippet, screenshotDataUrl, questionStatuses, remediationRecommendation, assignedTo } = req.body as {
         status: ManualAuditStatus;
         notes?: string;
         codeSnippet?: string;
         screenshotDataUrl?: string;
         questionStatuses?: ManualAuditStatus[];
+        remediationRecommendation?: string;
+        assignedTo?: ManualCheckResult['assignedTo'];
       };
       const check = page.manualAudit.checks.find(c => c.id === req.params.checkId);
       if (check) {
@@ -525,6 +527,8 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId', a
         if (codeSnippet !== undefined) check.codeSnippet = codeSnippet;
         if (screenshotDataUrl !== undefined) check.screenshotDataUrl = screenshotDataUrl;
         if (questionStatuses !== undefined) check.questionStatuses = questionStatuses;
+        if (remediationRecommendation !== undefined) check.remediationRecommendation = remediationRecommendation;
+        if (assignedTo !== undefined) check.assignedTo = assignedTo;
         check.updatedAt = new Date().toISOString();
       }
       page.manualAudit.lastUpdated = new Date().toISOString();
@@ -545,7 +549,7 @@ app.post('/api/reports/:reportId/pages/:pageId/manual-audit/checks', async (req,
     const manualAudit = await modifyReportPage(req.params.reportId, req.params.pageId, (page, { auditType }) => {
       if (!page.manualAudit) page.manualAudit = initManualAudit(auditType);
 
-      const { title, description, impact, status, notes } = req.body as Partial<ManualCheckResult>;
+      const { title, description, impact, status, notes, remediationRecommendation, assignedTo } = req.body as Partial<ManualCheckResult>;
       if (!title) throw new Error('title is required');
 
       const newCheck: ManualCheckResult = {
@@ -556,6 +560,8 @@ app.post('/api/reports/:reportId/pages/:pageId/manual-audit/checks', async (req,
         impact,
         status: status ?? 'not-tested',
         notes,
+        remediationRecommendation,
+        assignedTo,
         updatedAt: new Date().toISOString(),
       };
       page.manualAudit.checks.push(newCheck);

@@ -121,6 +121,8 @@ export function useManualAudit(
       impact?: 'minor' | 'moderate' | 'serious' | 'critical';
       status: ManualAuditStatus;
       notes?: string;
+      remediationRecommendation?: string;
+      assignedTo?: 'content' | 'editor' | 'engineer';
     }) => {
       try {
         const res = await fetch(`/api/reports/${reportId}/pages/${pageId}/manual-audit/checks`, {

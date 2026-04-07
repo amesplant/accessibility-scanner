@@ -323,7 +323,7 @@ export function Dashboard() {
                   scanning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
                 ].join(' ')}
               >
-                {level}
+                {`WCAG ${level}`}
               </button>
             ))}
           </div>

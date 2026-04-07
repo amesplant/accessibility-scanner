@@ -1,4 +1,4 @@
-import { ScanReport, AxeViolation, ManualCheckResult, DetectedElement } from '../../shared/dist/index.js';
+import { ScanReport, AxeViolation, ManualCheckResult, DetectedElement, RemediationAssignee } from '../../shared/dist/index.js';
 import ExcelJS from 'exceljs';
 import type { Stream } from 'stream';
 
@@ -14,6 +14,43 @@ function defaultTasklistName(report: ScanReport): string {
   const year = new Date().getFullYear();
   const name = report.pageTitle || report.sitemap.replace(/https?:\/\//, '') || 'Report';
   return `Accessibility Audit ${year} | ${name}`;
+}
+
+const ASSIGNEE_LABELS: Record<RemediationAssignee, string> = {
+  content: 'Content',
+  editor: 'Editor',
+  engineer: 'Engineer',
+};
+
+function buildTeamworkAssignmentChecklist(assignedTo?: RemediationAssignee): string {
+  return [
+    '### 4. Recommend Assigning Remediation To',
+    '',
+    '> *Select one or more*',
+    ...(['content', 'editor', 'engineer'] as RemediationAssignee[]).map(option => {
+      const marker = option === assignedTo ? 'x' : ' ';
+      return `> - [${marker}] ${ASSIGNEE_LABELS[option]}`;
+    }),
+  ].join('\n');
+}
+
+function buildJiraAssignmentChecklist(assignedTo?: RemediationAssignee): string {
+  return [
+    'h3. Recommended Assignment',
+    '',
+    ...(['content', 'editor', 'engineer'] as RemediationAssignee[]).map(option => {
+      const marker = option === assignedTo ? 'x' : ' ';
+      return `* [${marker}] ${ASSIGNEE_LABELS[option]}`;
+    }),
+  ].join('\n');
+}
+
+function getCheckRemediation(check: ManualCheckResult): string {
+  const failureRemediation = (check.failures ?? [])
+    .map(f => f.remediationRecommendation)
+    .filter(Boolean)
+    .join('\n\n');
+  return check.remediationRecommendation || failureRemediation || '*Replace with the steps required to fix this issue.*';
 }
 
 export class Reporter {
@@ -249,7 +286,7 @@ export class Reporter {
         const wcagTags = this.wcagCriteriaTags(violation.tags);
         const severityTag = this.severityTag(violation.impact);
         const level = violation.level ?? 'best-practice';
-        const levelTag = level !== 'best-practice' ? level : 'Best Practice';
+        const levelTag = level !== 'best-practice' ? `WCAG ${level}` : 'Best Practice';
         const tags = ['Accessibility', severityTag, levelTag, 'Automated'].join(', ');
 
         const firstCriterion = wcagTags[0]?.replace('WCAG ', '') ?? '';
@@ -469,7 +506,7 @@ export class Reporter {
       const wcagTags = this.wcagCriteriaTags(violation.tags);
       const severityTag = this.severityTag(violation.impact);
       const level = violation.level ?? 'best-practice';
-      const levelTag = level !== 'best-practice' ? level : 'Best Practice';
+      const levelTag = level !== 'best-practice' ? `WCAG ${level}` : 'Best Practice';
       const tags = ['Accessibility', severityTag, levelTag, 'Automated'].join(', ');
 
       const firstCriterion = wcagTags[0]?.replace('WCAG ', '') ?? '';
@@ -584,7 +621,7 @@ export class Reporter {
       const wcagTags = this.wcagCriteriaTags(violation.tags);
       const severityTag = this.severityTag(violation.impact);
       const level = violation.level ?? 'best-practice';
-      const levelTag = level !== 'best-practice' ? level : 'Best Practice';
+      const levelTag = level !== 'best-practice' ? `WCAG ${level}` : 'Best Practice';
       const tags = ['Accessibility', severityTag, levelTag, 'Automated'].join(', ');
 
       const firstCriterion = wcagTags[0]?.replace('WCAG ', '') ?? '';
@@ -755,10 +792,7 @@ export class Reporter {
       ? `\nh3. Failure Instances\n\n${failureLines}\n`
       : '';
 
-    const failureRemediation2 = (check.failures ?? [])
-      .map(f => f.remediationRecommendation).filter(Boolean).join('\n\n');
-    const remediationSection = failureRemediation2
-      || '_Replace this section with the steps required to fix this issue._';
+    const remediationSection = getCheckRemediation(check);
 
     return `${pageUrlLine}h3. Issue Description
 
@@ -772,11 +806,7 @@ h3. Steps to QA
 
 _Replace this section with steps to validate the issue has been resolved._
 
-h3. Recommended Assignment
-
-* [ ] Content
-* [ ] Design
-* [ ] Engineer
+${buildJiraAssignmentChecklist(check.assignedTo)}
 `;
   }
 
@@ -815,7 +845,7 @@ h3. Recommended Assignment
     const description = this.buildManualTeamworkDescription(check, pageUrl);
 
     const tagParts = ['Accessibility', 'Manual'];
-    if (level) tagParts.push(level);
+    if (level) tagParts.push(`WCAG ${level}`);
     if (check.impact) tagParts.push(check.impact.charAt(0).toUpperCase() + check.impact.slice(1) + ' Issue');
     const tags = tagParts.join(', ');
 
@@ -853,9 +883,7 @@ h3. Recommended Assignment
       ? `\n**d. Failure Instances**\n\n${failureLines}\n`
       : '';
 
-    const failureRemediation = (check.failures ?? [])
-      .map(f => f.remediationRecommendation).filter(Boolean).join('\n\n');
-    const remediationText = failureRemediation || '*Replace with the steps required to fix this issue.*';
+    const remediationText = getCheckRemediation(check);
 
     return `${pageUrlLine}### 1. Describe the Issue
 
@@ -879,12 +907,7 @@ ${codeSnippet}${failuresSection}
 
 ---
 
-### 4. Recommend Assigning Remediation To
-
-> *Select one or more*
-> - [ ] Content
-> - [ ] Design
-> - [ ] Engineer
+${buildTeamworkAssignmentChecklist(check.assignedTo)}
 `;
   }
 
@@ -944,7 +967,7 @@ _Replace this section with steps to validate the issue has been resolved._
 h3. Recommended Assignment
 
 * [ ] Content
-* [ ] Design
+* [ ] Editor
 * [ ] Engineer
 `;
   }
@@ -1060,7 +1083,7 @@ ${displayedPages.map(p => {
 
 > *Select one or more*
 > - [ ] Content
-> - [ ] Design
+> - [ ] Editor
 > - [ ] Engineer
 `;
   }
