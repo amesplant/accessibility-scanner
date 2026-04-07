@@ -36,7 +36,7 @@ import { useCurrentReport } from '@/context/CurrentReportContext';
 // ---------------------------------------------------------------------------
 
 export type SingleIssueData =
-  | { kind: 'check'; check: ManualCheckResult }
+  | { kind: 'check'; check: ManualCheckResult; pageUrl?: string }
   | { kind: 'failure'; data: FailureExportData };
 
 // ---------------------------------------------------------------------------
@@ -163,9 +163,9 @@ export function ExportModal({ report, onClose, singleIssue }: ExportModalProps) 
     if (!singleIssue) return;
     if (singleIssue.kind === 'check') {
       if (format === 'jira') {
-        exportCheckAsJiraCsv(singleIssue.check, fileName);
+        exportCheckAsJiraCsv(singleIssue.check, fileName, singleIssue.pageUrl);
       } else {
-        exportCheckAsTeamworkXlsx(singleIssue.check, tasklistName, fileName);
+        exportCheckAsTeamworkXlsx(singleIssue.check, tasklistName, fileName, singleIssue.pageUrl);
       }
     } else {
       if (format === 'jira') {
