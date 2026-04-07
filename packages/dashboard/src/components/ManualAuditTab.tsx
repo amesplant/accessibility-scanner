@@ -875,6 +875,7 @@ function FailureInstanceItem({
                 codeSnippet: localCode || undefined,
                 screenshotDataUrl: screenshot,
                 remediationRecommendation: localRemediation || undefined,
+                relatedCriteria: localRelatedCriteria.length > 0 ? localRelatedCriteria : undefined,
                 impact: failure.impact,
                 scope: failure.scope,
                 pageUrl,

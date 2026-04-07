@@ -11,6 +11,7 @@ export interface FailureExportData {
   codeSnippet?: string;
   screenshotDataUrl?: string;
   remediationRecommendation?: string;
+  relatedCriteria?: string[];
   checkContext?: { criterion?: string; criterionTitle?: string; title?: string; level?: string; description?: string };
   tasklistName?: string;
   impact?: 'minor' | 'moderate' | 'serious' | 'critical';
@@ -104,6 +105,9 @@ function buildTeamworkDescription(check: ManualCheckResult, pageUrl: string = ''
     .map((f, i) => {
       const parts = [`**Instance ${i + 1}**`];
       if (f.notes) parts.push(`> ${f.notes}`);
+      if (f.relatedCriteria && f.relatedCriteria.length > 0) {
+        parts.push(`> *Related WCAG Criteria:* ${f.relatedCriteria.join(', ')}`);
+      }
       if (f.codeSnippet) parts.push(`\`\`\`html\n${f.codeSnippet}\n\`\`\``);
       if (f.remediationRecommendation) parts.push(`> *Recommendation:* ${f.remediationRecommendation}`);
       return parts.join('\n');
@@ -189,6 +193,9 @@ function buildJiraDescription(check: ManualCheckResult, pageUrl: string = ''): s
     .map((f, i) => {
       const parts = [`*Instance ${i + 1}*`];
       if (f.notes) parts.push(f.notes);
+      if (f.relatedCriteria && f.relatedCriteria.length > 0) {
+        parts.push(`_Related WCAG Criteria:_ ${f.relatedCriteria.join(', ')}`);
+      }
       if (f.codeSnippet) parts.push(`{code:html}\n${f.codeSnippet}\n{code}`);
       if (f.remediationRecommendation) parts.push(`_Recommendation:_ ${f.remediationRecommendation}`);
       return parts.join('\n');
@@ -252,7 +259,7 @@ function issueLabel(title: string | undefined, notes: string | undefined): strin
 }
 
 export function exportFailureAsTeamworkXlsx(data: FailureExportData, fileName?: string) {
-  const { title: instanceTitle, notes, codeSnippet, screenshotDataUrl, remediationRecommendation, checkContext, tasklistName = 'Accessibility Audit', impact, scope, pageUrl = '' } = data;
+  const { title: instanceTitle, notes, codeSnippet, screenshotDataUrl, remediationRecommendation, relatedCriteria, checkContext, tasklistName = 'Accessibility Audit', impact, scope, pageUrl = '' } = data;
   const criterion = checkContext?.criterion ?? '';
   const level = checkContext?.level ?? '';
   const levelLabel = level || 'Manual';
@@ -270,6 +277,9 @@ export function exportFailureAsTeamworkXlsx(data: FailureExportData, fileName?: 
     : `\n**b. Screenshot**\n\n> *No screenshot provided — attach one if available.*\n`;
   const codeBlock = codeSnippet ? `\n**c. Code Snippet**\n\n\`\`\`html\n${codeSnippet}\n\`\`\`\n` : '';
   const remediationText = remediationRecommendation ?? '*Replace with the steps required to fix this issue.*';
+  const relatedCriteriaBlock = relatedCriteria && relatedCriteria.length > 0
+    ? `\n**Related WCAG Criteria**\n\n> ${relatedCriteria.join(', ')}\n`
+    : '';
   const pageUrlLine = pageUrl ? `**Page URL:** ${pageUrl}\n\n` : '';
 
   const description = `${pageUrlLine}### 1. Describe the Issue
@@ -279,7 +289,7 @@ export function exportFailureAsTeamworkXlsx(data: FailureExportData, fileName?: 
 **a. Description of Issue**
 
 > ${noteText}
-${screenshotBlock}${codeBlock}
+${screenshotBlock}${codeBlock}${relatedCriteriaBlock}
 ---
 
 ### 2. Remediation
@@ -332,7 +342,7 @@ ${screenshotBlock}${codeBlock}
 // ---------------------------------------------------------------------------
 
 export function exportFailureAsJiraCsv(data: FailureExportData, fileName?: string) {
-  const { title: instanceTitle, notes, codeSnippet, screenshotDataUrl, remediationRecommendation, checkContext, impact, scope, pageUrl = '' } = data;
+  const { title: instanceTitle, notes, codeSnippet, screenshotDataUrl, remediationRecommendation, relatedCriteria, checkContext, impact, scope, pageUrl = '' } = data;
   const criterion = checkContext?.criterion ?? '';
   const level = checkContext?.level ?? '';
   const levelLabel = level || 'Manual';
@@ -349,13 +359,16 @@ export function exportFailureAsJiraCsv(data: FailureExportData, fileName?: strin
     ? `\nh3. Screenshot\n\nScreenshot captured — attach image to this issue.\n`
     : `\nh3. Screenshot\n\n_No screenshot provided — attach one if available._\n`;
   const codeBlock = codeSnippet ? `\nh3. Code Snippet\n\n{code:html}\n${codeSnippet}\n{code}\n` : '';
+  const relatedCriteriaSection = relatedCriteria && relatedCriteria.length > 0
+    ? `\nh3. Related WCAG Criteria\n\n${relatedCriteria.join(', ')}\n`
+    : '';
   const remediationSection = remediationRecommendation || '_Replace this section with the steps required to fix this issue._';
   const pageUrlLine = pageUrl ? `*Page URL:* ${pageUrl}\n\n` : '';
 
   const description = `${pageUrlLine}h3. Issue Description
 
 ${noteText}
-${screenshotSection}${codeBlock}
+${screenshotSection}${codeBlock}${relatedCriteriaSection}
 h3. Remediation
 
 ${remediationSection}
