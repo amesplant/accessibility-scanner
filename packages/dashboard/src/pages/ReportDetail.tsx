@@ -4,6 +4,7 @@ import { ExternalLink } from '@/components/ExternalLink';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useCurrentReport } from '@/context/CurrentReportContext';
 import { useReport } from '@/hooks/useReport';
+import { downloadReportJson } from '@/lib/reportTransfer';
 import {
   Tabs,
   TabsContent,
@@ -27,6 +28,7 @@ export function ReportDetail() {
   const { id } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const [exportOpen, setExportOpen] = useState(false);
+  const [exportingJson, setExportingJson] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -217,8 +219,26 @@ export function ReportDetail() {
           </TabsList>
           <button
             type="button"
+            onClick={async () => {
+              if (exportingJson) return;
+              try {
+                setExportingJson(true);
+                await downloadReportJson(report.id);
+              } catch (err) {
+                console.error('JSON export failed:', err);
+              } finally {
+                setExportingJson(false);
+              }
+            }}
+            className="ml-auto mr-2 inline-flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-base font-medium text-foreground transition-colors hover:bg-primary/20 hover:border-primary focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+          >
+            <Download className="h-4 w-4" aria-hidden="true" />
+            {exportingJson ? 'Saving…' : 'Export JSON'}
+          </button>
+          <button
+            type="button"
             onClick={() => setExportOpen(true)}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-base font-medium text-foreground transition-colors hover:bg-primary/20 hover:border-primary focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-base font-medium text-foreground transition-colors hover:bg-primary/20 hover:border-primary focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
           >
             <Download className="h-4 w-4" aria-hidden="true" />
             Export

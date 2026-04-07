@@ -4,6 +4,7 @@ import { useReports, type ReportListItem } from '@/hooks/useReports';
 import { useProjects } from '@/hooks/useProjects';
 import { useScanContext, formatElapsed } from '@/context/ScanContext';
 import { apiFetch } from '@/lib/api';
+import { downloadReportJson, importReportJsonPayload } from '@/lib/reportTransfer';
 import { AuditType } from '@accessibility-scanner/shared';
 import {
   Card,
@@ -16,7 +17,7 @@ import {
   Progress,
 } from '@/components/ui';
 import { ExternalLink } from '@/components/ExternalLink';
-import { TriangleAlert, Trash2, Download, FolderOpen, Pencil, Check, X } from 'lucide-react';
+import { TriangleAlert, Trash2, Download, FolderOpen, Pencil, Check, X, Upload } from 'lucide-react';
 import {
   Dialog,
   DialogClose,
@@ -82,8 +83,12 @@ export function Dashboard() {
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const [editingProject, setEditingProject] = useState<ProjectWithCount | null>(null);
   const [pendingDeleteProjectId, setPendingDeleteProjectId] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     document.title = 'Seymour — Reports';
@@ -221,6 +226,45 @@ export function Dashboard() {
 
   async function handleAbort() {
     await abortScan();
+  }
+
+  async function handleImportChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = Array.from(event.target.files ?? []);
+    event.target.value = '';
+    if (selectedFiles.length === 0) return;
+
+    setIsImporting(true);
+    setImportStatus(null);
+    setImportError(null);
+
+    let totalImported = 0;
+    let totalSkipped = 0;
+    const failures: string[] = [];
+
+    for (const file of selectedFiles) {
+      try {
+        const parsed = JSON.parse(await file.text()) as unknown;
+        const result = await importReportJsonPayload(parsed);
+        totalImported += result.importedCount;
+        totalSkipped += result.skippedCount;
+      } catch (err) {
+        failures.push(`${file.name}: ${err instanceof Error ? err.message : 'invalid JSON file'}`);
+      }
+    }
+
+    if (totalImported > 0) {
+      setImportStatus(`Imported ${totalImported} report${totalImported === 1 ? '' : 's'}${totalSkipped ? ` (${totalSkipped} skipped)` : ''}.`);
+      refresh({ background: true });
+      refreshProjects({ background: true });
+    }
+
+    if (failures.length > 0) {
+      setImportError(failures.join(' | '));
+    } else if (totalImported === 0) {
+      setImportError('No valid reports were imported.');
+    }
+
+    setIsImporting(false);
   }
 
   function switchMode(next: InputMode) {
@@ -595,7 +639,32 @@ export function Dashboard() {
 
   return (
     <div className="container mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-6">Accessibility Reports</h1>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h1 className="text-3xl font-bold">Accessibility Reports</h1>
+        <div className="flex items-center gap-2">
+          <input
+            ref={importFileInputRef}
+            type="file"
+            accept="application/json,.json"
+            multiple
+            className="sr-only"
+            onChange={handleImportChange}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            disabled={isImporting}
+            onClick={() => importFileInputRef.current?.click()}
+          >
+            <Upload className="h-4 w-4 mr-1.5" aria-hidden="true" />
+            {isImporting ? 'Importing…' : 'Import JSON'}
+          </Button>
+        </div>
+      </div>
+      <div className="mb-6 min-h-6">
+        {importStatus && <p className="text-sm text-emerald-600 dark:text-emerald-400">{importStatus}</p>}
+        {importError && <p className="text-sm text-destructive">{importError}</p>}
+      </div>
 
       {(!hasAnything || showScanForm || scanning) && !(loading && reports.length === 0) && (
         <Card className="mb-8">
@@ -747,6 +816,15 @@ export function Dashboard() {
                 >
                   <Download className="h-4 w-4" aria-hidden="true" />
                   Export
+                </button>
+                <button
+                  type="button"
+                  onClick={() => downloadReportJson(report.id).catch(err => setImportError(err instanceof Error ? err.message : 'Failed to export JSON'))}
+                  aria-label={`Download JSON backup for ${report.pageTitle || report.sitemap}`}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border px-4 py-2 text-base font-medium text-foreground transition-colors hover:bg-primary/20 hover:border-primary"
+                >
+                  <Download className="h-4 w-4" aria-hidden="true" />
+                  JSON
                 </button>
                 <button
                   type="button"

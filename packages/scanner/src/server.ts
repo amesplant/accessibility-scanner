@@ -28,7 +28,7 @@ const port = process.env.PORT || 3003;
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
 
 app.use(cors({ origin: FRONTEND_ORIGIN, credentials: true }));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
 
 // Run migration before accepting requests (no-op if already migrated)
 await db.migrate();
@@ -53,6 +53,105 @@ const jobs = new Map<string, Job>();
 
 function cleanupJob(jobId: string) {
   setTimeout(() => jobs.delete(jobId), 5 * 60 * 1000);
+}
+
+type JsonRecord = Record<string, unknown>;
+
+function isJsonRecord(value: unknown): value is JsonRecord {
+  return typeof value === 'object' && value !== null;
+}
+
+function toSlug(text: string, maxLen = 60): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, maxLen);
+}
+
+function parseDate(value: unknown, fallback: Date): Date {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return fallback;
+}
+
+function buildSummaryFromResults(results: ScanReport['results']): ScanReport['summary'] {
+  const summary = {
+    totalPages: results.length,
+    totalViolations: 0,
+    violationsByImpact: {} as Record<string, number>,
+    violationsByType: {} as Record<string, number>,
+    violationsByLevel: {} as Record<string, number>,
+    manualFailCount: 0,
+    auditedPages: 0,
+  };
+
+  for (const page of results) {
+    if (page.manualAudit?.completed) summary.auditedPages += 1;
+    summary.manualFailCount += page.manualAudit?.checks.filter(c => c.status === 'fail').length ?? 0;
+
+    for (const violation of page.violations ?? []) {
+      summary.totalViolations += 1;
+      summary.violationsByImpact[violation.impact] = (summary.violationsByImpact[violation.impact] ?? 0) + 1;
+      summary.violationsByType[violation.id] = (summary.violationsByType[violation.id] ?? 0) + 1;
+      const level = violation.level ?? 'best-practice';
+      summary.violationsByLevel[level] = (summary.violationsByLevel[level] ?? 0) + 1;
+    }
+  }
+
+  return summary;
+}
+
+function parseImportPayload(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) return payload;
+  if (!isJsonRecord(payload)) return [payload];
+
+  if (Array.isArray(payload.reports)) return payload.reports;
+  if ('report' in payload) return [payload.report];
+  return [payload];
+}
+
+function normalizeImportedReport(value: unknown): ScanReport | null {
+  if (!isJsonRecord(value)) return null;
+  if (!Array.isArray(value.results)) return null;
+  if (typeof value.sitemap !== 'string' || !value.sitemap.trim()) return null;
+
+  const now = new Date();
+  const rawResults = value.results as ScanReport['results'];
+  const results = rawResults.map((result) => ({
+    ...result,
+    id: typeof result.id === 'string' && result.id ? result.id : randomUUID(),
+    timestamp: parseDate(result.timestamp, now),
+    manualAudit: result.manualAudit,
+  }));
+
+  const report: ScanReport = {
+    id: typeof value.id === 'string' && value.id ? value.id : randomUUID(),
+    sitemap: value.sitemap,
+    pageTitle: typeof value.pageTitle === 'string' ? value.pageTitle : undefined,
+    startTime: parseDate(value.startTime, now),
+    endTime: parseDate(value.endTime, now),
+    auditType: value.auditType === 'rapid' || value.auditType === 'mid-level' || value.auditType === 'all-inclusive'
+      ? value.auditType
+      : undefined,
+    wcagLevel: value.wcagLevel === 'A' || value.wcagLevel === 'AA' || value.wcagLevel === 'AAA'
+      ? value.wcagLevel
+      : undefined,
+    includeBestPractices: typeof value.includeBestPractices === 'boolean' ? value.includeBestPractices : undefined,
+    // Imported reports should be portable across machines, so project assignment is intentionally omitted.
+    projectId: undefined,
+    results,
+    summary: buildSummaryFromResults(results),
+  };
+
+  if (report.endTime.getTime() < report.startTime.getTime()) {
+    report.endTime = new Date(report.startTime);
+  }
+
+  return report;
 }
 
 // ---------------------------------------------------------------------------
@@ -93,6 +192,61 @@ app.get('/api/reports/:id', async (req, res) => {
     return res.status(404).json({ error: 'Report not found' });
   }
   return res.json(report);
+});
+
+app.get('/api/reports/:id/export/json', async (req, res) => {
+  const report = await db.getReport(req.params.id);
+  if (!report) {
+    return res.status(404).json({ error: 'Report not found' });
+  }
+
+  const baseName = toSlug(report.pageTitle || report.sitemap || report.id) || report.id;
+  const filename = `${baseName}-report.json`;
+  const payload = {
+    format: 'accessibility-scanner-report',
+    formatVersion: 1,
+    exportedAt: new Date().toISOString(),
+    report,
+  };
+
+  res.header('Content-Type', 'application/json; charset=utf-8');
+  res.header('Content-Disposition', `attachment; filename="${filename}"`);
+  return res.send(JSON.stringify(payload, null, 2));
+});
+
+app.post('/api/reports/import', async (req, res) => {
+  try {
+    const entries = parseImportPayload(req.body);
+    let importedCount = 0;
+    let skippedCount = 0;
+    const importedIds: string[] = [];
+
+    for (const entry of entries) {
+      const candidate = normalizeImportedReport(entry);
+      if (!candidate) {
+        skippedCount += 1;
+        continue;
+      }
+
+      let report = candidate;
+      if (await db.getReport(report.id)) {
+        report = { ...report, id: randomUUID() };
+      }
+
+      await db.saveReport(report);
+      importedCount += 1;
+      importedIds.push(report.id);
+    }
+
+    if (importedCount === 0) {
+      return res.status(400).json({ error: 'No valid reports found in import payload' });
+    }
+
+    return res.status(201).json({ importedCount, skippedCount, importedIds });
+  } catch (err) {
+    console.error('Import report error:', err);
+    return res.status(500).json({ error: 'Failed to import report JSON' });
+  }
 });
 
 app.get('/api/reports/:id/pages', async (req, res) => {
