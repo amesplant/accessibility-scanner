@@ -660,6 +660,9 @@ app.post('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fail
         notes: req.body.notes,
         codeSnippet: req.body.codeSnippet,
         screenshotDataUrl: req.body.screenshotDataUrl,
+        relatedCriteria: Array.isArray(req.body.relatedCriteria)
+          ? req.body.relatedCriteria.filter((value: unknown): value is string => typeof value === 'string')
+          : undefined,
         createdAt: new Date().toISOString(),
       };
       if (!check.failures) check.failures = [];
@@ -694,7 +697,7 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fai
       const failure = (check.failures ?? []).find(f => f.id === req.params.failureId);
       if (!failure) throw new Error('Failure instance not found');
 
-      const { scope, impact, title, notes, codeSnippet, screenshotDataUrl, status, remediationRecommendation } = req.body;
+      const { scope, impact, title, notes, codeSnippet, screenshotDataUrl, status, remediationRecommendation, relatedCriteria } = req.body;
       if (scope !== undefined) failure.scope = scope;
       if (impact !== undefined) failure.impact = impact;
       if (title !== undefined) failure.title = title;
@@ -703,6 +706,11 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fai
       if (screenshotDataUrl !== undefined) failure.screenshotDataUrl = screenshotDataUrl;
       if (status !== undefined) failure.status = status;
       if (remediationRecommendation !== undefined) failure.remediationRecommendation = remediationRecommendation;
+      if (relatedCriteria !== undefined) {
+        failure.relatedCriteria = Array.isArray(relatedCriteria)
+          ? relatedCriteria.filter((value: unknown): value is string => typeof value === 'string')
+          : undefined;
+      }
 
       const allFailures = check.failures ?? [];
       if (allFailures.length > 0) {
@@ -989,13 +997,14 @@ app.post('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/
 
       const element = elements.find(e => e.id === req.params.elementId);
       if (!element) throw new Error('Element not found');
-      const { notes, codeSnippet, screenshotDataUrl, remediationRecommendation } = req.body as Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>;
+      const { notes, codeSnippet, screenshotDataUrl, remediationRecommendation, relatedCriteria } = req.body as Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'relatedCriteria'>>;
       const failure: ManualFailureInstance = {
         id: `ef_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         notes,
         codeSnippet,
         screenshotDataUrl,
         remediationRecommendation,
+        relatedCriteria,
         createdAt: new Date().toISOString(),
       };
       element.failures = [...(element.failures ?? []), failure];

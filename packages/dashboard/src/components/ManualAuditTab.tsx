@@ -142,6 +142,10 @@ const IMPACT_COLORS: Record<ImpactLevel, string> = {
   minor:    'bg-sky-100    text-sky-800    border-sky-200',
 };
 
+const WCAG_CRITERIA_OPTIONS = PREDEFINED_CHECKS
+  .map((check) => ({ id: check.id, label: `${check.id} ${check.title}` }))
+  .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+
 // ---------------------------------------------------------------------------
 // View mode
 // ---------------------------------------------------------------------------
@@ -432,6 +436,7 @@ function FailureInstanceItem({
 }) {
   const pageUrl = useContext(PageUrlContext);
   const [localTitle, setLocalTitle] = useState(failure.title ?? '');
+  const [localRelatedCriteria, setLocalRelatedCriteria] = useState<string[]>(failure.relatedCriteria ?? []);
   const [localNotes, setLocalNotes] = useState(failure.notes ?? '');
   const [localCode, setLocalCode] = useState(failure.codeSnippet ?? '');
   const [localRemediation, setLocalRemediation] = useState(failure.remediationRecommendation ?? '');
@@ -458,6 +463,7 @@ function FailureInstanceItem({
   function handleSave() {
     onUpdate({
       title: localTitle || undefined,
+      relatedCriteria: localRelatedCriteria.length > 0 ? localRelatedCriteria : undefined,
       notes: localNotes || undefined,
       codeSnippet: localCode || undefined,
       screenshotDataUrl: screenshot,
@@ -467,6 +473,17 @@ function FailureInstanceItem({
     setJustSaved(true);
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
     savedTimerRef.current = setTimeout(() => setJustSaved(false), 2500);
+  }
+
+  const currentCriterion = checkContext?.criterion;
+  const availableCriteria = WCAG_CRITERIA_OPTIONS.filter(option => option.id !== currentCriterion);
+
+  function toggleRelatedCriterion(criterionId: string) {
+    setLocalRelatedCriteria(prev => {
+      if (prev.includes(criterionId)) return prev.filter(id => id !== criterionId);
+      return [...prev, criterionId].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    });
+    markDirty();
   }
 
   function applyScreenshot(dataUrl: string) {
@@ -640,6 +657,45 @@ function FailureInstanceItem({
           onChange={e => { setLocalTitle(e.target.value); markDirty(); }}
           className="h-7 text-xs"
         />
+      </div>
+
+      {/* Related WCAG criteria */}
+      <div className="space-y-1">
+        <Label className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          Related WCAG criteria
+        </Label>
+        <div className="rounded border border-border bg-muted/20 p-2">
+          {localRelatedCriteria.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-1">
+              {localRelatedCriteria.map((criterionId) => (
+                <Badge key={criterionId} variant="outline" className="text-xs h-5 px-1.5 py-0 font-mono">
+                  {criterionId}
+                </Badge>
+              ))}
+            </div>
+          )}
+          <div className="max-h-28 overflow-y-auto grid gap-1">
+            {availableCriteria.map(option => {
+              const selected = localRelatedCriteria.includes(option.id);
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => toggleRelatedCriterion(option.id)}
+                  aria-pressed={selected}
+                  className={cn(
+                    'w-full rounded border px-2 py-1 text-left text-xs transition-colors',
+                    selected
+                      ? 'border-primary bg-primary/10 text-foreground'
+                      : 'border-border bg-background text-muted-foreground hover:text-foreground hover:border-primary/50',
+                  )}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* Issue description */}
@@ -1636,8 +1692,8 @@ function NonTextElementsPanel({
 // FailureUpdateData — shared type for failure instance patch payloads
 // ---------------------------------------------------------------------------
 
-type FailureUpdateData = Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'impact' | 'title' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>;
-type FailureSeedData = Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>;
+type FailureUpdateData = Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'impact' | 'title' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'relatedCriteria'>>;
+type FailureSeedData = Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'relatedCriteria'>>;
 function buildSeededIssueNotes(element: DetectedElement): string | undefined {
   const text = element.textAlternative?.trim();
   const sr = element.screenReaderText?.trim();
@@ -2096,8 +2152,6 @@ function CustomCheckItem({
   const [localNotes, setLocalNotes] = useState(check.notes ?? '');
   const [exportOpen, setExportOpen] = useState(false);
 
-  const showFailures = check.status === 'fail' || (check.failures ?? []).length > 0;
-
   return (
     <div className="border rounded p-3 space-y-2">
       <div className="flex items-start justify-between gap-2">
@@ -2162,11 +2216,14 @@ function CustomCheckItem({
         }}
         className="w-full text-xs border-0 border-b border-dashed border-muted-foreground/30 bg-transparent px-0 py-0.5 focus:outline-none focus:border-muted-foreground placeholder:text-muted-foreground/50"
       />
-      {showFailures && onAddFailure && (
+      {onAddFailure && (
         <FailureInstancesSection
           failures={check.failures}
           checkContext={{ id: check.id, title: check.title, criterion: check.wcagCriterion, description: check.description, level: check.level }}
-          onAdd={onAddFailure}
+          onAdd={() => {
+            onAddFailure();
+            if (check.status !== 'fail') onStatusChange('fail');
+          }}
           onUpdate={(fid, data) => onUpdateFailure?.(fid, data)}
           onDelete={fid => onDeleteFailure?.(fid)}
           className="pt-1"
