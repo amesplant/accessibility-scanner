@@ -13,11 +13,19 @@ export type FailureScope = 'global' | 'common' | 'page-specific';
 
 export type RemediationAssignee = 'content' | 'editor' | 'engineer';
 
+export type RemediationAssignment = RemediationAssignee | RemediationAssignee[];
+
+export function normalizeRemediationAssignees(assignedTo?: RemediationAssignment): RemediationAssignee[] {
+  if (!assignedTo) return [];
+  return Array.isArray(assignedTo) ? assignedTo : [assignedTo];
+}
+
 export interface ManualFailureInstance {
   id: string;
   status?: 'pass' | 'fail';
   scope?: FailureScope;
   impact?: 'minor' | 'moderate' | 'serious' | 'critical';
+  assignedTo?: RemediationAssignee[];
   /** Additional WCAG criteria IDs related to this instance (e.g. ["1.3.1", "4.1.2"]). */
   relatedCriteria?: string[];
   /** Optional notes keyed by related WCAG criterion ID. */
@@ -43,7 +51,7 @@ export interface ManualCheckResult {
   screenshotDataUrl?: string; // base64 data URL of screenshot
   impact?: 'minor' | 'moderate' | 'serious' | 'critical';
   remediationRecommendation?: string;
-  assignedTo?: RemediationAssignee;
+  assignedTo?: RemediationAssignee[];
   failures?: ManualFailureInstance[];
   questionStatuses?: ManualAuditStatus[];
   updatedAt: string;         // ISO date

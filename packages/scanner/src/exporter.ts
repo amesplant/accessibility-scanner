@@ -1,4 +1,4 @@
-import { ScanReport, AxeViolation, ManualCheckResult, DetectedElement, RemediationAssignee } from '../../shared/dist/index.js';
+import { ScanReport, AxeViolation, ManualCheckResult, DetectedElement, RemediationAssignee, normalizeRemediationAssignees } from '../../shared/dist/index.js';
 import ExcelJS from 'exceljs';
 import type { Stream } from 'stream';
 
@@ -22,24 +22,26 @@ const ASSIGNEE_LABELS: Record<RemediationAssignee, string> = {
   engineer: 'Engineer',
 };
 
-function buildTeamworkAssignmentChecklist(assignedTo?: RemediationAssignee): string {
+function buildTeamworkAssignmentChecklist(assignedTo?: RemediationAssignee[]): string {
+  const selected = normalizeRemediationAssignees(assignedTo);
   return [
     '### 4. Recommend Assigning Remediation To',
     '',
     '> *Select one or more*',
     ...(['content', 'editor', 'engineer'] as RemediationAssignee[]).map(option => {
-      const marker = option === assignedTo ? 'x' : ' ';
+      const marker = selected.includes(option) ? 'x' : ' ';
       return `> - [${marker}] ${ASSIGNEE_LABELS[option]}`;
     }),
   ].join('\n');
 }
 
-function buildJiraAssignmentChecklist(assignedTo?: RemediationAssignee): string {
+function buildJiraAssignmentChecklist(assignedTo?: RemediationAssignee[]): string {
+  const selected = normalizeRemediationAssignees(assignedTo);
   return [
     'h3. Recommended Assignment',
     '',
     ...(['content', 'editor', 'engineer'] as RemediationAssignee[]).map(option => {
-      const marker = option === assignedTo ? 'x' : ' ';
+      const marker = selected.includes(option) ? 'x' : ' ';
       return `* [${marker}] ${ASSIGNEE_LABELS[option]}`;
     }),
   ].join('\n');

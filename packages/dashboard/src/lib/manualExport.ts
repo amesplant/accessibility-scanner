@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { PREDEFINED_CHECKS, type ManualCheckResult, type FailureScope, type RemediationAssignee } from '@accessibility-scanner/shared';
+import { PREDEFINED_CHECKS, normalizeRemediationAssignees, type ManualCheckResult, type FailureScope, type RemediationAssignee } from '@accessibility-scanner/shared';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -11,7 +11,7 @@ export interface FailureExportData {
   codeSnippet?: string;
   screenshotDataUrl?: string;
   remediationRecommendation?: string;
-  assignedTo?: RemediationAssignee;
+  assignedTo?: RemediationAssignee[];
   relatedCriteria?: string[];
   relatedCriteriaNotes?: Record<string, string>;
   checkContext?: { criterion?: string; criterionTitle?: string; title?: string; level?: string; description?: string };
@@ -75,24 +75,26 @@ const ASSIGNEE_LABELS: Record<RemediationAssignee, string> = {
   engineer: 'Engineer',
 };
 
-function buildTeamworkAssignmentChecklist(assignedTo?: RemediationAssignee): string {
+function buildTeamworkAssignmentChecklist(assignedTo?: RemediationAssignee[]): string {
+  const selected = normalizeRemediationAssignees(assignedTo);
   return [
     '### 4. Recommend Assigning Remediation To',
     '',
     '> *Select one or more*',
     ...(['content', 'editor', 'engineer'] as RemediationAssignee[]).map(option => {
-      const marker = option === assignedTo ? 'x' : ' ';
+      const marker = selected.includes(option) ? 'x' : ' ';
       return `> - [${marker}] ${ASSIGNEE_LABELS[option]}`;
     }),
   ].join('\n');
 }
 
-function buildJiraAssignmentChecklist(assignedTo?: RemediationAssignee): string {
+function buildJiraAssignmentChecklist(assignedTo?: RemediationAssignee[]): string {
+  const selected = normalizeRemediationAssignees(assignedTo);
   return [
     'h3. Recommended Assignment',
     '',
     ...(['content', 'editor', 'engineer'] as RemediationAssignee[]).map(option => {
-      const marker = option === assignedTo ? 'x' : ' ';
+      const marker = selected.includes(option) ? 'x' : ' ';
       return `* [${marker}] ${ASSIGNEE_LABELS[option]}`;
     }),
   ].join('\n');

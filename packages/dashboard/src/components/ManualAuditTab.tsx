@@ -6,6 +6,7 @@ import {
   ManualFailureInstance,
   FailureScope,
   RemediationAssignee,
+  normalizeRemediationAssignees,
   DetectedElement,
   DetectedCriteriaElements,
   PREDEFINED_CHECKS,
@@ -154,6 +155,12 @@ const ASSIGNEE_LABELS: Record<RemediationAssignee, string> = {
   editor: 'Editor',
   engineer: 'Engineer',
 };
+
+function formatAssignedTo(assignedTo?: RemediationAssignee[]): string {
+  return normalizeRemediationAssignees(assignedTo)
+    .map((assignee) => ASSIGNEE_LABELS[assignee])
+    .join(', ');
+}
 
 const WCAG_CRITERIA_OPTIONS = PREDEFINED_CHECKS
   .map((check) => ({ id: check.id, label: `${check.id} ${check.title}` }))
@@ -449,6 +456,7 @@ function FailureInstanceItem({
 }) {
   const pageUrl = useContext(PageUrlContext);
   const [localTitle, setLocalTitle] = useState(failure.title ?? '');
+  const [localAssignedTo, setLocalAssignedTo] = useState<RemediationAssignee[]>(normalizeRemediationAssignees(failure.assignedTo));
   const [localRelatedCriteria, setLocalRelatedCriteria] = useState<string[]>(failure.relatedCriteria ?? []);
   const [localRelatedCriteriaNotes, setLocalRelatedCriteriaNotes] = useState<Record<string, string>>(failure.relatedCriteriaNotes ?? {});
   const [relatedCriteriaSelection, setRelatedCriteriaSelection] = useState('');
@@ -484,6 +492,7 @@ function FailureInstanceItem({
 
     onUpdate({
       title: localTitle || undefined,
+      assignedTo: localAssignedTo.length > 0 ? localAssignedTo : undefined,
       relatedCriteria: localRelatedCriteria.length > 0 ? localRelatedCriteria : undefined,
       relatedCriteriaNotes: Object.keys(cleanedRelatedCriteriaNotes).length > 0 ? cleanedRelatedCriteriaNotes : undefined,
       notes: localNotes || undefined,
@@ -525,6 +534,15 @@ function FailureInstanceItem({
       ...prev,
       [criterionId]: note,
     }));
+    markDirty();
+  }
+
+  function toggleAssignedTo(assignee: RemediationAssignee) {
+    setLocalAssignedTo(prev => (
+      prev.includes(assignee)
+        ? prev.filter((value) => value !== assignee)
+        : [...prev, assignee]
+    ));
     markDirty();
   }
 
@@ -788,6 +806,31 @@ function FailureInstanceItem({
         </div>
       </div>
 
+      <div className="space-y-2">
+        <Label className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          Assign remediation to
+        </Label>
+        <div className="rounded border border-border bg-muted/20 p-2 space-y-2">
+          <p className="text-xs text-muted-foreground">Select one or more</p>
+          <div className="space-y-2">
+            {ASSIGNEE_OPTIONS.map(option => {
+              const checked = localAssignedTo.includes(option.value);
+              return (
+                <label key={`failure-assignee-${failure.id}-${option.value}`} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleAssignedTo(option.value)}
+                    className="h-4 w-4 cursor-pointer accent-primary"
+                  />
+                  <span className={checked ? 'font-medium text-foreground' : 'text-foreground'}>{option.label}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
       {/* Code snippet */}
       <div className="space-y-1">
         <Label htmlFor={codeId} className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
@@ -930,6 +973,7 @@ function FailureInstanceItem({
                 codeSnippet: localCode || undefined,
                 screenshotDataUrl: screenshot,
                 remediationRecommendation: localRemediation || undefined,
+                assignedTo: localAssignedTo.length > 0 ? localAssignedTo : undefined,
                 relatedCriteria: localRelatedCriteria.length > 0 ? localRelatedCriteria : undefined,
                 relatedCriteriaNotes: localRelatedCriteriaNotes,
                 impact: failure.impact,
@@ -1770,8 +1814,8 @@ function NonTextElementsPanel({
 // FailureUpdateData — shared type for failure instance patch payloads
 // ---------------------------------------------------------------------------
 
-type FailureUpdateData = Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'impact' | 'title' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'relatedCriteria' | 'relatedCriteriaNotes'>>;
-type FailureSeedData = Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'relatedCriteria' | 'relatedCriteriaNotes'>>;
+type FailureUpdateData = Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'impact' | 'title' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'assignedTo' | 'relatedCriteria' | 'relatedCriteriaNotes'>>;
+type FailureSeedData = Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'assignedTo' | 'relatedCriteria' | 'relatedCriteriaNotes'>>;
 function buildSeededIssueNotes(element: DetectedElement): string | undefined {
   const text = element.textAlternative?.trim();
   const sr = element.screenReaderText?.trim();
@@ -2280,9 +2324,9 @@ function CustomCheckItem({
             {check.impact}
           </Badge>
         )}
-        {check.assignedTo && (
+        {normalizeRemediationAssignees(check.assignedTo).length > 0 && (
           <Badge variant="outline" className="text-xs">
-            Assigned to {ASSIGNEE_LABELS[check.assignedTo]}
+            Assigned to {formatAssignedTo(check.assignedTo)}
           </Badge>
         )}
         <StatusSelect value={check.status} onChange={onStatusChange} />
@@ -2510,7 +2554,7 @@ interface CustomCheckFormData {
   status: ManualAuditStatus;
   notes: string;
   remediationRecommendation: string;
-  assignedTo: RemediationAssignee | '';
+  assignedTo: RemediationAssignee[];
 }
 
 function AddCustomCheckDialog({
@@ -2520,11 +2564,10 @@ function AddCustomCheckDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAdd: (data: Omit<CustomCheckFormData, 'impact' | 'assignedTo' | 'remediationRecommendation'> & { impact?: ImpactLevel; remediationRecommendation?: string; assignedTo?: RemediationAssignee }) => void;
+  onAdd: (data: Omit<CustomCheckFormData, 'impact' | 'assignedTo' | 'remediationRecommendation'> & { impact?: ImpactLevel; remediationRecommendation?: string; assignedTo?: RemediationAssignee[] }) => void;
 }) {
   const impactRef = useRef<HTMLDivElement>(null);
   const statusRef = useRef<HTMLDivElement>(null);
-  const assigneeRef = useRef<HTMLDivElement>(null);
   const aiProviders = useAIProviders();
   const [generatingRemediation, setGeneratingRemediation] = useState(false);
   const [remediationError, setRemediationError] = useState<string | null>(null);
@@ -2536,7 +2579,7 @@ function AddCustomCheckDialog({
     status: 'not-tested',
     notes: '',
     remediationRecommendation: '',
-    assignedTo: '',
+    assignedTo: [],
   });
 
   const remediationId = 'custom-remediation';
@@ -2584,7 +2627,7 @@ function AddCustomCheckDialog({
       title: form.title.trim(),
       impact: form.impact || undefined,
       remediationRecommendation: form.remediationRecommendation.trim() || undefined,
-      assignedTo: form.assignedTo || undefined,
+      assignedTo: form.assignedTo.length > 0 ? form.assignedTo : undefined,
     });
     setForm({
       title: '',
@@ -2593,10 +2636,19 @@ function AddCustomCheckDialog({
       status: 'not-tested',
       notes: '',
       remediationRecommendation: '',
-      assignedTo: '',
+      assignedTo: [],
     });
     setRemediationError(null);
     onOpenChange(false);
+  }
+
+  function toggleAssignee(assignee: RemediationAssignee) {
+    setForm((prev) => ({
+      ...prev,
+      assignedTo: prev.assignedTo.includes(assignee)
+        ? prev.assignedTo.filter((value) => value !== assignee)
+        : [...prev.assignedTo, assignee],
+    }));
   }
 
   return (
@@ -2671,24 +2723,25 @@ function AddCustomCheckDialog({
           </div>
           <div className="space-y-1.5">
             <Label>Assign remediation to</Label>
-            <Select
-              ref={assigneeRef}
-              value={form.assignedTo}
-              onValueChange={value => setForm(prev => ({ ...prev, assignedTo: value as RemediationAssignee }))}
-            >
-              <SelectTrigger className="text-base">
-                {form.assignedTo
-                  ? <span>{ASSIGNEE_LABELS[form.assignedTo]}</span>
-                  : <span className="text-muted-foreground">Optional…</span>}
-              </SelectTrigger>
-              <SelectContent>
-                {ASSIGNEE_OPTIONS.map(option => (
-                  <SelectItem key={option.value} value={option.value} className="text-base">
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="rounded-md border border-border p-3 space-y-2">
+              <p className="text-xs text-muted-foreground">Select one or more</p>
+              <div className="space-y-2">
+                {ASSIGNEE_OPTIONS.map((option) => {
+                  const checked = form.assignedTo.includes(option.value);
+                  return (
+                    <label key={option.value} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleAssignee(option.value)}
+                        className="h-4 w-4 cursor-pointer accent-primary"
+                      />
+                      <span className={checked ? 'font-medium text-foreground' : 'text-foreground'}>{option.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="custom-notes">Notes</Label>
@@ -2774,7 +2827,7 @@ interface ManualAuditTabProps {
     status: ManualAuditStatus;
     notes?: string;
     remediationRecommendation?: string;
-    assignedTo?: RemediationAssignee;
+    assignedTo?: RemediationAssignee[];
   }) => void;
   onDeleteCustomCheck: (checkId: string) => void;
   onAuditorNotesChange: (notes: string) => void;
