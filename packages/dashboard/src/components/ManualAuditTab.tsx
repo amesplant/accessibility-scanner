@@ -20,7 +20,7 @@ import { useAIProviders } from '@/hooks/useAIProviders';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Select, SelectTrigger, SelectContent, SelectItem } from '@/components/ui/select';
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -437,6 +437,7 @@ function FailureInstanceItem({
   const pageUrl = useContext(PageUrlContext);
   const [localTitle, setLocalTitle] = useState(failure.title ?? '');
   const [localRelatedCriteria, setLocalRelatedCriteria] = useState<string[]>(failure.relatedCriteria ?? []);
+  const [relatedCriteriaSelection, setRelatedCriteriaSelection] = useState('');
   const [localNotes, setLocalNotes] = useState(failure.notes ?? '');
   const [localCode, setLocalCode] = useState(failure.codeSnippet ?? '');
   const [localRemediation, setLocalRemediation] = useState(failure.remediationRecommendation ?? '');
@@ -476,13 +477,21 @@ function FailureInstanceItem({
   }
 
   const currentCriterion = checkContext?.criterion;
-  const availableCriteria = WCAG_CRITERIA_OPTIONS.filter(option => option.id !== currentCriterion);
+  const availableCriteria = WCAG_CRITERIA_OPTIONS.filter(
+    option => option.id !== currentCriterion && !localRelatedCriteria.includes(option.id),
+  );
 
-  function toggleRelatedCriterion(criterionId: string) {
+  function addRelatedCriterion(criterionId: string) {
+    if (!criterionId || criterionId === currentCriterion) return;
     setLocalRelatedCriteria(prev => {
-      if (prev.includes(criterionId)) return prev.filter(id => id !== criterionId);
+      if (prev.includes(criterionId)) return prev;
       return [...prev, criterionId].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     });
+    markDirty();
+  }
+
+  function removeRelatedCriterion(criterionId: string) {
+    setLocalRelatedCriteria(prev => prev.filter(id => id !== criterionId));
     markDirty();
   }
 
@@ -665,36 +674,48 @@ function FailureInstanceItem({
           Related WCAG criteria
         </Label>
         <div className="rounded border border-border bg-muted/20 p-2">
+          <Select
+            value={relatedCriteriaSelection}
+            onValueChange={(value) => {
+              setRelatedCriteriaSelection('');
+              addRelatedCriterion(value);
+            }}
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue placeholder={availableCriteria.length > 0 ? 'Add related criterion' : 'All criteria already selected'} />
+            </SelectTrigger>
+            <SelectContent>
+              {availableCriteria.length > 0 ? (
+                availableCriteria.map(option => (
+                  <SelectItem key={option.id} value={option.id} className="text-xs">
+                    {option.label}
+                  </SelectItem>
+                ))
+              ) : (
+                <div className="px-2 py-1 text-xs text-muted-foreground">
+                  No additional criteria available
+                </div>
+              )}
+            </SelectContent>
+          </Select>
+
           {localRelatedCriteria.length > 0 && (
-            <div className="mb-2 flex flex-wrap gap-1">
+            <div className="mt-2 flex flex-wrap gap-1">
               {localRelatedCriteria.map((criterionId) => (
-                <Badge key={criterionId} variant="outline" className="text-xs h-5 px-1.5 py-0 font-mono">
-                  {criterionId}
+                <Badge key={criterionId} variant="outline" className="text-xs h-6 px-2 py-0 font-mono flex items-center gap-1">
+                  <span>{criterionId}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeRelatedCriterion(criterionId)}
+                    aria-label={`Remove related criterion ${criterionId}`}
+                    className="rounded-sm text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <X className="h-3 w-3" aria-hidden="true" />
+                  </button>
                 </Badge>
               ))}
             </div>
           )}
-          <div className="max-h-28 overflow-y-auto grid gap-1">
-            {availableCriteria.map(option => {
-              const selected = localRelatedCriteria.includes(option.id);
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => toggleRelatedCriterion(option.id)}
-                  aria-pressed={selected}
-                  className={cn(
-                    'w-full rounded border px-2 py-1 text-left text-xs transition-colors',
-                    selected
-                      ? 'border-primary bg-primary/10 text-foreground'
-                      : 'border-border bg-background text-muted-foreground hover:text-foreground hover:border-primary/50',
-                  )}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
-          </div>
         </div>
       </div>
 
