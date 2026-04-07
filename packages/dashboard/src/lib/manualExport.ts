@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import type { ManualCheckResult, FailureScope, RemediationAssignee } from '@accessibility-scanner/shared';
+import { PREDEFINED_CHECKS, type ManualCheckResult, type FailureScope, type RemediationAssignee } from '@accessibility-scanner/shared';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -12,6 +12,8 @@ export interface FailureExportData {
   screenshotDataUrl?: string;
   remediationRecommendation?: string;
   assignedTo?: RemediationAssignee;
+  relatedCriteria?: string[];
+  relatedCriteriaNotes?: Record<string, string>;
   checkContext?: { criterion?: string; criterionTitle?: string; title?: string; level?: string; description?: string };
   tasklistName?: string;
   impact?: 'minor' | 'moderate' | 'serious' | 'critical';
@@ -101,6 +103,33 @@ function getCheckRemediation(check: ManualCheckResult): string {
   return check.remediationRecommendation || failureRemediation || '*Replace with the steps required to fix this issue.*';
 }
 
+const WCAG_CRITERIA_META = new Map(
+  PREDEFINED_CHECKS.map((check) => [check.id, { title: check.title, level: check.level }]),
+);
+
+function formatRelatedCriterion(criterionId: string): string {
+  const meta = WCAG_CRITERIA_META.get(criterionId);
+  if (!meta) return criterionId;
+  return `${criterionId} ${meta.title} (Level ${meta.level})`;
+}
+
+function formatRelatedCriteria(criteria?: string[]): string {
+  if (!criteria || criteria.length === 0) return '';
+  return criteria.map(formatRelatedCriterion).join(', ');
+}
+
+function formatRelatedCriteriaDetails(criteria?: string[], notes?: Record<string, string>): string {
+  if (!criteria || criteria.length === 0) return '';
+  const lines = criteria
+    .map((criterionId) => {
+      const note = notes?.[criterionId]?.trim();
+      if (!note) return '';
+      return `- ${formatRelatedCriterion(criterionId)}: ${note}`;
+    })
+    .filter(Boolean);
+  return lines.join('\n');
+}
+
 function toSlug(text: string, maxLen = 50): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, maxLen);
 }
@@ -139,6 +168,9 @@ function buildTeamworkDescription(check: ManualCheckResult, pageUrl: string = ''
     .map((f, i) => {
       const parts = [`**Instance ${i + 1}**`];
       if (f.notes) parts.push(`> ${f.notes}`);
+      if (f.relatedCriteria && f.relatedCriteria.length > 0) {
+        parts.push(`> *Related WCAG Criteria:* ${formatRelatedCriteria(f.relatedCriteria)}`);
+      }
       if (f.codeSnippet) parts.push(`\`\`\`html\n${f.codeSnippet}\n\`\`\``);
       if (f.remediationRecommendation) parts.push(`> *Recommendation:* ${f.remediationRecommendation}`);
       return parts.join('\n');
@@ -218,6 +250,9 @@ function buildJiraDescription(check: ManualCheckResult, pageUrl: string = ''): s
     .map((f, i) => {
       const parts = [`*Instance ${i + 1}*`];
       if (f.notes) parts.push(f.notes);
+      if (f.relatedCriteria && f.relatedCriteria.length > 0) {
+        parts.push(`_Related WCAG Criteria:_ ${formatRelatedCriteria(f.relatedCriteria)}`);
+      }
       if (f.codeSnippet) parts.push(`{code:html}\n${f.codeSnippet}\n{code}`);
       if (f.remediationRecommendation) parts.push(`_Recommendation:_ ${f.remediationRecommendation}`);
       return parts.join('\n');
@@ -276,7 +311,7 @@ function issueLabel(title: string | undefined, notes: string | undefined): strin
 }
 
 export function exportFailureAsTeamworkXlsx(data: FailureExportData, fileName?: string) {
-  const { title: instanceTitle, notes, codeSnippet, screenshotDataUrl, remediationRecommendation, checkContext, tasklistName = 'Accessibility Audit', impact, scope, pageUrl = '' } = data;
+  const { title: instanceTitle, notes, codeSnippet, screenshotDataUrl, remediationRecommendation, relatedCriteria, relatedCriteriaNotes, checkContext, tasklistName = 'Accessibility Audit', impact, scope, pageUrl = '' } = data;
   const criterion = checkContext?.criterion ?? '';
   const level = checkContext?.level ?? '';
   const levelLabel = level || 'Manual';
@@ -294,6 +329,10 @@ export function exportFailureAsTeamworkXlsx(data: FailureExportData, fileName?: 
     : `\n**b. Screenshot**\n\n> *No screenshot provided — attach one if available.*\n`;
   const codeBlock = codeSnippet ? `\n**c. Code Snippet**\n\n\`\`\`html\n${codeSnippet}\n\`\`\`\n` : '';
   const remediationText = remediationRecommendation ?? '*Replace with the steps required to fix this issue.*';
+  const relatedCriteriaDetails = formatRelatedCriteriaDetails(relatedCriteria, relatedCriteriaNotes);
+  const relatedCriteriaBlock = relatedCriteria && relatedCriteria.length > 0
+    ? `\n**Related WCAG Criteria**\n\n> ${formatRelatedCriteria(relatedCriteria)}\n${relatedCriteriaDetails ? `\n**Related Issue Notes**\n\n${relatedCriteriaDetails}\n` : ''}`
+    : '';
   const pageUrlLine = pageUrl ? `**Page URL:** ${pageUrl}\n\n` : '';
 
   const description = `${pageUrlLine}### 1. Describe the Issue
@@ -303,7 +342,7 @@ export function exportFailureAsTeamworkXlsx(data: FailureExportData, fileName?: 
 **a. Description of Issue**
 
 > ${noteText}
-${screenshotBlock}${codeBlock}
+${screenshotBlock}${codeBlock}${relatedCriteriaBlock}
 ---
 
 ### 2. Remediation
@@ -351,7 +390,7 @@ ${buildTeamworkAssignmentChecklist(data.assignedTo)}
 // ---------------------------------------------------------------------------
 
 export function exportFailureAsJiraCsv(data: FailureExportData, fileName?: string) {
-  const { title: instanceTitle, notes, codeSnippet, screenshotDataUrl, remediationRecommendation, checkContext, impact, scope, pageUrl = '' } = data;
+  const { title: instanceTitle, notes, codeSnippet, screenshotDataUrl, remediationRecommendation, relatedCriteria, relatedCriteriaNotes, checkContext, impact, scope, pageUrl = '' } = data;
   const criterion = checkContext?.criterion ?? '';
   const level = checkContext?.level ?? '';
   const levelLabel = level || 'Manual';
@@ -368,13 +407,17 @@ export function exportFailureAsJiraCsv(data: FailureExportData, fileName?: strin
     ? `\nh3. Screenshot\n\nScreenshot captured — attach image to this issue.\n`
     : `\nh3. Screenshot\n\n_No screenshot provided — attach one if available._\n`;
   const codeBlock = codeSnippet ? `\nh3. Code Snippet\n\n{code:html}\n${codeSnippet}\n{code}\n` : '';
+  const relatedCriteriaDetails = formatRelatedCriteriaDetails(relatedCriteria, relatedCriteriaNotes);
+  const relatedCriteriaSection = relatedCriteria && relatedCriteria.length > 0
+    ? `\nh3. Related WCAG Criteria\n\n${formatRelatedCriteria(relatedCriteria)}\n${relatedCriteriaDetails ? `\nh3. Related Issue Notes\n\n${relatedCriteriaDetails}\n` : ''}`
+    : '';
   const remediationSection = remediationRecommendation || '_Replace this section with the steps required to fix this issue._';
   const pageUrlLine = pageUrl ? `*Page URL:* ${pageUrl}\n\n` : '';
 
   const description = `${pageUrlLine}h3. Issue Description
 
 ${noteText}
-${screenshotSection}${codeBlock}
+${screenshotSection}${codeBlock}${relatedCriteriaSection}
 h3. Remediation
 
 ${remediationSection}

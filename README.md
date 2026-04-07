@@ -28,6 +28,8 @@ All findings live in a persistent dashboard organized by project and client enga
 - **Background scanning** — scans continue running while you navigate; a floating pill shows progress and lets you abort from anywhere
 - **Projects** — group related scans by client or engagement, with inline create, assign, and unassign
 - **Export to Teamwork (.xlsx) or Jira (.csv)** — filterable by WCAG level (All / Automated only / Manual only), with structured descriptions, code snippets, and affected page lists; individual issues can be exported directly from the manual audit tab
+- **JSON report transfer** — export any report as JSON and import it on another machine
+- **Project transfer workflow** — move an entire project by exporting the reports in that project as JSON, importing them, then assigning them to a project on the destination machine
 - **Editable report names** — rename any report from the dashboard card or report detail header
 - **Local storage** in a simple JSON file — no database required
 - **Feature requests** — submit ideas directly as GitHub issues from a persistent sidebar button
@@ -221,6 +223,16 @@ Group related scans together for a client or engagement.
 - Project detail page lists all reports with View, Export, and Remove actions
 - Deleting a project unassigns its reports — nothing is deleted
 
+### Import / Export Projects as JSON
+
+Seymour currently transfers project data through report JSON files.
+
+1. On the source machine, open the project and export each report as JSON.
+2. On the destination machine, use **Import JSON** on the dashboard to upload those files.
+3. Create a project and assign imported reports to it.
+
+Direct single-file project bundle import/export endpoints are not available yet.
+
 ---
 
 ## Exporting Results
@@ -231,6 +243,7 @@ Every report has an **Export** button on the dashboard card and in the report de
 |--------|-------------|
 | **Teamwork .xlsx** | Excel file with task columns for Teamwork import |
 | **Jira .csv** | Jira wiki markup with `{code:html}` blocks and structured labels |
+| **Report JSON** | Full report backup for cross-machine import |
 
 Export options:
 - **Tasklist name** — defaults to `Accessibility Audit YEAR | Report Name`
@@ -239,6 +252,14 @@ Export options:
 - **WCAG level filter** — A, AA, AAA, Best Practice (hidden for manual-only exports)
 
 Each exported issue includes a description, severity, code snippet, affected pages, remediation guidance, and QA steps placeholder.
+
+### Importing Report JSON
+
+Use **Import JSON** in the dashboard header to upload one or more report JSON files exported from Seymour.
+
+- Imported reports are added to your local report list.
+- If a report ID already exists locally, Seymour assigns a new ID to avoid collisions.
+- Imported reports are not auto-assigned to a project; assign them after import.
 
 ---
 
@@ -255,6 +276,8 @@ Each exported issue includes a description, severity, code snippet, affected pag
 | `PATCH` | `/api/reports/:id/project` | Assign or unassign a report (`projectId` or `null`) |
 | `POST` | `/api/reports/:id/export/excel` | Export as Teamwork Excel |
 | `POST` | `/api/reports/:id/export/jira` | Export as Jira CSV |
+| `GET` | `/api/reports/:id/export/json` | Export one report as JSON |
+| `POST` | `/api/reports/import` | Import one or more reports from JSON payload |
 
 ### Scanning
 

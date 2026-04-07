@@ -35,7 +35,7 @@
     "lerna": "^9.0.7",
     "npm-check-updates": "^19.6.3",
     "prettier": "^3.0.0",
-    "typescript": "^5.2.0"
+    "typescript": "^5.9.3"
   },
   "engines": {
     "node": ">=22.12.0",

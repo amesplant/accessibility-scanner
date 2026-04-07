@@ -61,6 +61,21 @@ function isJsonRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null;
 }
 
+function sanitizeStringArray(value: unknown): string[] | undefined {
+  return Array.isArray(value)
+    ? value.filter((entry: unknown): entry is string => typeof entry === 'string')
+    : undefined;
+}
+
+function sanitizeStringRecord(value: unknown): Record<string, string> | undefined {
+  if (!isJsonRecord(value)) return undefined;
+  const entries = Object.entries(value).filter(
+    (entry): entry is [string, string] => typeof entry[1] === 'string',
+  );
+  if (entries.length === 0) return undefined;
+  return Object.fromEntries(entries);
+}
+
 function toSlug(text: string, maxLen = 60): string {
   return text
     .toLowerCase()
@@ -666,6 +681,8 @@ app.post('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fail
         notes: req.body.notes,
         codeSnippet: req.body.codeSnippet,
         screenshotDataUrl: req.body.screenshotDataUrl,
+        relatedCriteria: sanitizeStringArray(req.body.relatedCriteria),
+        relatedCriteriaNotes: sanitizeStringRecord(req.body.relatedCriteriaNotes),
         createdAt: new Date().toISOString(),
       };
       if (!check.failures) check.failures = [];
@@ -700,7 +717,7 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fai
       const failure = (check.failures ?? []).find(f => f.id === req.params.failureId);
       if (!failure) throw new Error('Failure instance not found');
 
-      const { scope, impact, title, notes, codeSnippet, screenshotDataUrl, status, remediationRecommendation } = req.body;
+      const { scope, impact, title, notes, codeSnippet, screenshotDataUrl, status, remediationRecommendation, relatedCriteria, relatedCriteriaNotes } = req.body;
       if (scope !== undefined) failure.scope = scope;
       if (impact !== undefined) failure.impact = impact;
       if (title !== undefined) failure.title = title;
@@ -709,6 +726,12 @@ app.patch('/api/reports/:reportId/pages/:pageId/manual-audit/checks/:checkId/fai
       if (screenshotDataUrl !== undefined) failure.screenshotDataUrl = screenshotDataUrl;
       if (status !== undefined) failure.status = status;
       if (remediationRecommendation !== undefined) failure.remediationRecommendation = remediationRecommendation;
+      if (relatedCriteria !== undefined) {
+        failure.relatedCriteria = sanitizeStringArray(relatedCriteria);
+      }
+      if (relatedCriteriaNotes !== undefined) {
+        failure.relatedCriteriaNotes = sanitizeStringRecord(relatedCriteriaNotes);
+      }
 
       const allFailures = check.failures ?? [];
       if (allFailures.length > 0) {
@@ -995,13 +1018,15 @@ app.post('/api/reports/:reportId/pages/:pageId/elements/:criterionId/:elementId/
 
       const element = elements.find(e => e.id === req.params.elementId);
       if (!element) throw new Error('Element not found');
-      const { notes, codeSnippet, screenshotDataUrl, remediationRecommendation } = req.body as Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>;
+      const { notes, codeSnippet, screenshotDataUrl, remediationRecommendation, relatedCriteria, relatedCriteriaNotes } = req.body as Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'relatedCriteria' | 'relatedCriteriaNotes'>>;
       const failure: ManualFailureInstance = {
         id: `ef_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         notes,
         codeSnippet,
         screenshotDataUrl,
         remediationRecommendation,
+        relatedCriteria: sanitizeStringArray(relatedCriteria),
+        relatedCriteriaNotes: sanitizeStringRecord(relatedCriteriaNotes),
         createdAt: new Date().toISOString(),
       };
       element.failures = [...(element.failures ?? []), failure];

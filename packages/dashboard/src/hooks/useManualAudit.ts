@@ -218,7 +218,7 @@ export function useManualAudit(
   );
 
   const updateFailure = useCallback(
-    async (checkId: string, failureId: string, data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>) => {
+    async (checkId: string, failureId: string, data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'relatedCriteria' | 'relatedCriteriaNotes'>>) => {
       setAudit(prev => ({
         ...prev,
         checks: prev.checks.map(c => {
@@ -268,7 +268,7 @@ export function useManualAudit(
     async (
       criterionId: string,
       elementId: string,
-      data?: Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>,
+      data?: Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'relatedCriteria' | 'relatedCriteriaNotes'>>,
     ) => {
       try {
         const res = await fetch(
@@ -285,7 +285,7 @@ export function useManualAudit(
   );
 
   const updateElementFailure = useCallback(
-    async (criterionId: string, elementId: string, failureId: string, data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>) => {
+    async (criterionId: string, elementId: string, failureId: string, data: Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'relatedCriteria' | 'relatedCriteriaNotes'>>) => {
       setDetectedElements(prev => {
         if (!prev?.[criterionId]) return prev;
         return {
