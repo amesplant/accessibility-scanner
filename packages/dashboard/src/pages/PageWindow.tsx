@@ -333,6 +333,7 @@ export function PageWindow() {
                                   className="text-xs text-link hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring rounded"
                                 >
                                   Learn more
+                                  <span className="sr-only"> (opens in a new tab)</span>
                                 </a>
                                 <span className="text-muted-foreground/30 select-none" aria-hidden="true">|</span>
                                 {([
