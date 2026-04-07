@@ -18,6 +18,8 @@ export interface ManualFailureInstance {
   impact?: 'minor' | 'moderate' | 'serious' | 'critical';
   /** Additional WCAG criteria IDs related to this instance (e.g. ["1.3.1", "4.1.2"]). */
   relatedCriteria?: string[];
+  /** Optional notes keyed by related WCAG criterion ID. */
+  relatedCriteriaNotes?: Record<string, string>;
   title?: string;
   notes?: string;
   codeSnippet?: string;

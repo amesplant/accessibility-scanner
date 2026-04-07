@@ -437,6 +437,7 @@ function FailureInstanceItem({
   const pageUrl = useContext(PageUrlContext);
   const [localTitle, setLocalTitle] = useState(failure.title ?? '');
   const [localRelatedCriteria, setLocalRelatedCriteria] = useState<string[]>(failure.relatedCriteria ?? []);
+  const [localRelatedCriteriaNotes, setLocalRelatedCriteriaNotes] = useState<Record<string, string>>(failure.relatedCriteriaNotes ?? {});
   const [relatedCriteriaSelection, setRelatedCriteriaSelection] = useState('');
   const [localNotes, setLocalNotes] = useState(failure.notes ?? '');
   const [localCode, setLocalCode] = useState(failure.codeSnippet ?? '');
@@ -462,9 +463,16 @@ function FailureInstanceItem({
   }
 
   function handleSave() {
+    const cleanedRelatedCriteriaNotes = Object.fromEntries(
+      localRelatedCriteria
+        .map((criterionId) => [criterionId, (localRelatedCriteriaNotes[criterionId] ?? '').trim()] as const)
+        .filter((entry) => entry[1].length > 0),
+    );
+
     onUpdate({
       title: localTitle || undefined,
       relatedCriteria: localRelatedCriteria.length > 0 ? localRelatedCriteria : undefined,
+      relatedCriteriaNotes: Object.keys(cleanedRelatedCriteriaNotes).length > 0 ? cleanedRelatedCriteriaNotes : undefined,
       notes: localNotes || undefined,
       codeSnippet: localCode || undefined,
       screenshotDataUrl: screenshot,
@@ -492,6 +500,18 @@ function FailureInstanceItem({
 
   function removeRelatedCriterion(criterionId: string) {
     setLocalRelatedCriteria(prev => prev.filter(id => id !== criterionId));
+    setLocalRelatedCriteriaNotes(prev => {
+      const { [criterionId]: _removed, ...rest } = prev;
+      return rest;
+    });
+    markDirty();
+  }
+
+  function updateRelatedCriterionNote(criterionId: string, note: string) {
+    setLocalRelatedCriteriaNotes(prev => ({
+      ...prev,
+      [criterionId]: note,
+    }));
     markDirty();
   }
 
@@ -668,12 +688,26 @@ function FailureInstanceItem({
         />
       </div>
 
-      {/* Related WCAG criteria */}
+      {/* Issue description */}
       <div className="space-y-1">
+        <Label htmlFor={notesId} className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          <AlignLeft className="h-3 w-3" aria-hidden="true" /> Describe the issue
+        </Label>
+        <Textarea
+          id={notesId}
+          value={localNotes}
+          onChange={e => { setLocalNotes(e.target.value); markDirty(); }}
+          rows={3}
+          className="text-base resize-y"
+        />
+      </div>
+
+      {/* Related WCAG criteria */}
+      <div className="space-y-2">
         <Label className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
           Related WCAG criteria
         </Label>
-        <div className="rounded border border-border bg-muted/20 p-2">
+        <div className="rounded border border-border bg-muted/20 p-2 space-y-2">
           <Select
             value={relatedCriteriaSelection}
             onValueChange={(value) => {
@@ -700,37 +734,45 @@ function FailureInstanceItem({
           </Select>
 
           {localRelatedCriteria.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1">
-              {localRelatedCriteria.map((criterionId) => (
-                <Badge key={criterionId} variant="outline" className="text-xs h-6 px-2 py-0 font-mono flex items-center gap-1">
-                  <span>{criterionId}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeRelatedCriterion(criterionId)}
-                    aria-label={`Remove related criterion ${criterionId}`}
-                    className="rounded-sm text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    <X className="h-3 w-3" aria-hidden="true" />
-                  </button>
-                </Badge>
-              ))}
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-1">
+                {localRelatedCriteria.map((criterionId) => (
+                  <Badge key={criterionId} variant="outline" className="text-xs h-6 px-2 py-0 font-mono flex items-center gap-1">
+                    <span>{criterionId}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeRelatedCriterion(criterionId)}
+                      aria-label={`Remove related criterion ${criterionId}`}
+                      className="rounded-sm text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <X className="h-3 w-3" aria-hidden="true" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+
+              {localRelatedCriteria.map((criterionId) => {
+                const option = WCAG_CRITERIA_OPTIONS.find(entry => entry.id === criterionId);
+                const inputId = `related-criterion-note-${failure.id}-${criterionId.replace(/\./g, '-')}`;
+                return (
+                  <div key={`${criterionId}-note`} className="space-y-1">
+                    <Label htmlFor={inputId} className="text-xs font-medium text-muted-foreground">
+                      {option?.label ?? criterionId}
+                    </Label>
+                    <Textarea
+                      id={inputId}
+                      value={localRelatedCriteriaNotes[criterionId] ?? ''}
+                      onChange={e => updateRelatedCriterionNote(criterionId, e.target.value)}
+                      placeholder="Describe how this related criterion is affected"
+                      rows={2}
+                      className="text-sm resize-y"
+                    />
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
-      </div>
-
-      {/* Issue description */}
-      <div className="space-y-1">
-        <Label htmlFor={notesId} className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-          <AlignLeft className="h-3 w-3" aria-hidden="true" /> Describe the issue
-        </Label>
-        <Textarea
-          id={notesId}
-          value={localNotes}
-          onChange={e => { setLocalNotes(e.target.value); markDirty(); }}
-          rows={3}
-          className="text-base resize-y"
-        />
       </div>
 
       {/* Code snippet */}
@@ -876,6 +918,7 @@ function FailureInstanceItem({
                 screenshotDataUrl: screenshot,
                 remediationRecommendation: localRemediation || undefined,
                 relatedCriteria: localRelatedCriteria.length > 0 ? localRelatedCriteria : undefined,
+                relatedCriteriaNotes: localRelatedCriteriaNotes,
                 impact: failure.impact,
                 scope: failure.scope,
                 pageUrl,
@@ -1714,8 +1757,8 @@ function NonTextElementsPanel({
 // FailureUpdateData — shared type for failure instance patch payloads
 // ---------------------------------------------------------------------------
 
-type FailureUpdateData = Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'impact' | 'title' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'relatedCriteria'>>;
-type FailureSeedData = Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'relatedCriteria'>>;
+type FailureUpdateData = Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'impact' | 'title' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'relatedCriteria' | 'relatedCriteriaNotes'>>;
+type FailureSeedData = Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'relatedCriteria' | 'relatedCriteriaNotes'>>;
 function buildSeededIssueNotes(element: DetectedElement): string | undefined {
   const text = element.textAlternative?.trim();
   const sr = element.screenReaderText?.trim();
