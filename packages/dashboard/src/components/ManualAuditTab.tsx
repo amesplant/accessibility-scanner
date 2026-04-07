@@ -61,6 +61,7 @@ import {
   Moon,
   Flag,
   Layers,
+  AlertCircle,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -1368,12 +1369,14 @@ function OnDemandDetectionPanel({
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
   const [previewElements, setPreviewElements] = useState<DetectedElement[]>([]);
   const [liveAnnouncement, setLiveAnnouncement] = useState('');
 
   async function handleDetect() {
     setRunning(true);
     setStatusMessage('');
+    setErrorMessage('');
     setPreviewElements([]);
     setOpen(true);
     try {
@@ -1385,6 +1388,10 @@ function OnDemandDetectionPanel({
           setPreviewElements(prev => [...prev, event.element]);
         }
       });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Detection failed. Please try again.';
+      setErrorMessage(msg);
+      setLiveAnnouncement(msg);
     } finally {
       setRunning(false);
     }
@@ -1392,9 +1399,12 @@ function OnDemandDetectionPanel({
 
   return (
     <div className="mt-3 mb-3 border rounded overflow-hidden">
-      {/* Polite live region: announces status messages and completion to screen readers */}
+      {/* Live regions: polite for progress, assertive for errors */}
       <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
-        {liveAnnouncement}
+        {!errorMessage ? liveAnnouncement : ''}
+      </div>
+      <div role="alert" aria-live="assertive" aria-atomic="true" className="sr-only">
+        {errorMessage ? liveAnnouncement : ''}
       </div>
       <button
         type="button"
@@ -1415,13 +1425,19 @@ function OnDemandDetectionPanel({
       </button>
       {open && (
         <div className="px-3 py-3 flex flex-col gap-3">
-          {statusMessage && (
+          {errorMessage && (
+            <p className="text-sm text-destructive flex items-start gap-1.5">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+              {errorMessage}
+            </p>
+          )}
+          {statusMessage && !errorMessage && (
             <p className="text-sm text-muted-foreground flex items-center gap-1.5">
               {running && <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" aria-hidden="true" />}
               {statusMessage}
             </p>
           )}
-          {!running && !previewElements.length && (
+          {!running && !errorMessage && !previewElements.length && (
             <p className="text-base text-muted-foreground flex items-start gap-1.5">
               <Info className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
               Detection runs on demand — click below to scan this page ({criterionId}).
@@ -1475,6 +1491,7 @@ function NonTextElementsPanel({
   emptyLabel = 'No non-text elements detected on this page — nothing to audit for 1.1.1.',
   onGenerateFocusOrderScreenshot,
   onGenerateElementScreenshot,
+  onDetect,
 }: {
   elements: DetectedElement[];
   criterionId?: string;
@@ -1487,10 +1504,52 @@ function NonTextElementsPanel({
   emptyLabel?: string;
   onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
   onGenerateElementScreenshot?: (elementId: string) => Promise<void>;
+  onDetect?: (onProgress?: DetectionProgressHandler) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
+  const [detecting, setDetecting] = useState(false);
+  const [detectError, setDetectError] = useState('');
   const reviewed = elements.filter(e => e.auditStatus !== 'not-reviewed').length;
   const failed = elements.filter(e => e.auditStatus === 'fail').length;
+
+  async function handleReDetect() {
+    setDetecting(true);
+    setDetectError('');
+    try {
+      await onDetect?.();
+    } catch (err) {
+      setDetectError(err instanceof Error ? err.message : 'Detection failed. Please try again.');
+    } finally {
+      setDetecting(false);
+    }
+  }
+
+  const reDetectRow = onDetect && (
+    <div className="border-t px-3 py-2 bg-muted/20 flex flex-col gap-1.5">
+      <div role="alert" aria-live="assertive" aria-atomic="true" className="sr-only">
+        {detectError}
+      </div>
+      {detectError && (
+        <p className="text-sm text-destructive flex items-start gap-1.5">
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+          {detectError}
+        </p>
+      )}
+      <Button
+        size="sm"
+        variant="outline"
+        className="self-start h-8"
+        onClick={handleReDetect}
+        disabled={detecting}
+        aria-busy={detecting}
+      >
+        {detecting
+          ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" aria-hidden="true" />Detecting…</>
+          : 'Re-detect elements on page'
+        }
+      </Button>
+    </div>
+  );
 
   if (elements.length === 0) {
     return (
@@ -1507,6 +1566,7 @@ function NonTextElementsPanel({
             </Button>
           )}
         </div>
+        {reDetectRow}
       </div>
     );
   }
@@ -1532,6 +1592,7 @@ function NonTextElementsPanel({
           <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')} aria-hidden="true" />
         </div>
       </button>
+      {reDetectRow}
       {open && (
         <>
           <div className="px-3 py-3 bg-muted/20 border-b flex items-start gap-2">
@@ -1937,6 +1998,17 @@ function CheckRow({
               onGenerateElementScreenshot={onGenerateElementScreenshot && check.wcagCriterion
                 ? (eid) => onGenerateElementScreenshot(check.wcagCriterion!, eid)
                 : undefined}
+              onDetect={onDetectElements && check.wcagCriterion && (
+                check.wcagCriterion === '3.2.1' ||
+                check.wcagCriterion === '2.4.3' ||
+                check.wcagCriterion === '2.1.1' ||
+                check.wcagCriterion === '2.4.7' ||
+                check.wcagCriterion === '2.1.2' ||
+                check.wcagCriterion === '2.4.4' ||
+                check.wcagCriterion === '1.1.1' ||
+                check.wcagCriterion === '1.3.1' ||
+                check.wcagCriterion === '1.4.3'
+              ) ? () => onDetectElements(check.wcagCriterion!) : undefined}
               emptyLabel={
                 check.wcagCriterion === '1.2.1'
                   ? 'No audio or video-only elements detected on this page — nothing to audit for 1.2.1.'
@@ -1947,7 +2019,7 @@ function CheckRow({
                   : check.wcagCriterion === '1.3.1'
                   ? 'No form fields, tables, or headings detected on this page — nothing to audit for 1.3.1.'
                   : check.wcagCriterion === '2.4.3'
-                  ? 'No focus order data found — click "Detect elements" to scan this page.'
+                  ? 'No focus order data found — click "Re-detect elements on page" below to scan this page.'
                   : check.wcagCriterion === '3.2.1'
                   ? 'No focus-triggered elements detected on this page — manually tab through all interactive elements to verify none cause a context change.'
                   : check.wcagCriterion === '2.1.1'
