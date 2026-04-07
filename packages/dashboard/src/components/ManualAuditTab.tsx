@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
 import {
   ManualAudit,
   ManualAuditStatus,
@@ -242,6 +242,12 @@ const STATUS_COLORS: Record<ManualAuditStatus, string> = {
 };
 
 // ---------------------------------------------------------------------------
+// Page URL context — provided by ManualAuditTab, consumed by FailureInstanceItem
+// ---------------------------------------------------------------------------
+
+const PageUrlContext = createContext<string>('');
+
+// ---------------------------------------------------------------------------
 // Level filter
 // ---------------------------------------------------------------------------
 
@@ -423,6 +429,7 @@ function FailureInstanceItem({
   onUpdate: (data: FailureUpdateData) => void;
   onDelete: () => void;
 }) {
+  const pageUrl = useContext(PageUrlContext);
   const [localTitle, setLocalTitle] = useState(failure.title ?? '');
   const [localNotes, setLocalNotes] = useState(failure.notes ?? '');
   const [localCode, setLocalCode] = useState(failure.codeSnippet ?? '');
@@ -791,6 +798,8 @@ function FailureInstanceItem({
                 screenshotDataUrl: screenshot,
                 remediationRecommendation: localRemediation || undefined,
                 impact: failure.impact,
+                scope: failure.scope,
+                pageUrl,
                 checkContext: checkContext
                   ? {
                       criterion: checkContext.criterion,
@@ -1725,6 +1734,7 @@ function CheckRow({
   onDetectElements?: (criterionId: string, onProgress?: DetectionProgressHandler) => Promise<void>;
   onGenerateElementScreenshot?: (criterionId: string, elementId: string) => Promise<void>;
 }) {
+  const pageUrl = useContext(PageUrlContext);
   const [expanded, setExpanded] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const meta = check.wcagCriterion ? PREDEFINED_MAP[check.wcagCriterion] : undefined;
@@ -1842,7 +1852,7 @@ function CheckRow({
           {exportOpen && (
             <ExportModal
               report={null}
-              singleIssue={{ kind: 'check', check }}
+              singleIssue={{ kind: 'check', check, pageUrl }}
               onClose={() => setExportOpen(false)}
             />
           )}
@@ -2010,6 +2020,7 @@ function CustomCheckItem({
   onUpdateFailure?: (failureId: string, data: FailureUpdateData) => void;
   onDeleteFailure?: (failureId: string) => void;
 }) {
+  const pageUrl = useContext(PageUrlContext);
   const [localNotes, setLocalNotes] = useState(check.notes ?? '');
   const [exportOpen, setExportOpen] = useState(false);
 
@@ -2044,7 +2055,7 @@ function CustomCheckItem({
           {exportOpen && (
             <ExportModal
               report={null}
-              singleIssue={{ kind: 'check', check }}
+              singleIssue={{ kind: 'check', check, pageUrl }}
               onClose={() => setExportOpen(false)}
             />
           )}
@@ -2415,6 +2426,7 @@ function AddCustomCheckDialog({
 interface ManualAuditTabProps {
   audit: ManualAudit;
   detectedElements?: DetectedCriteriaElements;
+  pageUrl?: string;
   onStatusChange: (checkId: string, status: ManualAuditStatus) => void;
   onUpdateQuestionStatuses?: (checkId: string, statuses: ManualAuditStatus[]) => void;
   onNotesChange: (checkId: string, notes: string) => void;
@@ -2443,6 +2455,7 @@ interface ManualAuditTabProps {
 export function ManualAuditTab({
   audit,
   detectedElements,
+  pageUrl,
   onStatusChange,
   onUpdateQuestionStatuses,
   onNotesChange,
@@ -2504,6 +2517,7 @@ export function ManualAuditTab({
     : null;
 
   return (
+    <PageUrlContext.Provider value={pageUrl ?? ''}>
     <div className="space-y-6">
       {/* Audit type info note */}
       {auditTypeNote && (
@@ -2701,5 +2715,6 @@ export function ManualAuditTab({
         onAdd={onAddCustomCheck}
       />
     </div>
+    </PageUrlContext.Provider>
   );
 }

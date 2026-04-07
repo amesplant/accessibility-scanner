@@ -481,6 +481,7 @@ export function PageWindow() {
           <ManualAuditTab
             audit={audit}
             detectedElements={detectedElements}
+            pageUrl={page.url}
             onStatusChange={updateCheck}
             onUpdateQuestionStatuses={updateQuestionStatuses}
             onNotesChange={updateNotes}

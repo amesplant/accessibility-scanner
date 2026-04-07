@@ -236,11 +236,13 @@ export class Reporter {
             : uniqueEntries;
 
         const firstSnippet = uniqueEntries[0]?.html ?? '';
+        const firstPageUrl = uniqueEntries[0]?.url ?? '';
         const descriptionMarkdown = this.buildDescriptionMarkdown(
           violation,
           pagesForDescription,
           count,
-          firstSnippet
+          firstSnippet,
+          firstPageUrl
         );
 
         const resolvedTasklist = tasklistName?.trim() || 'Accessibility Updates';
@@ -284,7 +286,7 @@ export class Reporter {
       string,
       { violation: AxeViolation; pageNodes: Array<{ url: string; html: string }>; count: number }
     >();
-    const manualEntries: ManualCheckResult[] = [];
+    const manualEntries: Array<{ check: ManualCheckResult; pageUrl: string }> = [];
 
     await pageIterator(async (page: ScanReport['results'][number]) => {
       if (exportScope !== 'manual') {
@@ -315,7 +317,7 @@ export class Reporter {
       if (exportScope !== 'automated' && page.manualAudit) {
         for (const check of page.manualAudit.checks) {
           if (check.status !== 'not-tested') {
-            manualEntries.push(check);
+            manualEntries.push({ check, pageUrl: page.url });
           }
         }
       }
@@ -354,6 +356,7 @@ export class Reporter {
           pagesForDescription,
           count,
           uniqueEntries[0]?.html ?? '',
+          uniqueEntries[0]?.url ?? '',
         );
 
         const wcagTags = this.wcagCriteriaTags(violation.tags);
@@ -372,8 +375,8 @@ export class Reporter {
     }
 
     if (exportScope !== 'automated') {
-      manualEntries.forEach(check => {
-        writeLine(this.buildManualJiraRow(check));
+      manualEntries.forEach(({ check, pageUrl }) => {
+        writeLine(this.buildManualJiraRow(check, pageUrl));
       });
     }
 
@@ -453,11 +456,13 @@ export class Reporter {
           : uniqueEntries;
 
       const firstSnippet = uniqueEntries[0]?.html ?? '';
+      const firstPageUrl = uniqueEntries[0]?.url ?? '';
       const descriptionMarkdown = this.buildDescriptionMarkdown(
         violation,
         pagesForDescription,
         count,
-        firstSnippet
+        firstSnippet,
+        firstPageUrl
       );
 
       const resolvedTasklist = tasklistName?.trim() || 'Accessibility Updates';
@@ -565,12 +570,14 @@ export class Reporter {
           : uniqueEntries;
 
       const firstSnippet = uniqueEntries[0]?.html ?? '';
+      const firstPageUrl = uniqueEntries[0]?.url ?? '';
 
       const descriptionMarkdown = this.buildDescriptionMarkdown(
         violation,
         pagesForDescription,
         count,
-        firstSnippet
+        firstSnippet,
+        firstPageUrl
       );
 
       const resolvedTasklist = tasklistName?.trim() || defaultTasklistName(report);
@@ -611,8 +618,8 @@ export class Reporter {
 
     if (exportScope === 'manual') {
       const manualEntries = this.collectManualChecks(report);
-      manualEntries.forEach(({ check }) => {
-        rows.push(this.buildManualJiraRow(check));
+      manualEntries.forEach(({ check, pageUrl }) => {
+        rows.push(this.buildManualJiraRow(check, pageUrl));
       });
       return this.rowsToCsv(rows);
     }
@@ -668,20 +675,22 @@ export class Reporter {
       const priority = this.jiraPriority(violation.impact);
 
       // Labels: space-separated (Jira convention)
+      const impactLabel = violation.impact ? violation.impact.charAt(0).toUpperCase() + violation.impact.slice(1) : '';
       const labelParts = ['Accessibility', 'Automated'];
+      if (impactLabel) labelParts.push(impactLabel);
       if (level !== 'best-practice') labelParts.push(`WCAG-${level}`);
       wcagTags.forEach(t => labelParts.push(t.replace(/\s/g, '-')));
       const labels = labelParts.join(' ');
 
-      const description = this.buildJiraDescription(violation, pagesForDescription, count, uniqueEntries[0]?.html ?? '');
+      const description = this.buildJiraDescription(violation, pagesForDescription, count, uniqueEntries[0]?.html ?? '', uniqueEntries[0]?.url ?? '');
 
       rows.push([summary, 'Task', priority, labels, description]);
     });
 
     if (exportScope === 'all') {
       const manualEntries = this.collectManualChecks(report);
-      manualEntries.forEach(({ check }) => {
-        rows.push(this.buildManualJiraRow(check));
+      manualEntries.forEach(({ check, pageUrl }) => {
+        rows.push(this.buildManualJiraRow(check, pageUrl));
       });
     }
 
@@ -703,7 +712,7 @@ export class Reporter {
   }
 
   /** Format a single ManualCheckResult as a Jira CSV row (no header). */
-  buildManualJiraRow(check: ManualCheckResult): string[] {
+  buildManualJiraRow(check: ManualCheckResult, pageUrl: string = ''): string[] {
     const criterion = check.wcagCriterion ?? '';
     const level = check.level ?? '';
     const levelLabel = level || 'Manual';
@@ -714,16 +723,19 @@ export class Reporter {
     const impactMap: Record<string, string> = { critical: 'Highest', serious: 'High', moderate: 'Medium', minor: 'Low' };
     const priority = check.impact ? (impactMap[check.impact] ?? 'Medium') : 'Medium';
 
+    const impactLabel = check.impact ? check.impact.charAt(0).toUpperCase() + check.impact.slice(1) : '';
     const labelParts = ['Accessibility', 'Manual'];
+    if (impactLabel) labelParts.push(impactLabel);
     if (level) labelParts.push(`WCAG-${level}`);
     if (criterion) labelParts.push(`WCAG-${criterion.replace(/\./g, '')}`);
     const labels = labelParts.join(' ');
 
-    const description = this.buildManualJiraDescription(check);
+    const description = this.buildManualJiraDescription(check, pageUrl);
     return [summary, 'Task', priority, labels, description];
   }
 
-  private buildManualJiraDescription(check: ManualCheckResult): string {
+  private buildManualJiraDescription(check: ManualCheckResult, pageUrl: string = ''): string {
+    const pageUrlLine = pageUrl ? `*Page URL:* ${pageUrl}\n\n` : '';
     const notes = check.notes ? `${check.notes}` : '_No description provided._';
     const codeBlock = check.codeSnippet
       ? `\nh3. Code Snippet\n\n{code:html}\n${check.codeSnippet}\n{code}\n`
@@ -748,7 +760,7 @@ export class Reporter {
     const remediationSection = failureRemediation2
       || '_Replace this section with the steps required to fix this issue._';
 
-    return `h3. Issue Description
+    return `${pageUrlLine}h3. Issue Description
 
 ${notes}
 ${codeBlock}${failuresSection}
@@ -785,14 +797,14 @@ h3. Recommended Assignment
       [resolvedTasklist, '', 'Required Accessibility Updates', '', '', '', '', '', '', ''],
     ];
 
-    for (const { check } of entries) {
-      rows.push(this.singleManualCheckTeamworkRow(check, resolvedTasklist));
+    for (const { check, pageUrl } of entries) {
+      rows.push(this.singleManualCheckTeamworkRow(check, resolvedTasklist, pageUrl));
     }
     return rows;
   }
 
   /** Single-row Teamwork export for one manual check (no headers). */
-  singleManualCheckTeamworkRow(check: ManualCheckResult, tasklistName = 'Accessibility Audit'): string[] {
+  singleManualCheckTeamworkRow(check: ManualCheckResult, tasklistName = 'Accessibility Audit', pageUrl: string = ''): string[] {
     const criterion = check.wcagCriterion ?? '';
     const level = check.level ?? '';
     const levelLabel = level || 'Manual';
@@ -800,7 +812,7 @@ h3. Recommended Assignment
       ? `${criterion} ${check.title} | ${levelLabel}`
       : `${check.title} | Manual`;
 
-    const description = this.buildManualTeamworkDescription(check);
+    const description = this.buildManualTeamworkDescription(check, pageUrl);
 
     const tagParts = ['Accessibility', 'Manual'];
     if (level) tagParts.push(level);
@@ -820,7 +832,8 @@ h3. Recommended Assignment
     return row;
   }
 
-  private buildManualTeamworkDescription(check: ManualCheckResult): string {
+  private buildManualTeamworkDescription(check: ManualCheckResult, pageUrl: string = ''): string {
+    const pageUrlLine = pageUrl ? `**Page URL:** ${pageUrl}\n\n` : '';
     const notes = check.notes ?? 'No description provided.';
     const codeSnippet = check.codeSnippet
       ? `\n**c. Code Snippet**\n\n\`\`\`html\n${check.codeSnippet}\n\`\`\`\n`
@@ -844,7 +857,7 @@ h3. Recommended Assignment
       .map(f => f.remediationRecommendation).filter(Boolean).join('\n\n');
     const remediationText = failureRemediation || '*Replace with the steps required to fix this issue.*';
 
-    return `### 1. Describe the Issue
+    return `${pageUrlLine}### 1. Describe the Issue
 
 > to be completed by the **Auditor**
 
@@ -889,8 +902,10 @@ ${codeSnippet}${failuresSection}
     violation: AxeViolation,
     pages: Array<{ url: string; html: string }>,
     totalInstances: number,
-    firstSnippet: string = ''
+    firstSnippet: string = '',
+    pageUrl: string = ''
   ): string {
+    const pageUrlLine = pageUrl ? `*Page URL:* ${pageUrl}\n\n` : '';
     const displayedPages = pages.length > 200 ? pages.slice(0, 200) : pages;
     const moreNote = pages.length > 200 ? '\nPlease see the dashboard for additional URLs.' : '';
 
@@ -900,7 +915,7 @@ ${codeSnippet}${failuresSection}
         : `* ${p.url}`
     ).join('\n');
 
-    return `h3. Issue Description
+    return `${pageUrlLine}h3. Issue Description
 
 ${violation.description}
 
@@ -934,8 +949,8 @@ h3. Recommended Assignment
 `;
   }
 
-  private collectManualChecks(report: ScanReport): Array<{ check: ManualCheckResult; failedElements: DetectedElement[] }> {
-    const result: Array<{ check: ManualCheckResult; failedElements: DetectedElement[] }> = [];
+  private collectManualChecks(report: ScanReport): Array<{ check: ManualCheckResult; failedElements: DetectedElement[]; pageUrl: string }> {
+    const result: Array<{ check: ManualCheckResult; failedElements: DetectedElement[]; pageUrl: string }> = [];
     for (const page of report.results) {
       if (page.manualAudit) {
         for (const check of page.manualAudit.checks) {
@@ -943,7 +958,7 @@ h3. Recommended Assignment
             const failedElements = check.wcagCriterion
               ? (page.detectedElements?.[check.wcagCriterion] ?? []).filter(e => e.auditStatus === 'fail')
               : [];
-            result.push({ check, failedElements });
+            result.push({ check, failedElements, pageUrl: page.url });
           }
         }
       }
@@ -974,8 +989,10 @@ h3. Recommended Assignment
     violation: AxeViolation,
     pages: Array<{ url: string; html: string }>,
     totalInstances: number,
-    firstSnippet: string = ''
+    firstSnippet: string = '',
+    pageUrl: string = ''
   ): string {
+    const pageUrlLine = pageUrl ? `**Page URL:** ${pageUrl}\n\n` : '';
     const moreNote = pages.length > 200
       ? '\n- **Please see dashboard for more URLs**'
       : '';
@@ -983,7 +1000,7 @@ h3. Recommended Assignment
 
     const severity = this.severityTag(violation.impact);
 
-    return `### 1. Describe the Issue
+    return `${pageUrlLine}### 1. Describe the Issue
 
 > to be completed by the **Auditor**
 
