@@ -20,7 +20,7 @@ import { useAIProviders } from '@/hooks/useAIProviders';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Select, SelectTrigger, SelectContent, SelectItem } from '@/components/ui/select';
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -141,6 +141,10 @@ const IMPACT_COLORS: Record<ImpactLevel, string> = {
   moderate: 'bg-amber-100  text-amber-800  border-amber-200',
   minor:    'bg-sky-100    text-sky-800    border-sky-200',
 };
+
+const WCAG_CRITERIA_OPTIONS = PREDEFINED_CHECKS
+  .map((check) => ({ id: check.id, label: `${check.id} ${check.title}` }))
+  .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
 
 // ---------------------------------------------------------------------------
 // View mode
@@ -432,6 +436,9 @@ function FailureInstanceItem({
 }) {
   const pageUrl = useContext(PageUrlContext);
   const [localTitle, setLocalTitle] = useState(failure.title ?? '');
+  const [localRelatedCriteria, setLocalRelatedCriteria] = useState<string[]>(failure.relatedCriteria ?? []);
+  const [localRelatedCriteriaNotes, setLocalRelatedCriteriaNotes] = useState<Record<string, string>>(failure.relatedCriteriaNotes ?? {});
+  const [relatedCriteriaSelection, setRelatedCriteriaSelection] = useState('');
   const [localNotes, setLocalNotes] = useState(failure.notes ?? '');
   const [localCode, setLocalCode] = useState(failure.codeSnippet ?? '');
   const [localRemediation, setLocalRemediation] = useState(failure.remediationRecommendation ?? '');
@@ -456,8 +463,16 @@ function FailureInstanceItem({
   }
 
   function handleSave() {
+    const cleanedRelatedCriteriaNotes = Object.fromEntries(
+      localRelatedCriteria
+        .map((criterionId) => [criterionId, (localRelatedCriteriaNotes[criterionId] ?? '').trim()] as const)
+        .filter((entry) => entry[1].length > 0),
+    );
+
     onUpdate({
       title: localTitle || undefined,
+      relatedCriteria: localRelatedCriteria.length > 0 ? localRelatedCriteria : undefined,
+      relatedCriteriaNotes: Object.keys(cleanedRelatedCriteriaNotes).length > 0 ? cleanedRelatedCriteriaNotes : undefined,
       notes: localNotes || undefined,
       codeSnippet: localCode || undefined,
       screenshotDataUrl: screenshot,
@@ -467,6 +482,37 @@ function FailureInstanceItem({
     setJustSaved(true);
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
     savedTimerRef.current = setTimeout(() => setJustSaved(false), 2500);
+  }
+
+  const currentCriterion = checkContext?.criterion;
+  const availableCriteria = WCAG_CRITERIA_OPTIONS.filter(
+    option => option.id !== currentCriterion && !localRelatedCriteria.includes(option.id),
+  );
+
+  function addRelatedCriterion(criterionId: string) {
+    if (!criterionId || criterionId === currentCriterion) return;
+    setLocalRelatedCriteria(prev => {
+      if (prev.includes(criterionId)) return prev;
+      return [...prev, criterionId].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    });
+    markDirty();
+  }
+
+  function removeRelatedCriterion(criterionId: string) {
+    setLocalRelatedCriteria(prev => prev.filter(id => id !== criterionId));
+    setLocalRelatedCriteriaNotes(prev => {
+      const { [criterionId]: _removed, ...rest } = prev;
+      return rest;
+    });
+    markDirty();
+  }
+
+  function updateRelatedCriterionNote(criterionId: string, note: string) {
+    setLocalRelatedCriteriaNotes(prev => ({
+      ...prev,
+      [criterionId]: note,
+    }));
+    markDirty();
   }
 
   function applyScreenshot(dataUrl: string) {
@@ -656,6 +702,79 @@ function FailureInstanceItem({
         />
       </div>
 
+      {/* Related WCAG criteria */}
+      <div className="space-y-2">
+        <Label className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          Related WCAG criteria
+        </Label>
+        <div className="rounded border border-border bg-muted/20 p-2 space-y-2">
+          <Select
+            value={relatedCriteriaSelection}
+            onValueChange={(value) => {
+              setRelatedCriteriaSelection('');
+              addRelatedCriterion(value);
+            }}
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue placeholder={availableCriteria.length > 0 ? 'Add related criterion' : 'All criteria already selected'} />
+            </SelectTrigger>
+            <SelectContent>
+              {availableCriteria.length > 0 ? (
+                availableCriteria.map(option => (
+                  <SelectItem key={option.id} value={option.id} className="text-xs">
+                    {option.label}
+                  </SelectItem>
+                ))
+              ) : (
+                <div className="px-2 py-1 text-xs text-muted-foreground">
+                  No additional criteria available
+                </div>
+              )}
+            </SelectContent>
+          </Select>
+
+          {localRelatedCriteria.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-1">
+                {localRelatedCriteria.map((criterionId) => (
+                  <Badge key={criterionId} variant="outline" className="text-xs h-6 px-2 py-0 font-mono flex items-center gap-1">
+                    <span>{criterionId}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeRelatedCriterion(criterionId)}
+                      aria-label={`Remove related criterion ${criterionId}`}
+                      className="rounded-sm text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <X className="h-3 w-3" aria-hidden="true" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+
+              {localRelatedCriteria.map((criterionId) => {
+                const option = WCAG_CRITERIA_OPTIONS.find(entry => entry.id === criterionId);
+                const inputId = `related-criterion-note-${failure.id}-${criterionId.replace(/\./g, '-')}`;
+                return (
+                  <div key={`${criterionId}-note`} className="space-y-1">
+                    <Label htmlFor={inputId} className="text-xs font-medium text-muted-foreground">
+                      {option?.label ?? criterionId}
+                    </Label>
+                    <Textarea
+                      id={inputId}
+                      value={localRelatedCriteriaNotes[criterionId] ?? ''}
+                      onChange={e => updateRelatedCriterionNote(criterionId, e.target.value)}
+                      placeholder="Describe how this related criterion is affected"
+                      rows={2}
+                      className="text-sm resize-y"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Code snippet */}
       <div className="space-y-1">
         <Label htmlFor={codeId} className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
@@ -798,6 +917,8 @@ function FailureInstanceItem({
                 codeSnippet: localCode || undefined,
                 screenshotDataUrl: screenshot,
                 remediationRecommendation: localRemediation || undefined,
+                relatedCriteria: localRelatedCriteria.length > 0 ? localRelatedCriteria : undefined,
+                relatedCriteriaNotes: localRelatedCriteriaNotes,
                 impact: failure.impact,
                 scope: failure.scope,
                 pageUrl,
@@ -1636,8 +1757,8 @@ function NonTextElementsPanel({
 // FailureUpdateData — shared type for failure instance patch payloads
 // ---------------------------------------------------------------------------
 
-type FailureUpdateData = Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'impact' | 'title' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>;
-type FailureSeedData = Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation'>>;
+type FailureUpdateData = Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'impact' | 'title' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'relatedCriteria' | 'relatedCriteriaNotes'>>;
+type FailureSeedData = Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'relatedCriteria' | 'relatedCriteriaNotes'>>;
 function buildSeededIssueNotes(element: DetectedElement): string | undefined {
   const text = element.textAlternative?.trim();
   const sr = element.screenReaderText?.trim();
@@ -2096,8 +2217,6 @@ function CustomCheckItem({
   const [localNotes, setLocalNotes] = useState(check.notes ?? '');
   const [exportOpen, setExportOpen] = useState(false);
 
-  const showFailures = check.status === 'fail' || (check.failures ?? []).length > 0;
-
   return (
     <div className="border rounded p-3 space-y-2">
       <div className="flex items-start justify-between gap-2">
@@ -2162,11 +2281,14 @@ function CustomCheckItem({
         }}
         className="w-full text-xs border-0 border-b border-dashed border-muted-foreground/30 bg-transparent px-0 py-0.5 focus:outline-none focus:border-muted-foreground placeholder:text-muted-foreground/50"
       />
-      {showFailures && onAddFailure && (
+      {onAddFailure && (
         <FailureInstancesSection
           failures={check.failures}
           checkContext={{ id: check.id, title: check.title, criterion: check.wcagCriterion, description: check.description, level: check.level }}
-          onAdd={onAddFailure}
+          onAdd={() => {
+            onAddFailure();
+            if (check.status !== 'fail') onStatusChange('fail');
+          }}
           onUpdate={(fid, data) => onUpdateFailure?.(fid, data)}
           onDelete={fid => onDeleteFailure?.(fid)}
           className="pt-1"
