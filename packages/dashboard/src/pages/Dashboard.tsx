@@ -875,14 +875,6 @@ export function Dashboard() {
             <Icon name="upload" className="text-base" />
             {isImporting ? 'Importing…' : 'Import JSON'}
           </button>
-          <button
-            type="button"
-            onClick={() => { resetForm(); setShowScanForm(true); }}
-            className="flex items-center gap-1.5 px-5 py-2 rounded-full text-sm font-semibold bg-gradient-to-r from-primary to-primary-container text-white shadow-lg shadow-primary/20 hover:opacity-90 transition-opacity focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
-          >
-            <Icon name="add" className="text-base" />
-            New Scan
-          </button>
         </div>
       </div>
 

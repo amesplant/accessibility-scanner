@@ -10,7 +10,7 @@ import { DatabaseService } from './database.js';
 import { Reporter } from './exporter.js';
 import { SitemapScanner } from './scanner.js';
 import { crawlSite } from './crawler.js';
-import { AuditType, ScanReport, createDefaultChecks, ManualAudit, ManualAuditStatus, ManualCheckResult, ManualFailureInstance, Project, normalizeRemediationAssignees } from '../../shared/dist/index.js';
+import { AuditType, ScanReport, createDefaultChecks, ManualAudit, ManualAuditStatus, ManualCheckResult, ManualFailureInstance, Project, ViolationNode, normalizeRemediationAssignees } from '../../shared/dist/index.js';
 import { captureViewportScreenshot, detectFocusOrder, ViewportLabel } from './detectors/focusOrder.js';
 import { detectOnPage } from './detectors/onFocus.js';
 import { detectKeyboard } from './detectors/keyboard.js';
@@ -487,9 +487,23 @@ app.post('/api/reports/:id/export/jira', async (req, res) => {
 app.post('/api/reports/:reportId/pages/:pageId/rules/:ruleId/promote', async (req, res) => {
   try {
     const page = await modifyReportPage(req.params.reportId, req.params.pageId, (storedPage) => {
-      const { source, customNode, impact } = req.body as {
+      const { source, customNode, impact, nodeIndices, nodePatch } = req.body as {
         source?: 'pass' | 'incomplete';
         impact?: 'minor' | 'moderate' | 'serious' | 'critical';
+        nodeIndices?: number[];
+        nodePatch?: {
+          status?: ManualFailureInstance['status'];
+          scope?: ManualFailureInstance['scope'];
+          impact?: ManualFailureInstance['impact'];
+          title?: string;
+          notes?: string;
+          codeSnippet?: string;
+          screenshotDataUrl?: string;
+          remediationRecommendation?: string;
+          assignedTo?: ManualFailureInstance['assignedTo'];
+          relatedCriteria?: string[];
+          relatedCriteriaNotes?: Record<string, string>;
+        };
         customNode?: {
           html?: string;
           target?: string[];
@@ -521,13 +535,47 @@ app.post('/api/reports/:reportId/pages/:pageId/rules/:ruleId/promote', async (re
         ? 'Flagged during manual review from passed result.'
         : 'Flagged during manual review from incomplete result.';
 
-      const promotedNodes = rule.nodes.map((node) => ({
-        html: node.html,
+      const selectedNodeIndices = Array.isArray(nodeIndices)
+        ? [...new Set(nodeIndices.filter((value): value is number => Number.isInteger(value) && value >= 0 && value < rule.nodes.length))]
+        : null;
+      const sourceNodes = selectedNodeIndices !== null
+        ? selectedNodeIndices.map((nodeIndex) => rule.nodes[nodeIndex])
+        : rule.nodes;
+
+      const normalizedNodePatch = nodePatch
+        ? {
+            status: nodePatch.status === 'pass' ? 'pass' : nodePatch.status === 'fail' ? 'fail' : undefined,
+            scope: nodePatch.scope,
+            impact: nodePatch.impact,
+            title: typeof nodePatch.title === 'string' ? nodePatch.title.trim() || undefined : undefined,
+            notes: typeof nodePatch.notes === 'string' ? nodePatch.notes.trim() || undefined : undefined,
+            codeSnippet: typeof nodePatch.codeSnippet === 'string' ? nodePatch.codeSnippet.trim() || undefined : undefined,
+            screenshotDataUrl: typeof nodePatch.screenshotDataUrl === 'string' ? nodePatch.screenshotDataUrl : undefined,
+            remediationRecommendation: typeof nodePatch.remediationRecommendation === 'string' ? nodePatch.remediationRecommendation.trim() || undefined : undefined,
+            assignedTo: sanitizeRemediationAssignees(nodePatch.assignedTo),
+            relatedCriteria: sanitizeStringArray(nodePatch.relatedCriteria),
+            relatedCriteriaNotes: sanitizeStringRecord(nodePatch.relatedCriteriaNotes),
+          }
+        : null;
+
+      const promotedNodes: ViolationNode[] = sourceNodes.map((node): ViolationNode => ({
+        html: normalizedNodePatch?.codeSnippet || node.html,
         target: node.target,
-        failureSummary: node.failureSummary || fallbackSummary,
+        failureSummary: normalizedNodePatch?.notes || normalizedNodePatch?.title || node.failureSummary || fallbackSummary,
+        status: normalizedNodePatch?.status === 'pass' ? 'pass' : normalizedNodePatch?.status === 'fail' ? 'fail' : undefined,
+        scope: normalizedNodePatch?.scope,
+        impact: normalizedNodePatch?.impact,
+        title: normalizedNodePatch?.title,
+        notes: normalizedNodePatch?.notes,
+        codeSnippet: normalizedNodePatch?.codeSnippet,
+        screenshotDataUrl: normalizedNodePatch?.screenshotDataUrl,
+        remediationRecommendation: normalizedNodePatch?.remediationRecommendation,
+        assignedTo: normalizedNodePatch?.assignedTo,
+        relatedCriteria: normalizedNodePatch?.relatedCriteria,
+        relatedCriteriaNotes: normalizedNodePatch?.relatedCriteriaNotes,
       }));
 
-      const normalizedCustomNode = customNode && (
+      const normalizedCustomNode: ViolationNode | null = customNode && (
         (customNode.failureSummary && customNode.failureSummary.trim()) ||
         (customNode.html && customNode.html.trim()) ||
         (customNode.target && customNode.target.length > 0)
@@ -549,6 +597,10 @@ app.post('/api/reports/:reportId/pages/:pageId/rules/:ruleId/promote', async (re
             relatedCriteriaNotes: sanitizeStringRecord(customNode.relatedCriteriaNotes),
           }
         : null;
+
+      if (promotedNodes.length === 0 && !normalizedCustomNode) {
+        throw new Error('No rule instances selected');
+      }
 
       const existingViolation = storedPage.violations.find((violation) => violation.id === rule.id);
       const dedupeKey = (node: { html: string; target: string[]; failureSummary?: string }) => JSON.stringify({
@@ -579,7 +631,19 @@ app.post('/api/reports/:reportId/pages/:pageId/rules/:ruleId/promote', async (re
         });
       }
 
-      sourceRules.splice(ruleIndex, 1);
+      if (selectedNodeIndices !== null) {
+        if (selectedNodeIndices.length === 0) {
+          sourceRules[ruleIndex] = rule;
+        } else if (selectedNodeIndices.length < rule.nodes.length) {
+          rule.nodes = rule.nodes.filter((_, index) => !selectedNodeIndices.includes(index));
+          sourceRules[ruleIndex] = rule;
+        } else {
+          sourceRules.splice(ruleIndex, 1);
+        }
+      } else {
+        sourceRules.splice(ruleIndex, 1);
+      }
+
       if (source === 'pass') {
         storedPage.passRules = sourceRules;
         storedPage.passes = sourceRules.length;
@@ -596,6 +660,9 @@ app.post('/api/reports/:reportId/pages/:pageId/rules/:ruleId/promote', async (re
   } catch (err) {
     if (err instanceof Error) {
       if (err.message === 'Invalid rule source') {
+        return res.status(400).json({ error: err.message });
+      }
+      if (err.message === 'No rule instances selected') {
         return res.status(400).json({ error: err.message });
       }
       if (err.message === 'Rule not found') {

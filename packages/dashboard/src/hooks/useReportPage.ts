@@ -90,6 +90,20 @@ export function useReportPage(reportId: string | undefined, pageId: string | und
     ruleId: string,
     options?: {
       impact?: 'minor' | 'moderate' | 'serious' | 'critical';
+      nodeIndices?: number[];
+      nodePatch?: {
+        status?: ManualFailureInstance['status'];
+        scope?: ManualFailureInstance['scope'];
+        impact?: ManualFailureInstance['impact'];
+        title?: string;
+        notes?: string;
+        codeSnippet?: string;
+        screenshotDataUrl?: string;
+        remediationRecommendation?: string;
+        assignedTo?: ManualFailureInstance['assignedTo'];
+        relatedCriteria?: string[];
+        relatedCriteriaNotes?: Record<string, string>;
+      };
       customNode?: {
         html?: string;
         target?: string[];

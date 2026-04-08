@@ -18,6 +18,7 @@ import {
 import { cn } from '@/lib/utils';
 import { ExportModal } from '@/components/ExportModal';
 import { ViewLayoutToggle, type ViewLayout } from '@/components/ViewLayoutToggle';
+import { AuditWorkspaceHero, AuditWorkspacePanel, AuditWorkspaceSectionHeader } from '@/components/AuditWorkspace';
 import { useCurrentReport } from '@/context/CurrentReportContext';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { Progress } from '@/components/ui/progress';
@@ -535,6 +536,7 @@ export function FailureInstanceItem({
   showDelete = true,
   showExport = true,
   showSaveButton = true,
+  allowSaveWhenPristine = false,
   saveButtonLabel = 'Save',
   onSaveExtra,
   onDraftChange,
@@ -548,6 +550,7 @@ export function FailureInstanceItem({
   showDelete?: boolean;
   showExport?: boolean;
   showSaveButton?: boolean;
+  allowSaveWhenPristine?: boolean;
   saveButtonLabel?: string;
   onSaveExtra?: (data: FailureUpdateData) => void | Promise<void>;
   onDraftChange?: (data: FailureUpdateData) => void;
@@ -1117,7 +1120,7 @@ export function FailureInstanceItem({
               justSaved && 'text-emerald-900',
             )}
             onClick={() => { void handleSave(); }}
-            disabled={!dirty}
+            disabled={!dirty && !allowSaveWhenPristine}
             aria-describedby={statusRegionId}
           >
             {justSaved
@@ -3743,36 +3746,34 @@ export function ManualAuditTab({
         </div>
       )}
 
-      <div className="hidden lg:block rounded-[28px] border border-slate-200/80 bg-white/95 p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)] backdrop-blur">
+      <AuditWorkspacePanel className="hidden lg:block">
         <div className="flex flex-col gap-6">
-          <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-            <div className="space-y-2">
-              <div className="text-[11px] font-black uppercase tracking-[0.24em] text-cyan-700/70">Manual Audit Workspace</div>
-              <h2 className="text-3xl font-extrabold tracking-tight text-slate-950">Manual WCAG 2.1 Audit</h2>
-              <p className="max-w-3xl text-sm leading-6 text-slate-500">
-                Review criteria from the sidebar, update status in place, and keep evidence and notes in a dedicated detail pane without losing your place.
-              </p>
-            </div>
-            <div className="w-full max-w-[360px] space-y-1">
-              <label htmlFor="auditor-notes-desktop" className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
-                Page Notes
-              </label>
-              <Textarea
-                id="auditor-notes-desktop"
-                value={auditorNotes}
-                onChange={e => setAuditorNotes(e.target.value)}
-                onBlur={() => {
-                  if (auditorNotes !== (audit.auditorNotes ?? '')) {
-                    onAuditorNotesChange(auditorNotes);
-                  }
-                }}
-                className="min-h-[112px] rounded-[20px] border-slate-200 bg-slate-50 px-4 py-3 text-sm shadow-none"
-              />
-              <p className="text-xs text-slate-500">
-                Use page notes for overall findings, scope context, and cross-criterion observations.
-              </p>
-            </div>
-          </div>
+          <AuditWorkspaceHero
+            eyebrow="Manual Audit Workspace"
+            title="Manual WCAG 2.1 Audit"
+            description="Review criteria from the sidebar, update status in place, and keep evidence and notes in a dedicated detail pane without losing your place."
+            aside={(
+              <div className="w-full max-w-[360px] space-y-1">
+                <label htmlFor="auditor-notes-desktop" className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
+                  Page Notes
+                </label>
+                <Textarea
+                  id="auditor-notes-desktop"
+                  value={auditorNotes}
+                  onChange={e => setAuditorNotes(e.target.value)}
+                  onBlur={() => {
+                    if (auditorNotes !== (audit.auditorNotes ?? '')) {
+                      onAuditorNotesChange(auditorNotes);
+                    }
+                  }}
+                  className="min-h-[112px] rounded-[20px] border-slate-200 bg-slate-50 px-4 py-3 text-sm shadow-none"
+                />
+                <p className="text-xs text-slate-500">
+                  Use page notes for overall findings, scope context, and cross-criterion observations.
+                </p>
+              </div>
+            )}
+          />
 
           <div className="rounded-[24px] border border-slate-200/70 bg-slate-50/70 px-5 py-4">
             <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-center 2xl:justify-between">
@@ -3882,16 +3883,15 @@ export function ManualAuditTab({
             </p>
           </div>
         </div>
-      </div>
+      </AuditWorkspacePanel>
 
       <div className="hidden lg:block space-y-6">
-        <div className="flex items-center justify-between gap-4 px-2">
-          <div>
-            <div className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Audit Layout</div>
-            <p className="mt-1 text-sm text-slate-500">Switch between the board and a denser list without changing the audit flow.</p>
-          </div>
-          <ViewLayoutToggle value={desktopLayout} onChange={setDesktopLayout} ariaLabel="Desktop manual audit layout" />
-        </div>
+        <AuditWorkspaceSectionHeader
+          eyebrow="Audit Layout"
+          description="Switch between the board and a denser list without changing the audit flow."
+          actions={<ViewLayoutToggle value={desktopLayout} onChange={setDesktopLayout} ariaLabel="Desktop manual audit layout" />}
+          className="px-2"
+        />
 
         <div className="min-w-0 overflow-visible">
           {desktopLayout === 'cards' ? (
