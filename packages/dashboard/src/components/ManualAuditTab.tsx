@@ -273,8 +273,8 @@ const STATUS_LABELS: Record<ManualAuditStatus, string> = {
 };
 
 const STATUS_COLORS: Record<ManualAuditStatus, string> = {
-  pass:         'text-emerald-900 dark:text-emerald-200',
-  fail:         'text-red-700 dark:text-red-400',
+  pass:         'text-emerald-900',
+  fail:         'text-red-700',
   na:           'text-muted-foreground',
   'not-tested': 'text-muted-foreground',
 };
@@ -1011,7 +1011,7 @@ function FailureInstanceItem({
           size="sm"
           className={cn(
             'h-7 text-xs gap-1.5 transition-colors',
-            justSaved && 'text-emerald-900 dark:text-emerald-200',
+            justSaved && 'text-emerald-900',
           )}
           onClick={handleSave}
           disabled={!dirty}
@@ -1053,6 +1053,7 @@ const ELEMENT_TYPE_LABELS: Record<DetectedElement['elementType'], string> = {
   'no-focus-style': 'No Focus Style',
   'keyboard-trap': 'Keyboard Trap Risk',
   'low-contrast': 'Low Contrast Text',
+  'resize-text-preview': '200% Resize Preview',
 };
 
 function CopyButton({ text }: { text: string }) {
@@ -1070,7 +1071,7 @@ function CopyButton({ text }: { text: string }) {
       aria-label={copied ? 'Copied to clipboard' : 'Copy code'}
       className="p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
     >
-      {copied ? <Check className="h-3 w-3 text-emerald-900 dark:text-emerald-200" aria-hidden="true" /> : <Copy className="h-3 w-3" aria-hidden="true" />}
+      {copied ? <Check className="h-3 w-3 text-emerald-900" aria-hidden="true" /> : <Copy className="h-3 w-3" aria-hidden="true" />}
     </button>
   );
 }
@@ -1282,7 +1283,7 @@ function NonTextElementRow({
   const [isDarkScreenshot, setIsDarkScreenshot] = useState(false);
   const screenshotTriggerRef = useRef<HTMLButtonElement>(null);
 
-  const isDiagnosticElement = element.elementType === 'focus-trigger' || element.elementType === 'mouse-only' || element.elementType === 'focus-order-map' || element.elementType === 'no-focus-style' || element.elementType === 'keyboard-trap' || element.elementType === 'low-contrast';
+  const isDiagnosticElement = element.elementType === 'focus-trigger' || element.elementType === 'mouse-only' || element.elementType === 'focus-order-map' || element.elementType === 'no-focus-style' || element.elementType === 'keyboard-trap' || element.elementType === 'low-contrast' || element.elementType === 'resize-text-preview';
   const elementLabel = ELEMENT_TYPE_LABELS[element.elementType];
   const elementTitle = element.textAlternative
     ? `${elementLabel}: "${element.textAlternative}"`
@@ -1374,7 +1375,16 @@ function NonTextElementRow({
             </div>
           )}
           <div className="overflow-y-auto space-y-4 min-h-0">
-            {element.contextScreenshotDataUrl && (
+            {element.elementType === 'resize-text-preview' && element.screenshotDataUrl ? (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground font-medium">Full-page preview at 200% zoom</p>
+                <img
+                  src={element.screenshotDataUrl}
+                  alt={element.textAlternative ?? 'Full-page preview at 200 percent zoom'}
+                  className="w-full rounded border"
+                />
+              </div>
+            ) : element.contextScreenshotDataUrl && (
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground font-medium">Page context (element highlighted)</p>
                 <img
@@ -1384,7 +1394,7 @@ function NonTextElementRow({
                 />
               </div>
             )}
-            {(element.screenshotDataUrl || element.darkScreenshotDataUrl) && (
+            {element.elementType !== 'resize-text-preview' && (element.screenshotDataUrl || element.darkScreenshotDataUrl) && (
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground font-medium">Element crop</p>
                 <img
@@ -1426,7 +1436,7 @@ function NonTextElementRow({
                   &ldquo;{element.textAlternative}&rdquo;
                 </span>
               ) : (
-                <Badge variant="outline" className="text-xs h-4 px-1.5 py-0 bg-red-50 text-red-700 border-red-200 dark:bg-red-950/20 dark:text-red-400 dark:border-red-800">
+                <Badge variant="outline" className="text-xs h-4 px-1.5 py-0 bg-red-50 text-red-700 border-red-200">
                   No text alternative
                 </Badge>
               )}
@@ -1463,7 +1473,7 @@ function NonTextElementRow({
                       ? <span className="text-foreground truncate">{element.screenReaderText}</span>
                       : <span className="font-mono text-foreground truncate">&ldquo;{element.screenReaderText}&rdquo;</span>
                   ) : (
-                    <Badge variant="outline" className="text-xs h-5 px-1.5 py-0 bg-red-50 text-red-700 border-red-300 dark:bg-red-950/30 dark:text-red-300 dark:border-red-700 shrink-0">
+                    <Badge variant="outline" className="text-xs h-5 px-1.5 py-0 bg-red-50 text-red-700 border-red-300 shrink-0">
                       Silent — not announced
                     </Badge>
                   )}
@@ -1563,6 +1573,14 @@ function OnDemandDetectionPanel({
   const [errorMessage, setErrorMessage] = useState('');
   const [previewElements, setPreviewElements] = useState<DetectedElement[]>([]);
   const [liveAnnouncement, setLiveAnnouncement] = useState('');
+  const isResizeTextPreview = criterionId === '1.4.4';
+  const panelTitle = isResizeTextPreview ? '200% Resize Preview' : 'Detected Elements';
+  const itemLabel = isResizeTextPreview ? 'preview' : 'element';
+  const idleMessage = isResizeTextPreview
+    ? 'Preview capture runs on demand — click below to generate a full-page 200% view for this page.'
+    : `Detection runs on demand — click below to scan this page (${criterionId}).`;
+  const actionLabel = isResizeTextPreview ? 'Capture 200% preview' : 'Detect elements on page';
+  const runningLabel = isResizeTextPreview ? 'Capturing preview…' : 'Detecting…';
 
   async function handleDetect() {
     setRunning(true);
@@ -1604,7 +1622,7 @@ function OnDemandDetectionPanel({
         className="w-full flex items-center justify-between px-3 py-2 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
       >
         <span className="text-base font-medium flex items-center gap-2">
-          Detected Elements
+          {panelTitle}
           {running && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" aria-hidden="true" />}
           {previewElements.length > 0 && (
             <span className="text-sm font-normal text-muted-foreground">
@@ -1631,13 +1649,13 @@ function OnDemandDetectionPanel({
           {!running && !errorMessage && !previewElements.length && (
             <p className="text-base text-muted-foreground flex items-start gap-1.5">
               <Info className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
-              Detection runs on demand — click below to scan this page ({criterionId}).
+              {idleMessage}
             </p>
           )}
           {previewElements.length > 0 && (
             <ul
               className="flex flex-col divide-y text-sm"
-              aria-label={`${previewElements.length} element${previewElements.length !== 1 ? 's' : ''} found so far`}
+              aria-label={`${previewElements.length} ${itemLabel}${previewElements.length !== 1 ? 's' : ''} found so far`}
             >
               {previewElements.map((el) => (
                 <li key={el.id} className="flex items-center gap-2 py-1.5">
@@ -1660,8 +1678,8 @@ function OnDemandDetectionPanel({
             aria-busy={running}
           >
             {running
-              ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" aria-hidden="true" />Detecting…</>
-              : 'Detect elements on page'
+              ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" aria-hidden="true" />{runningLabel}</>
+              : actionLabel
             }
           </Button>
         </div>
@@ -1702,6 +1720,10 @@ function NonTextElementsPanel({
   const [detectError, setDetectError] = useState('');
   const reviewed = elements.filter(e => e.auditStatus !== 'not-reviewed').length;
   const failed = elements.filter(e => e.auditStatus === 'fail').length;
+  const isResizeTextPreview = criterionId === '1.4.4';
+  const panelTitle = isResizeTextPreview ? '200% Resize Preview' : 'Detected Elements';
+  const redetectLabel = isResizeTextPreview ? 'Re-capture 200% preview' : 'Re-detect elements on page';
+  const detectingLabel = isResizeTextPreview ? 'Capturing preview…' : 'Detecting…';
 
   async function handleReDetect() {
     setDetecting(true);
@@ -1735,8 +1757,8 @@ function NonTextElementsPanel({
         aria-busy={detecting}
       >
         {detecting
-          ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" aria-hidden="true" />Detecting…</>
-          : 'Re-detect elements on page'
+          ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" aria-hidden="true" />{detectingLabel}</>
+          : redetectLabel
         }
       </Button>
     </div>
@@ -1752,7 +1774,7 @@ function NonTextElementsPanel({
           </div>
           {onAutoPass && (
             <Button size="sm" variant="outline" onClick={onAutoPass}
-              className="border-emerald-900/30 text-emerald-900 hover:bg-emerald-950/8 hover:text-emerald-950 dark:text-emerald-200 shrink-0 h-6 text-base px-2">
+              className="border-emerald-900/30 text-emerald-900 hover:bg-emerald-950/8 hover:text-emerald-950 shrink-0 h-6 text-base px-2">
               Mark Pass
             </Button>
           )}
@@ -1771,13 +1793,13 @@ function NonTextElementsPanel({
         className="w-full flex items-center justify-between px-3 py-2 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
       >
         <span className="text-base font-medium">
-          Detected Elements ({elements.length})
+          {panelTitle} ({elements.length})
         </span>
         <div className="flex items-center gap-3">
           <span className="text-base text-muted-foreground">
             {reviewed}/{elements.length} reviewed
             {failed > 0 && (
-              <span className="text-red-700 dark:text-red-400 ml-2">· {failed} failed</span>
+              <span className="text-red-700 ml-2">· {failed} failed</span>
             )}
           </span>
           <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')} aria-hidden="true" />
@@ -1874,6 +1896,8 @@ function buildSeededIssueNotes(element: DetectedElement): string | undefined {
       return 'Keyboard focus may become trapped in this region/control.';
     case 'low-contrast':
       return 'Text contrast may be below WCAG minimum contrast requirements.';
+    case 'resize-text-preview':
+      return 'Review the 200% preview for clipped, overlapping, or unusable text and controls.';
     case 'role-img':
       if (!text) return 'Element with role="img" is missing an accessible name/text alternative.';
       return `role="img" accessible name may be unclear: “${text}”.`;
@@ -2073,16 +2097,16 @@ function CheckRow({
             {!expanded && (
               <>
                 {check.status === 'fail' && (
-                  <span className="text-xs text-red-700 dark:text-red-400 font-medium">✗ Fail</span>
+                  <span className="text-xs text-red-700 font-medium">✗ Fail</span>
                 )}
                 {check.status === 'pass' && (
-                  <span className="text-xs text-emerald-900 dark:text-emerald-200 font-medium">✓ Pass</span>
+                  <span className="text-xs text-emerald-900 font-medium">✓ Pass</span>
                 )}
                 {check.status === 'na' && (
                   <span className="text-xs text-muted-foreground">— N/A</span>
                 )}
                 {(failCount > 0 || elementFailCount > 0) && (
-                  <span className="text-xs text-red-700 dark:text-red-400">
+                  <span className="text-xs text-red-700">
                     {failCount + elementFailCount} issue{failCount + elementFailCount !== 1 ? 's' : ''}
                   </span>
                 )}
@@ -2131,8 +2155,8 @@ function CheckRow({
                       {QUESTION_STATUS_OPTIONS.map(({ value, label }) => {
                         const selected = questionStatuses[i] === value;
                         const colorClass =
-                          value === 'pass' ? selected ? 'bg-emerald-800 text-white border-emerald-800 dark:bg-emerald-700 dark:text-white dark:border-emerald-700' : 'text-muted-foreground hover:text-emerald-900 dark:hover:text-emerald-700'
-                          : value === 'fail' ? selected ? 'bg-red-800 text-white border-red-800 dark:bg-red-700 dark:text-white dark:border-red-700' : 'text-muted-foreground hover:text-red-800 dark:hover:text-red-300'
+                          value === 'pass' ? selected ? 'bg-emerald-800 text-white border-emerald-800' : 'text-muted-foreground hover:text-emerald-900'
+                          : value === 'fail' ? selected ? 'bg-red-800 text-white border-red-800' : 'text-muted-foreground hover:text-red-800'
                           : selected ? 'bg-muted text-foreground border-border' : 'text-muted-foreground hover:text-foreground';
                         return (
                           <button
@@ -2198,7 +2222,8 @@ function CheckRow({
                 check.wcagCriterion === '2.4.4' ||
                 check.wcagCriterion === '1.1.1' ||
                 check.wcagCriterion === '1.3.1' ||
-                check.wcagCriterion === '1.4.3'
+                            check.wcagCriterion === '1.4.3' ||
+                check.wcagCriterion === '1.4.4'
               ) ? () => onDetectElements(check.wcagCriterion!) : undefined}
               emptyLabel={
                 check.wcagCriterion === '1.2.1'
@@ -2223,6 +2248,8 @@ function CheckRow({
                   ? 'No non-text elements detected — manually review the page for images, icons, and controls that may lack a text alternative.'
                   : check.wcagCriterion === '1.4.3'
                   ? 'No contrast failures detected — manually verify text against gradient or image backgrounds where computed colors may not reflect the true contrast.'
+                  : check.wcagCriterion === '1.4.4'
+                  ? 'No 200% preview captured yet — click "Re-detect elements on page" below to generate a full-page resize preview, then review it for clipping, overlap, truncation, or lost functionality.'
                   : undefined
               }
             />
@@ -2235,7 +2262,8 @@ function CheckRow({
               check.wcagCriterion === '2.4.4' ||
               check.wcagCriterion === '1.1.1' ||
               check.wcagCriterion === '1.3.1' ||
-              check.wcagCriterion === '1.4.3'
+              check.wcagCriterion === '1.4.3' ||
+              check.wcagCriterion === '1.4.4'
             ) ? (
             <OnDemandDetectionPanel
               criterionId={check.wcagCriterion}
@@ -2452,8 +2480,8 @@ function CheckGroupSection({
         </div>
         {collapsed && (
           <div className="flex items-center gap-3 text-xs shrink-0">
-            {failCount > 0      && <span className="text-red-700 dark:text-red-400 font-medium">{failCount} fail</span>}
-            {passCount > 0      && <span className="text-emerald-900 dark:text-emerald-200">{passCount} pass</span>}
+            {failCount > 0      && <span className="text-red-700 font-medium">{failCount} fail</span>}
+            {passCount > 0      && <span className="text-emerald-900">{passCount} pass</span>}
             {naCount > 0        && <span className="text-muted-foreground">{naCount} n/a</span>}
             {notTestedCount > 0 && <span className="text-muted-foreground">{notTestedCount} not tested</span>}
           </div>
@@ -2933,12 +2961,12 @@ export function ManualAuditTab({
       {/* Completion banner */}
       {isCompleted && (
         <div role="status" aria-live="polite" className="flex items-center justify-between gap-3 rounded border border-emerald-900/20 bg-emerald-950/5 px-4 py-3">
-          <div className="flex items-center gap-2 text-base text-emerald-950 dark:text-emerald-200">
+          <div className="flex items-center gap-2 text-base text-emerald-950">
             <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
             <span>
               Audit marked complete
               {audit.completedAt && (
-                <span className="text-xs text-emerald-900 dark:text-emerald-200 ml-2">
+                <span className="text-xs text-emerald-900 ml-2">
                   {new Date(audit.completedAt).toLocaleString()}
                 </span>
               )}
@@ -2970,8 +2998,8 @@ export function ManualAuditTab({
         </div>
         <Progress value={progressPct} aria-label={`${progressPct}% of checks completed`} />
         <div className="flex flex-wrap gap-3 text-xs" aria-label="Audit progress breakdown">
-          <span className="text-emerald-900 dark:text-emerald-700">● {counts.pass} Pass</span>
-          <span className="text-red-700 dark:text-red-400">● {counts.fail} Fail</span>
+          <span className="text-emerald-900 ">● {counts.pass} Pass</span>
+          <span className="text-red-700">● {counts.fail} Fail</span>
           <span className="text-muted-foreground">● {counts.na} N/A</span>
           <span className="text-muted-foreground">● {counts['not-tested']} Not Tested</span>
         </div>
@@ -2982,7 +3010,7 @@ export function ManualAuditTab({
               size="sm"
               variant="outline"
               onClick={() => { onToggleComplete(true); setTimeout(() => reopenRef.current?.focus(), 0); }}
-              className="border-emerald-900 bg-emerald-900 text-white hover:bg-emerald-950 hover:border-emerald-950 dark:border-emerald-700 dark:bg-emerald-700 dark:hover:bg-emerald-600 dark:hover:border-emerald-600 dark:text-white"
+              className="border-emerald-900 bg-emerald-900 text-white hover:bg-emerald-950 hover:border-emerald-950"
             >
               <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" aria-hidden="true" />
               Mark Audit Complete

@@ -1003,7 +1003,7 @@ export function Dashboard() {
                           </button>
                           <button
                             type="button"
-                            onClick={e => {
+                            onClick={() => {
                               setPendingRemoveId(report.id);
                             }}
                             aria-label={`Delete report for ${report.sitemap}`}
