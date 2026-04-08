@@ -34,37 +34,50 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  Plus,
-  Trash2,
-  Keyboard,
-  Image as ImageIcon,
-  Palette,
-  FormInput,
-  Link,
-  AlignLeft,
-  Video,
-  ChevronDown,
-  Code2,
-  Upload,
-  Clipboard,
-  X,
-  CheckCircle2,
-  RotateCcw,
-  Copy,
-  Check,
-  Wand2,
-  Loader2,
-  Save,
-  Lightbulb,
-  Download,
-  Info,
-  Sun,
-  Moon,
-  Flag,
-  Layers,
-  AlertCircle,
-} from 'lucide-react';
+// Material Symbols icon shims — replaces lucide-react
+function _msIcon(symbolName: string, filled = false) {
+  return function Icon({ className = '', ...rest }: React.HTMLAttributes<HTMLSpanElement>) {
+    return (
+      <span
+        className={`material-symbols-outlined leading-none select-none ${className}`}
+        aria-hidden="true"
+        style={filled ? { fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24" } : undefined}
+        {...rest}
+      >
+        {symbolName}
+      </span>
+    );
+  };
+}
+const Plus = _msIcon('add');
+const Trash2 = _msIcon('delete');
+const Keyboard = _msIcon('keyboard');
+const ImageIcon = _msIcon('image');
+const Palette = _msIcon('palette');
+const FormInput = _msIcon('input');
+const Link = _msIcon('link');
+const AlignLeft = _msIcon('format_align_left');
+const Video = _msIcon('videocam');
+const ChevronDown = _msIcon('expand_more');
+const Code2 = _msIcon('code');
+const Upload = _msIcon('upload');
+const Clipboard = _msIcon('content_paste');
+const X = _msIcon('close');
+const CheckCircle2 = _msIcon('check_circle', true);
+const RotateCcw = _msIcon('replay');
+const Copy = _msIcon('content_copy');
+const Check = _msIcon('check');
+const Wand2 = _msIcon('auto_fix_high');
+const Loader2 = _msIcon('progress_activity');
+const Save = _msIcon('save');
+const Lightbulb = _msIcon('lightbulb');
+const Download = _msIcon('download');
+const Info = _msIcon('info');
+const Sun = _msIcon('light_mode');
+const Moon = _msIcon('dark_mode');
+const Flag = _msIcon('flag');
+const Layers = _msIcon('layers');
+const AlertCircle = _msIcon('error');
 
 // ---------------------------------------------------------------------------
 // Lookup map: check id → predefined metadata (category, priority, level)
@@ -260,7 +273,7 @@ const STATUS_LABELS: Record<ManualAuditStatus, string> = {
 };
 
 const STATUS_COLORS: Record<ManualAuditStatus, string> = {
-  pass:         'text-green-700 dark:text-green-400',
+  pass:         'text-emerald-900 dark:text-emerald-200',
   fail:         'text-red-700 dark:text-red-400',
   na:           'text-muted-foreground',
   'not-tested': 'text-muted-foreground',
@@ -998,7 +1011,7 @@ function FailureInstanceItem({
           size="sm"
           className={cn(
             'h-7 text-xs gap-1.5 transition-colors',
-            justSaved && 'text-green-700 dark:text-green-400',
+            justSaved && 'text-emerald-900 dark:text-emerald-200',
           )}
           onClick={handleSave}
           disabled={!dirty}
@@ -1057,7 +1070,7 @@ function CopyButton({ text }: { text: string }) {
       aria-label={copied ? 'Copied to clipboard' : 'Copy code'}
       className="p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
     >
-      {copied ? <Check className="h-3 w-3 text-green-700 dark:text-green-400" aria-hidden="true" /> : <Copy className="h-3 w-3" aria-hidden="true" />}
+      {copied ? <Check className="h-3 w-3 text-emerald-900 dark:text-emerald-200" aria-hidden="true" /> : <Copy className="h-3 w-3" aria-hidden="true" />}
     </button>
   );
 }
@@ -1193,8 +1206,8 @@ function FocusOrderRow({
                     className={cn(
                       'px-2 py-0.5 text-xs rounded border font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
                       element.auditStatus === 'pass'
-                        ? 'bg-green-600 text-white border-green-600'
-                        : 'border-input text-muted-foreground hover:text-green-700 hover:border-green-700',
+                        ? 'bg-emerald-800 text-white border-emerald-800'
+                        : 'border-input text-muted-foreground hover:text-emerald-900 hover:border-emerald-900',
                     )}
                   >
                     Pass
@@ -1207,8 +1220,8 @@ function FocusOrderRow({
                     className={cn(
                       'px-2 py-0.5 text-xs rounded border font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
                       element.auditStatus === 'fail'
-                        ? 'bg-red-600 text-white border-red-600'
-                        : 'border-input text-muted-foreground hover:text-red-700 hover:border-red-700',
+                        ? 'bg-red-800 text-white border-red-800'
+                        : 'border-input text-muted-foreground hover:text-red-800 hover:border-red-800',
                     )}
                   >
                     Fail
@@ -1468,8 +1481,8 @@ function NonTextElementRow({
             className={cn(
               'px-2 py-0.5 text-xs rounded border font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
               element.auditStatus === 'pass'
-                ? 'bg-green-600 text-white border-green-600'
-                : 'border-input text-muted-foreground hover:text-green-700 hover:border-green-700',
+                ? 'bg-emerald-800 text-white border-emerald-800'
+                : 'border-input text-muted-foreground hover:text-emerald-900 hover:border-emerald-900',
             )}
           >
             Pass
@@ -1482,8 +1495,8 @@ function NonTextElementRow({
             className={cn(
               'px-2 py-0.5 text-xs rounded border font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
               element.auditStatus === 'fail'
-                ? 'bg-red-600 text-white border-red-600'
-                : 'border-input text-muted-foreground hover:text-red-700 hover:border-red-700',
+                ? 'bg-red-800 text-white border-red-800'
+                : 'border-input text-muted-foreground hover:text-red-800 hover:border-red-800',
             )}
           >
             Fail
@@ -1739,7 +1752,7 @@ function NonTextElementsPanel({
           </div>
           {onAutoPass && (
             <Button size="sm" variant="outline" onClick={onAutoPass}
-              className="border-green-600/50 text-green-700 hover:bg-green-600/10 hover:text-green-700 dark:text-green-400 shrink-0 h-6 text-base px-2">
+              className="border-emerald-900/30 text-emerald-900 hover:bg-emerald-950/8 hover:text-emerald-950 dark:text-emerald-200 shrink-0 h-6 text-base px-2">
               Mark Pass
             </Button>
           )}
@@ -2063,7 +2076,7 @@ function CheckRow({
                   <span className="text-xs text-red-700 dark:text-red-400 font-medium">✗ Fail</span>
                 )}
                 {check.status === 'pass' && (
-                  <span className="text-xs text-green-700 dark:text-green-400 font-medium">✓ Pass</span>
+                  <span className="text-xs text-emerald-900 dark:text-emerald-200 font-medium">✓ Pass</span>
                 )}
                 {check.status === 'na' && (
                   <span className="text-xs text-muted-foreground">— N/A</span>
@@ -2118,8 +2131,8 @@ function CheckRow({
                       {QUESTION_STATUS_OPTIONS.map(({ value, label }) => {
                         const selected = questionStatuses[i] === value;
                         const colorClass =
-                          value === 'pass' ? selected ? 'bg-green-100 text-green-800 border-green-300 dark:bg-green-950/40 dark:text-green-300 dark:border-green-700' : 'text-muted-foreground hover:text-green-700 dark:hover:text-green-400'
-                          : value === 'fail' ? selected ? 'bg-red-100 text-red-800 border-red-300 dark:bg-red-950/40 dark:text-red-300 dark:border-red-700' : 'text-muted-foreground hover:text-red-700 dark:hover:text-red-400'
+                          value === 'pass' ? selected ? 'bg-emerald-800 text-white border-emerald-800 dark:bg-emerald-700 dark:text-white dark:border-emerald-700' : 'text-muted-foreground hover:text-emerald-900 dark:hover:text-emerald-700'
+                          : value === 'fail' ? selected ? 'bg-red-800 text-white border-red-800 dark:bg-red-700 dark:text-white dark:border-red-700' : 'text-muted-foreground hover:text-red-800 dark:hover:text-red-300'
                           : selected ? 'bg-muted text-foreground border-border' : 'text-muted-foreground hover:text-foreground';
                         return (
                           <button
@@ -2440,7 +2453,7 @@ function CheckGroupSection({
         {collapsed && (
           <div className="flex items-center gap-3 text-xs shrink-0">
             {failCount > 0      && <span className="text-red-700 dark:text-red-400 font-medium">{failCount} fail</span>}
-            {passCount > 0      && <span className="text-green-700 dark:text-green-400">{passCount} pass</span>}
+            {passCount > 0      && <span className="text-emerald-900 dark:text-emerald-200">{passCount} pass</span>}
             {naCount > 0        && <span className="text-muted-foreground">{naCount} n/a</span>}
             {notTestedCount > 0 && <span className="text-muted-foreground">{notTestedCount} not tested</span>}
           </div>
@@ -2919,13 +2932,13 @@ export function ManualAuditTab({
       )}
       {/* Completion banner */}
       {isCompleted && (
-        <div className="flex items-center justify-between gap-3 rounded border border-green-600/40 bg-green-600/10 px-4 py-3">
-          <div className="flex items-center gap-2 text-base text-green-700 dark:text-green-400">
+        <div role="status" aria-live="polite" className="flex items-center justify-between gap-3 rounded border border-emerald-900/20 bg-emerald-950/5 px-4 py-3">
+          <div className="flex items-center gap-2 text-base text-emerald-950 dark:text-emerald-200">
             <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
             <span>
               Audit marked complete
               {audit.completedAt && (
-                <span className="text-xs text-muted-foreground ml-2">
+                <span className="text-xs text-emerald-900 dark:text-emerald-200 ml-2">
                   {new Date(audit.completedAt).toLocaleString()}
                 </span>
               )}
@@ -2957,7 +2970,7 @@ export function ManualAuditTab({
         </div>
         <Progress value={progressPct} aria-label={`${progressPct}% of checks completed`} />
         <div className="flex flex-wrap gap-3 text-xs" aria-label="Audit progress breakdown">
-          <span className="text-green-700 dark:text-green-400">● {counts.pass} Pass</span>
+          <span className="text-emerald-900 dark:text-emerald-700">● {counts.pass} Pass</span>
           <span className="text-red-700 dark:text-red-400">● {counts.fail} Fail</span>
           <span className="text-muted-foreground">● {counts.na} N/A</span>
           <span className="text-muted-foreground">● {counts['not-tested']} Not Tested</span>
@@ -2969,7 +2982,7 @@ export function ManualAuditTab({
               size="sm"
               variant="outline"
               onClick={() => { onToggleComplete(true); setTimeout(() => reopenRef.current?.focus(), 0); }}
-              className="border-green-600/50 text-green-700 hover:bg-green-600/10 hover:text-green-700 dark:text-green-400"
+              className="border-emerald-900 bg-emerald-900 text-white hover:bg-emerald-950 hover:border-emerald-950 dark:border-emerald-700 dark:bg-emerald-700 dark:hover:bg-emerald-600 dark:hover:border-emerald-600 dark:text-white"
             >
               <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" aria-hidden="true" />
               Mark Audit Complete
@@ -3015,7 +3028,7 @@ export function ManualAuditTab({
                   onClick={() => setCategoryFilter(null)}
                   aria-label={`Remove filter: ${categoryFilter}`}
                   className={cn(
-                    'inline-flex items-center gap-1 rounded border text-xs px-2 py-0.5 font-normal transition-opacity hover:opacity-75',
+                    'inline-flex items-center gap-1 rounded border text-xs px-2 py-0.5 font-normal transition-opacity hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
                     CATEGORY_COLORS[categoryFilter],
                   )}
                 >

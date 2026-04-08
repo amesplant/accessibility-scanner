@@ -1,14 +1,4 @@
 import { Link } from 'react-router-dom';
-import { buttonVariants } from '@/components/ui/button';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
 import { Pagination } from '@/components/ui/pagination';
 import { useViolationGroups } from '@/hooks/useViolationGroups';
 
@@ -16,103 +6,114 @@ interface ViolationsTableProps {
   reportId: string;
 }
 
-const impactColors = {
-  critical: 'destructive',
-  serious: 'destructive',
-  moderate: 'secondary',
-  minor: 'outline',
-} as const;
+const impactBadgeStyle: Record<string, { bg: string; text: string }> = {
+  critical: { bg: 'bg-error-container', text: 'text-on-error-container' },
+  serious:  { bg: 'bg-error-container/60', text: 'text-on-error-container' },
+  moderate: { bg: 'bg-amber-100', text: 'text-amber-800' },
+  minor:    { bg: 'bg-surface-container-high', text: 'text-on-surface-variant' },
+};
+
+function ImpactBadge({ impact }: { impact: string }) {
+  const style = impactBadgeStyle[impact] ?? impactBadgeStyle.minor;
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${style.bg} ${style.text}`}>
+      {impact}
+    </span>
+  );
+}
+
+function TypeBadge({ kind }: { kind: 'automated' | 'manual' }) {
+  return kind === 'automated' ? (
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-surface-container-high text-on-surface-variant">
+      Automated
+    </span>
+  ) : (
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-primary-fixed text-primary">
+      Manual
+    </span>
+  );
+}
 
 export function ViolationsTable({ reportId }: ViolationsTableProps) {
   const { items, total, loading, error, page, setPage, totalPages } = useViolationGroups(reportId);
 
-  if (loading) return <div className="text-base text-muted-foreground">Loading violations…</div>;
-  if (error) return <div className="text-base text-destructive">{error}</div>;
+  if (loading) return <div className="text-sm text-on-surface-variant py-4">Loading violations…</div>;
+  if (error) return <div className="text-sm text-error py-4">{error}</div>;
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-base text-muted-foreground">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-xs text-on-surface-variant">
         <span>Page {page} of {totalPages} — {total} violation groups</span>
         <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
       </div>
 
-      <Table aria-label="Accessibility violations grouped by type">
-        <TableHeader>
-          <TableRow>
-            <TableHead>Violation</TableHead>
-            <TableHead>Type</TableHead>
-            <TableHead>Impact</TableHead>
-            <TableHead>Level</TableHead>
-            <TableHead>Occurrences</TableHead>
-            <TableHead>Pages Affected</TableHead>
-            <TableHead></TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map(item => {
-            if (item.kind === 'automated') {
+      <div className="overflow-hidden rounded-xl border border-outline-variant/10">
+        <table className="w-full text-left" aria-label="Accessibility violations grouped by type">
+          <thead>
+            <tr className="bg-surface-container-low">
+              <th className="px-6 py-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Violation</th>
+              <th className="px-6 py-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Type</th>
+              <th className="px-6 py-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Impact</th>
+              <th className="px-6 py-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Level</th>
+              <th className="px-6 py-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Occurrences</th>
+              <th className="px-6 py-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Pages</th>
+              <th className="px-6 py-3 text-[10px] font-bold text-on-surface-variant uppercase tracking-widest text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-surface-container">
+            {items.map(item => {
+              if (item.kind === 'automated') {
+                return (
+                  <tr key={`auto-${item.violation.id}`} className="hover:bg-surface/50 transition-colors">
+                    <td className="px-6 py-4">
+                      <p className="font-semibold text-sm text-on-surface">{item.violation.help}</p>
+                      <p className="text-xs text-on-surface-variant font-mono mt-0.5">{item.violation.id}</p>
+                    </td>
+                    <td className="px-6 py-4"><TypeBadge kind="automated" /></td>
+                    <td className="px-6 py-4"><ImpactBadge impact={item.impact} /></td>
+                    <td className="px-6 py-4 text-sm text-on-surface-variant">{item.violation.level || '—'}</td>
+                    <td className="px-6 py-4 text-sm font-semibold text-on-surface">{item.count}</td>
+                    <td className="px-6 py-4 text-sm text-on-surface-variant">{item.pageCount}</td>
+                    <td className="px-6 py-4 text-right">
+                      <Link
+                        to={`/reports/${reportId}/violation/${item.violation.id}`}
+                        className="text-sm font-bold text-primary hover:underline underline-offset-4"
+                      >
+                        Details
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              }
+
               return (
-                <TableRow key={`auto-${item.violation.id}`}>
-                  <TableCell>
-                    <div>
-                      <p className="font-medium">{item.violation.help}</p>
-                      <p className="text-xs text-muted-foreground">{item.violation.id}</p>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="text-xs">Automated</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={impactColors[item.impact]}>{item.impact}</Badge>
-                  </TableCell>
-                  <TableCell>{item.violation.level || '—'}</TableCell>
-                  <TableCell>{item.count}</TableCell>
-                  <TableCell>{item.pageCount}</TableCell>
-                  <TableCell>
+                <tr key={`manual-${item.checkId}`} className="hover:bg-surface/50 transition-colors">
+                  <td className="px-6 py-4">
+                    <p className="font-semibold text-sm text-on-surface">{item.title}</p>
+                    {item.wcagCriterion && (
+                      <p className="text-xs text-on-surface-variant font-mono mt-0.5">{item.wcagCriterion}</p>
+                    )}
+                  </td>
+                  <td className="px-6 py-4"><TypeBadge kind="manual" /></td>
+                  <td className="px-6 py-4"><ImpactBadge impact={item.impact} /></td>
+                  <td className="px-6 py-4 text-sm text-on-surface-variant">{item.level ?? '—'}</td>
+                  <td className="px-6 py-4 text-sm font-semibold text-on-surface">{item.count}</td>
+                  <td className="px-6 py-4 text-sm text-on-surface-variant">{item.pageCount}</td>
+                  <td className="px-6 py-4 text-right">
                     <Link
-                      to={`/reports/${reportId}/violation/${item.violation.id}`}
-                      className={buttonVariants({ variant: 'default', size: 'sm' })}
+                      to={`/reports/${reportId}/page/${item.firstPageId}`}
+                      state={{ tab: 'manual' }}
+                      className="text-sm font-bold text-primary hover:underline underline-offset-4"
                     >
                       Details
                     </Link>
-                  </TableCell>
-                </TableRow>
+                  </td>
+                </tr>
               );
-            }
-
-            return (
-              <TableRow key={`manual-${item.checkId}`}>
-                <TableCell>
-                  <div>
-                    <p className="font-medium">{item.title}</p>
-                    {item.wcagCriterion && (
-                      <p className="text-xs text-muted-foreground font-mono">{item.wcagCriterion}</p>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Badge variant="secondary" className="text-xs bg-primary/15 text-primary border-primary/20">Manual</Badge>
-                </TableCell>
-                <TableCell>
-                  <Badge variant={impactColors[item.impact]}>{item.impact}</Badge>
-                </TableCell>
-                <TableCell>{item.level ?? '—'}</TableCell>
-                <TableCell>{item.count}</TableCell>
-                <TableCell>{item.pageCount}</TableCell>
-                <TableCell>
-                  <Link
-                    to={`/reports/${reportId}/page/${item.firstPageId}`}
-                    state={{ tab: 'manual' }}
-                    className={buttonVariants({ variant: 'default', size: 'sm' })}
-                  >
-                    Details
-                  </Link>
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

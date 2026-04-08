@@ -6,18 +6,11 @@ import { useScanContext, formatElapsed } from '@/context/ScanContext';
 import { apiFetch } from '@/lib/api';
 import { downloadReportJson, importReportJsonPayload } from '@/lib/reportTransfer';
 import { AuditType } from '@accessibility-scanner/shared';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  Button,
-  Input,
-  Label,
-  Progress,
-} from '@/components/ui';
+import { Progress } from '@/components/ui';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
 import { ExternalLink } from '@/components/ExternalLink';
-import { TriangleAlert, Trash2, Download, FolderOpen, Pencil, Check, X, Upload } from 'lucide-react';
 import {
   Dialog,
   DialogClose,
@@ -29,28 +22,46 @@ import {
 } from '@/components/ui/dialog';
 import { ExportModal } from '@/components/ExportModal';
 import { EditProjectDialog } from '@/components/EditProjectDialog';
+import { useRestoreFocus } from '@/hooks/useRestoreFocus';
 import type { ProjectWithCount } from '@/hooks/useProjects';
 
 type InputMode = 'url' | 'file' | 'crawl' | 'urllist';
 
 const AUDIT_TYPE_LABELS: Record<AuditType, string> = {
-  'rapid':         'Rapid Audit',
+  'rapid':         'Rapid',
   'mid-level':     'Mid-Level',
-  'all-inclusive': 'Full Site',
+  'all-inclusive': 'All-Inclusive',
 };
 
 const AUDIT_TYPE_DESCRIPTIONS: Record<AuditType, string> = {
-  'rapid':         'A focused evaluation of up to 5 pages targeting critical issues — color contrast, heading structure, alt text, and keyboard accessibility.',
-  'mid-level':     'A thorough assessment across a representative set of pages covering both major and minor issues using automated, manual, and screen reader testing.',
-  'all-inclusive': 'A comprehensive evaluation of every page on your site against the highest accessibility standards using automated scanning.',
+  'rapid':         'Quick review of core pages and the most urgent issues.',
+  'mid-level':     'Representative audit across key templates and flows.',
+  'all-inclusive': 'Comprehensive review across design, code, and content.',
 };
+
+const AUDIT_TYPE_ICONS: Record<AuditType, string> = {
+  'rapid':         'bolt',
+  'mid-level':     'layers',
+  'all-inclusive': 'all_inclusive',
+};
+
+function Icon({ name, className, filled }: { name: string; className?: string; filled?: boolean }) {
+  return (
+    <span
+      className={['material-symbols-outlined', className].filter(Boolean).join(' ')}
+      style={filled ? { fontVariationSettings: "'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24" } : undefined}
+      aria-hidden="true"
+    >
+      {name}
+    </span>
+  );
+}
 
 export function Dashboard() {
   const { reports, loading, error, refresh, renameReport } = useReports();
   const { projects, createProject, deleteProject, updateProject, refresh: refreshProjects } = useProjects();
   const location = useLocation();
   const navigate = useNavigate();
-
 
   const [showScanForm, setShowScanForm] = useState(false);
 
@@ -69,7 +80,6 @@ export function Dashboard() {
 
   const { scanning, scanState, elapsed, crawlingUrl, scanningUrl, scanError, startScan, abortScan, setScanError } = useScanContext();
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
-  const removeButtonRef = useRef<HTMLButtonElement | null>(null);
   const [exportReport, setExportReport] = useState<ReportListItem | null>(null);
   const [scanProjectId, setScanProjectId] = useState<string>('');
   const [newProjectName, setNewProjectName] = useState('');
@@ -89,12 +99,14 @@ export function Dashboard() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importFileInputRef = useRef<HTMLInputElement>(null);
+  const { handleCloseAutoFocus: handleRemoveCloseAutoFocus } = useRestoreFocus(!!pendingRemoveId);
+  const { handleCloseAutoFocus: handleDeleteProjectCloseAutoFocus } = useRestoreFocus(!!pendingDeleteProjectId);
+  const { handleCloseAutoFocus: handleAssignCloseAutoFocus } = useRestoreFocus(!!assignReport);
 
   useEffect(() => {
-    document.title = 'Seymour — Reports';
+    document.title = 'Seymour — Dashboard';
   }, []);
 
-  // Show form when "New Scan" is triggered from another page
   useEffect(() => {
     const state = location.state as { newScan?: boolean; projectId?: string } | null;
     if (state?.newScan) {
@@ -178,7 +190,6 @@ export function Dashboard() {
     setScanError(null);
 
     try {
-      // Handle "new project" inline creation
       let resolvedProjectId = scanProjectId;
       if (showNewProjectInput && newProjectName.trim()) {
         const created = await createProject(newProjectName.trim());
@@ -241,14 +252,14 @@ export function Dashboard() {
     let totalSkipped = 0;
     const failures: string[] = [];
 
-    for (const file of selectedFiles) {
+    for (const f of selectedFiles) {
       try {
-        const parsed = JSON.parse(await file.text()) as unknown;
+        const parsed = JSON.parse(await f.text()) as unknown;
         const result = await importReportJsonPayload(parsed);
         totalImported += result.importedCount;
         totalSkipped += result.skippedCount;
       } catch (err) {
-        failures.push(`${file.name}: ${err instanceof Error ? err.message : 'invalid JSON file'}`);
+        failures.push(`${f.name}: ${err instanceof Error ? err.message : 'invalid JSON file'}`);
       }
     }
 
@@ -272,672 +283,795 @@ export function Dashboard() {
     setScanError(null);
   }
 
+  async function handleRemove(id: string) {
+    await apiFetch(`/api/reports/${id}`, { method: 'DELETE' });
+    setPendingRemoveId(null);
+    refresh({ background: true });
+  }
+
   const progressPercent = scanState.total > 0
     ? Math.round((scanState.scanned / scanState.total) * 100)
     : 0;
 
+  const totalCritical = reports.reduce((sum, r) => sum + (r.summary.violationsByImpact?.critical ?? 0), 0);
+
+  // ── Scan form ──────────────────────────────────────────────────────────────
+
   const scanForm = (
-    <form onSubmit={handleScan} className="flex flex-col gap-4">
-      {/* Audit type selector */}
-      <div>
-        <Label className="text-base font-medium mb-2 block">Audit Type</Label>
-        <div className="grid grid-cols-3 gap-3">
-          {(['rapid', 'mid-level', 'all-inclusive'] as AuditType[]).map(type => (
-            <button
-              key={type}
-              type="button"
-              disabled={scanning}
-              onClick={() => handleAuditTypeChange(type)}
-              className={[
-                'flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors',
-                auditType === type
-                  ? 'border-primary bg-primary/5 ring-1 ring-primary'
-                  : 'border-border hover:border-primary/50 hover:bg-muted/50',
-                scanning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
-              ].join(' ')}
-            >
-              <span className="text-base font-semibold">{AUDIT_TYPE_LABELS[type]}</span>
-              <span className="text-xs text-muted-foreground">{AUDIT_TYPE_DESCRIPTIONS[type]}</span>
-            </button>
-          ))}
+    <div className="grid grid-cols-12 gap-8">
+      {/* Left: form */}
+      <div className="col-span-12 lg:col-span-8 flex flex-col gap-8">
+        <div>
+          <h1 className="text-2xl font-extrabold text-on-surface tracking-tight mb-1">Setup Your Next Audit</h1>
+          <p className="text-on-surface-variant text-sm leading-relaxed">
+            Initialize an automated scan to identify accessibility barriers. Choose a tier that matches your current development phase.
+          </p>
         </div>
-      </div>
 
-      {/* WCAG level + best practices */}
-      <div className="flex flex-wrap gap-4 items-end">
-        <div className="flex flex-col gap-1.5">
-          <Label className="text-base font-medium">WCAG Level</Label>
-          <div className="flex gap-1">
-            {(['A', 'AA', 'AAA'] as const).map(level => (
-              <button
-                key={level}
-                type="button"
-                disabled={scanning}
-                onClick={() => setWcagLevel(level)}
-                aria-pressed={wcagLevel === level}
-                className={[
-                  'rounded border px-3 py-1 text-base font-medium transition-colors',
-                  wcagLevel === level
-                    ? 'border-primary bg-primary text-primary-foreground'
-                    : 'border-border hover:border-primary/50 hover:bg-muted/50',
-                  scanning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
-                ].join(' ')}
-              >
-                {`WCAG ${level}`}
-              </button>
-            ))}
-          </div>
-        </div>
-        <label className="flex items-center gap-2 cursor-pointer select-none pb-0.5">
-          <input
-            type="checkbox"
-            checked={includeBestPractices}
-            onChange={e => setIncludeBestPractices(e.target.checked)}
-            disabled={scanning}
-            className="h-4 w-4 rounded border-input accent-primary"
-          />
-          <span className="text-base font-medium">Include best practices</span>
-        </label>
-      </div>
-
-      <div className="flex flex-col gap-1.5 max-w-xs">
-        <Label htmlFor="scan-parallel">Parallel browser tabs</Label>
-        <select
-          id="scan-parallel"
-          value={parallelTabs}
-          onChange={e => setParallelTabs(e.target.value as '1' | '3' | '5' | '8')}
-          disabled={scanning}
-          aria-describedby="scan-parallel-hint"
-          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <option value="1">1</option>
-          <option value="3">3</option>
-          <option value="5">5</option>
-          <option value="8">8</option>
-        </select>
-        <p id="scan-parallel-hint" className="text-xs text-muted-foreground">
-          Crawl and audit use this many Chromium tabs at once. Lower numbers use less memory.
-        </p>
-      </div>
-
-      {/* Project assignment */}
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="scan-project">Project <span className="text-muted-foreground font-normal">(optional)</span></Label>
-        {showNewProjectInput ? (
-          <div className="flex gap-2">
-            <Input
-              id="scan-project"
-              value={newProjectName}
-              onChange={e => setNewProjectName(e.target.value)}
-              disabled={scanning}
-            />
-            <Button type="button" variant="outline" size="sm" onClick={() => { setShowNewProjectInput(false); setNewProjectName(''); }} disabled={scanning}>
-              Cancel
-            </Button>
-          </div>
-        ) : (
-          <div className="flex gap-2">
-            <select
-              id="scan-project"
-              value={scanProjectId}
-              onChange={e => setScanProjectId(e.target.value)}
-              disabled={scanning}
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <option value="">No project</option>
-              {projects.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-            <Button type="button" variant="outline" size="sm" onClick={() => setShowNewProjectInput(true)} disabled={scanning}>
-              + New
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {/* Mode toggle — only shown for All-Inclusive */}
-      {mode !== 'urllist' && (
-        <div className="flex gap-2">
-          {(['url', 'file', 'crawl'] as InputMode[]).map(m => (
-            <Button
-              key={m}
-              type="button"
-              variant={mode === m ? 'default' : 'outline'}
-              onClick={() => switchMode(m)}
-              disabled={scanning}
-            >
-              {m === 'url' ? 'Sitemap URL' : m === 'file' ? 'Upload XML' : 'Crawl Site'}
-            </Button>
-          ))}
-        </div>
-      )}
-
-      {/* URL list input — shown for Rapid and Mid-Level */}
-      {mode === 'urllist' && (
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="url-list-input">
-              Add page URLs to audit
-              {auditType === 'rapid' && (
-                <span className={[
-                  'ml-2 text-xs font-normal',
-                  urlList.length >= 5 ? 'text-destructive' : 'text-muted-foreground',
-                ].join(' ')}>
-                  {urlList.length} / 5 URLs
-                </span>
-              )}
-            </Label>
-            <div className="flex gap-2">
-              <Input
-                id="url-list-input"
-                type="url"
-                value={urlInputValue}
-                onChange={e => { setUrlInputValue(e.target.value); setUrlInputError(null); }}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddUrl(); } }}
-                disabled={scanning || (auditType === 'rapid' && urlList.length >= 5)}
-                className="flex-1"
-                aria-describedby={urlInputError ? 'url-input-error' : undefined}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleAddUrl}
-                disabled={scanning || !urlInputValue.trim() || (auditType === 'rapid' && urlList.length >= 5)}
-              >
-                Add URL
-              </Button>
-            </div>
-            {urlInputError && (
-              <p id="url-input-error" role="alert" className="text-base text-destructive">{urlInputError}</p>
-            )}
-          </div>
-
-          {urlList.length > 0 && (
-            <ul className="flex flex-col gap-1" aria-label="URLs to audit">
-              {urlList.map((url, i) => (
-                <li key={url} className="flex items-center justify-between rounded-md border border-border bg-muted/30 px-3 py-2">
-                  <span className="text-base font-mono truncate flex-1 mr-2">{url}</span>
+        <form onSubmit={handleScan} className="flex flex-col gap-8">
+          {/* Audit tier selection */}
+          <div className="space-y-3">
+            <p className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">1. Select Audit Tier</p>
+            <div className="grid grid-cols-3 gap-4">
+              {(['rapid', 'mid-level', 'all-inclusive'] as AuditType[]).map(type => {
+                const isSelected = auditType === type;
+                const isAI = type === 'all-inclusive';
+                return (
                   <button
+                    key={type}
                     type="button"
-                    onClick={() => handleRemoveUrl(i)}
                     disabled={scanning}
-                    aria-label={`Remove ${url}`}
-                    className="text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                    onClick={() => handleAuditTypeChange(type)}
+                    aria-pressed={isSelected}
+                    className={[
+                      'relative group cursor-pointer rounded-xl p-5 text-left transition-all border-2',
+                      isSelected
+                        ? 'bg-surface-container-lowest shadow-xl border-primary-container'
+                        : 'bg-surface-container-lowest border-transparent hover:bg-white hover:shadow-lg hover:border-primary-fixed',
+                      scanning ? 'opacity-50 cursor-not-allowed' : '',
+                    ].join(' ')}
                   >
-                    ×
+                    <div className={[
+                      'w-10 h-10 rounded-lg flex items-center justify-center mb-3 transition-colors',
+                      isSelected
+                        ? (isAI ? 'bg-tertiary-fixed text-tertiary' : 'bg-primary-container text-on-primary')
+                        : (isAI ? 'bg-surface-container-low text-tertiary' : 'bg-surface-container-low text-primary'),
+                    ].join(' ')}>
+                      <Icon name={AUDIT_TYPE_ICONS[type]} className="text-xl" />
+                    </div>
+                    <p className="font-bold text-on-surface text-sm mb-1">{AUDIT_TYPE_LABELS[type]}</p>
+                    <p className="text-xs text-on-surface-variant leading-normal">{AUDIT_TYPE_DESCRIPTIONS[type]}</p>
                   </button>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <Button type="submit" disabled={!canSubmit} className="self-start">
-            {scanning ? 'Scanning…' : `Start ${AUDIT_TYPE_LABELS[auditType]}`}
-          </Button>
-        </div>
-      )}
-
-      {mode === 'url' && (
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="sitemap">Sitemap URL or local file path</Label>
-          <div className="flex gap-2">
-            <Input
-              id="sitemap"
-              type="text"
-              value={sitemap}
-              onChange={e => setSitemap(e.target.value)}
-              disabled={scanning}
-              className="flex-1"
-            />
-            <Button type="submit" disabled={!canSubmit}>
-              {scanning ? 'Scanning…' : 'Scan'}
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {mode === 'file' && (
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="sitemap-file">Sitemap XML file</Label>
-          <div className="flex gap-2">
-            <Input
-              id="sitemap-file"
-              ref={fileInputRef}
-              type="file"
-              accept=".xml,application/xml,text/xml"
-              disabled={scanning}
-              onChange={e => setFile(e.target.files?.[0] ?? null)}
-              className="flex-1"
-            />
-            <Button type="submit" disabled={!canSubmit}>
-              {scanning ? 'Scanning…' : 'Scan'}
-            </Button>
-          </div>
-          {file && <p className="text-base text-muted-foreground">{file.name}</p>}
-        </div>
-      )}
-
-      {mode === 'crawl' && (
-        <div className="flex flex-col gap-3">
-          <div className="rounded-md border border-border bg-muted/40 p-3 text-base space-y-1">
-            <p className="font-medium">⚠ Before you crawl</p>
-            <ul className="list-disc list-inside text-muted-foreground space-y-0.5">
-              <li>Crawling follows internal links from your starting URL downward — keep the path specific to avoid scanning the whole site.</li>
-              <li>Speed depends on the site and parallel tabs; increase parallel tabs for large crawls if your machine has headroom.</li>
-              <li>Heavy sites (many images, long pages) use more memory — lower parallel tabs if the process struggles.</li>
-            </ul>
-          </div>
-          <div className="flex flex-col gap-1.5 w-32">
-            <Label htmlFor="max-pages">Max pages</Label>
-            <Input
-              id="max-pages"
-              type="number"
-              min="1"
-              max="5000"
-              value={maxPages}
-              onChange={e => setMaxPages(e.target.value)}
-              disabled={scanning}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="crawl-url">Site URL to crawl</Label>
-            <div className="flex gap-2">
-              <Input
-                id="crawl-url"
-                type="url"
-                value={crawlUrl}
-                onChange={e => setCrawlUrl(e.target.value)}
-                disabled={scanning}
-                className="flex-1"
-              />
-              <Button type="submit" disabled={!canSubmit}>
-                {scanning ? 'Running…' : 'Crawl & Scan'}
-              </Button>
+                );
+              })}
             </div>
           </div>
-        </div>
-      )}
 
-      {/* Progress UI */}
-      <div
-        id="scan-progress"
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-        className={scanning ? 'flex flex-col gap-2 pt-1' : 'sr-only'}
-      >
-        {scanning && (
-          <>
-            <div className="flex items-center justify-between text-base text-muted-foreground">
-              <span className="truncate max-w-[70%]">
-                {scanState.phase === 'crawling' && (
-                  crawlingUrl
-                    ? <>Crawling: <span className="font-mono text-xs">{crawlingUrl}</span></>
-                    : 'Discovering pages…'
-                )}
-                {scanState.phase === 'scanning' && scanState.total > 0 && (
-                  `Scanning page ${scanState.scanned} of ${scanState.total}`
-                )}
-                {scanState.phase === 'scanning' && scanState.total === 0 && 'Scanning…'}
-                {!scanState.phase && 'Starting…'}
-              </span>
-              <span className="font-mono" aria-label={`Elapsed time: ${formatElapsed(elapsed)}`}>
-                {formatElapsed(elapsed)}
-              </span>
+          {/* Form fields */}
+          <div className="bg-surface-container-low rounded-xl p-6 space-y-6">
+            {/* WCAG level + best practices */}
+            <div className="flex flex-wrap gap-6 items-end">
+              <div className="space-y-2">
+                <Label className="text-sm font-bold text-on-surface">WCAG Level</Label>
+                <div className="flex gap-2">
+                  {(['A', 'AA', 'AAA'] as const).map(level => (
+                    <button
+                      key={level}
+                      type="button"
+                      disabled={scanning}
+                      onClick={() => setWcagLevel(level)}
+                      aria-pressed={wcagLevel === level}
+                      className={[
+                        'rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors',
+                        wcagLevel === level
+                          ? 'bg-primary text-white shadow-sm'
+                          : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high',
+                        scanning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
+                      ].join(' ')}
+                    >
+                      {`WCAG ${level}`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={includeBestPractices}
+                  onChange={e => setIncludeBestPractices(e.target.checked)}
+                  disabled={scanning}
+                  className="h-4 w-4 rounded border-outline accent-primary"
+                />
+                <span className="text-sm font-medium text-on-surface">Include best practices</span>
+              </label>
             </div>
 
-            {scanState.phase === 'scanning' && scanState.total > 0 ? (
-              <Progress
-                value={progressPercent}
-                className="h-2"
-                aria-label={`Scan progress: ${progressPercent}%`}
-              />
-            ) : (
-              <div
-                className="h-2 rounded-full bg-secondary overflow-hidden"
-                role="progressbar"
-                aria-label="Scan in progress"
-                aria-valuetext="Indeterminate"
-              >
-                <div className="h-full w-1/3 rounded-full bg-primary animate-[progress-indeterminate_1.5s_ease-in-out_infinite]" />
+            {/* Project + name */}
+            <div className="grid grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="scan-project" className="text-sm font-bold text-on-surface">
+                  Project <span className="font-normal text-on-surface-variant">(optional)</span>
+                </Label>
+                {showNewProjectInput ? (
+                  <div className="flex gap-2">
+                    <Input
+                      id="scan-project"
+                      value={newProjectName}
+                      onChange={e => setNewProjectName(e.target.value)}
+                      disabled={scanning}
+                      className="bg-surface-container-lowest"
+                    />
+                    <Button type="button" variant="outline" size="sm" onClick={() => { setShowNewProjectInput(false); setNewProjectName(''); }} disabled={scanning}>
+                      Cancel
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <select
+                      id="scan-project"
+                      value={scanProjectId}
+                      onChange={e => setScanProjectId(e.target.value)}
+                      disabled={scanning}
+                      className="flex h-9 w-full rounded-lg border border-outline/30 bg-surface-container-lowest px-3 py-1 text-sm text-on-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="">No project</option>
+                      {projects.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                    <Button type="button" variant="outline" size="sm" onClick={() => setShowNewProjectInput(true)} disabled={scanning}>
+                      + New
+                    </Button>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="scan-parallel" className="text-sm font-bold text-on-surface">Parallel browser tabs</Label>
+                <select
+                  id="scan-parallel"
+                  value={parallelTabs}
+                  onChange={e => setParallelTabs(e.target.value as '1' | '3' | '5' | '8')}
+                  disabled={scanning}
+                  aria-describedby="scan-parallel-hint"
+                  className="flex h-9 w-full rounded-lg border border-outline/30 bg-surface-container-lowest px-3 py-1 text-sm text-on-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="1">1</option>
+                  <option value="3">3</option>
+                  <option value="5">5</option>
+                  <option value="8">8</option>
+                </select>
+                <p id="scan-parallel-hint" className="text-xs text-on-surface-variant">
+                  Lower = less memory. Higher = faster scans.
+                </p>
+              </div>
+            </div>
+
+            {/* Input mode toggle (All-Inclusive only) */}
+            {mode !== 'urllist' && (
+              <div className="space-y-2">
+                <Label className="text-sm font-bold text-on-surface">Input method</Label>
+                <div className="flex gap-2">
+                  {(['url', 'file', 'crawl'] as InputMode[]).map(m => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => switchMode(m)}
+                      disabled={scanning}
+                      aria-pressed={mode === m}
+                      className={[
+                        'px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors',
+                        mode === m
+                          ? 'bg-primary text-white'
+                          : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high',
+                        scanning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
+                      ].join(' ')}
+                    >
+                      {m === 'url' ? 'Sitemap URL' : m === 'file' ? 'Upload XML' : 'Crawl Site'}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
-            {scanState.phase === 'scanning' && scanningUrl && (
-              <p className="text-xs text-muted-foreground font-mono truncate" title={scanningUrl}>
-                {scanningUrl}
-              </p>
+            {/* URL list (Rapid/Mid-Level) */}
+            {mode === 'urllist' && (
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="url-list-input" className="text-sm font-bold text-on-surface">
+                    Page URLs to audit
+                    {auditType === 'rapid' && (
+                      <span className={['ml-2 text-xs font-normal', urlList.length >= 5 ? 'text-destructive' : 'text-on-surface-variant'].join(' ')}>
+                        {urlList.length} / 5
+                      </span>
+                    )}
+                  </Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="url-list-input"
+                      type="url"
+                      value={urlInputValue}
+                      onChange={e => { setUrlInputValue(e.target.value); setUrlInputError(null); }}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddUrl(); } }}
+                      disabled={scanning || (auditType === 'rapid' && urlList.length >= 5)}
+                      className="flex-1 bg-surface-container-lowest"
+                      aria-describedby={urlInputError ? 'url-input-error' : undefined}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleAddUrl}
+                      disabled={scanning || !urlInputValue.trim() || (auditType === 'rapid' && urlList.length >= 5)}
+                    >
+                      Add URL
+                    </Button>
+                  </div>
+                  {urlInputError && (
+                    <p id="url-input-error" role="alert" className="text-sm text-destructive">{urlInputError}</p>
+                  )}
+                </div>
+
+                {urlList.length > 0 && (
+                  <ul className="flex flex-col gap-1.5" aria-label="URLs to audit">
+                    {urlList.map((url, i) => (
+                      <li key={url} className="flex items-center justify-between rounded-lg bg-surface-container px-3 py-2">
+                        <span className="text-xs font-mono truncate flex-1 mr-2 text-on-surface">{url}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveUrl(i)}
+                          disabled={scanning}
+                          aria-label={`Remove ${url}`}
+                          className="text-on-surface-variant hover:text-destructive transition-colors shrink-0 p-1"
+                        >
+                          <Icon name="close" className="text-sm" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             )}
 
-            <Button
+            {/* Sitemap URL input */}
+            {mode === 'url' && (
+              <div className="space-y-2">
+                <Label htmlFor="sitemap" className="text-sm font-bold text-on-surface">Sitemap URL or crawl starting point</Label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Icon name="language" className="text-primary text-base" />
+                  </div>
+                  <Input
+                    id="sitemap"
+                    type="text"
+                    value={sitemap}
+                    onChange={e => setSitemap(e.target.value)}
+                    disabled={scanning}
+                    className="pl-9 bg-surface-container-lowest"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* File upload */}
+            {mode === 'file' && (
+              <div className="space-y-2">
+                <Label htmlFor="sitemap-file" className="text-sm font-bold text-on-surface">Sitemap XML file</Label>
+                <Input
+                  id="sitemap-file"
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xml,application/xml,text/xml"
+                  disabled={scanning}
+                  onChange={e => setFile(e.target.files?.[0] ?? null)}
+                  className="bg-surface-container-lowest"
+                />
+                {file && <p className="text-xs text-on-surface-variant">{file.name}</p>}
+              </div>
+            )}
+
+            {/* Crawl */}
+            {mode === 'crawl' && (
+              <div className="space-y-4">
+                <div className="rounded-xl bg-surface-container-high p-4 text-sm space-y-1">
+                  <p className="font-semibold text-on-surface">Before you crawl</p>
+                  <ul className="list-disc list-inside text-on-surface-variant text-xs space-y-0.5">
+                    <li>Keep the path specific to avoid scanning the whole site.</li>
+                    <li>Lower parallel tabs if the process struggles with memory.</li>
+                  </ul>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="crawl-url" className="text-sm font-bold text-on-surface">Site URL to crawl</Label>
+                    <Input
+                      id="crawl-url"
+                      type="url"
+                      value={crawlUrl}
+                      onChange={e => setCrawlUrl(e.target.value)}
+                      disabled={scanning}
+                      className="bg-surface-container-lowest"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="max-pages" className="text-sm font-bold text-on-surface">Max pages</Label>
+                    <Input
+                      id="max-pages"
+                      type="number"
+                      min="1"
+                      max="5000"
+                      value={maxPages}
+                      onChange={e => setMaxPages(e.target.value)}
+                      disabled={scanning}
+                      className="bg-surface-container-lowest"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Scan progress */}
+          <div
+            id="scan-progress"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            className={scanning ? 'flex flex-col gap-2' : 'sr-only'}
+          >
+            {scanning && (
+              <>
+                <div className="flex items-center justify-between text-sm text-on-surface-variant">
+                  <span className="truncate max-w-[70%]">
+                    {scanState.phase === 'crawling' && (crawlingUrl ? <>Crawling: <span className="font-mono text-xs">{crawlingUrl}</span></> : 'Discovering pages…')}
+                    {scanState.phase === 'scanning' && scanState.total > 0 && `Scanning page ${scanState.scanned} of ${scanState.total}`}
+                    {scanState.phase === 'scanning' && scanState.total === 0 && 'Scanning…'}
+                    {!scanState.phase && 'Starting…'}
+                  </span>
+                  <span className="font-mono text-xs" aria-label={`Elapsed time: ${formatElapsed(elapsed)}`}>{formatElapsed(elapsed)}</span>
+                </div>
+
+                {scanState.phase === 'scanning' && scanState.total > 0 ? (
+                  <Progress value={progressPercent} className="h-2" aria-label={`Scan progress: ${progressPercent}%`} />
+                ) : (
+                  <div className="h-2 rounded-full bg-surface-container-high overflow-hidden" role="progressbar" aria-label="Scan in progress" aria-valuetext="Indeterminate">
+                    <div className="h-full w-1/3 rounded-full bg-primary animate-[progress-indeterminate_1.5s_ease-in-out_infinite]" />
+                  </div>
+                )}
+
+                {scanState.phase === 'scanning' && scanningUrl && (
+                  <p className="text-xs text-on-surface-variant font-mono truncate" title={scanningUrl}>{scanningUrl}</p>
+                )}
+
+                <Button type="button" variant="outline" size="sm" className="self-start" onClick={handleAbort}>
+                  Abort
+                </Button>
+              </>
+            )}
+          </div>
+
+          {scanError && (
+            <p id="scan-error" role="alert" className="text-sm text-destructive">{scanError}</p>
+          )}
+
+          {/* Action bar */}
+          <div className="flex items-center justify-between pt-2">
+            <button
               type="button"
-              variant="outline"
-              size="sm"
-              className="self-start"
-              onClick={handleAbort}
+              onClick={() => { resetForm(); setShowScanForm(false); }}
+              className="px-6 py-3 text-on-surface-variant font-semibold hover:text-on-surface transition-colors text-sm"
             >
-              Abort
-            </Button>
-          </>
-        )}
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!canSubmit || scanning}
+              className="flex items-center gap-2 px-8 py-3.5 bg-gradient-to-r from-primary to-primary-container text-white rounded-full font-bold text-sm shadow-xl shadow-primary/25 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              {scanning ? 'Scanning…' : `Start ${AUDIT_TYPE_LABELS[auditType]} Scan`}
+              <Icon name="rocket_launch" className="text-base" />
+            </button>
+          </div>
+        </form>
       </div>
 
-      {scanError && (
-        <p id="scan-error" role="alert" className="text-base text-destructive">
-          {scanError}
-        </p>
-      )}
-    </form>
+      {/* Right: Auditor's Tips */}
+      <aside className="col-span-12 lg:col-span-4">
+        <div className="sticky top-24 glass-panel rounded-2xl p-6 border border-white/40 shadow-2xl shadow-slate-200/40">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-8 h-8 rounded-full bg-tertiary flex items-center justify-center">
+              <Icon name="lightbulb" className="text-white text-base" filled />
+            </div>
+            <h2 className="text-base font-bold text-on-surface">Choosing The Right Audit</h2>
+          </div>
+          <div className="space-y-6">
+            <div className="space-y-1.5">
+              <h3 className="text-sm font-bold text-primary flex items-center gap-2">
+                <Icon name="bolt" className="text-sm" />
+                Rapid Accessibility Audit
+              </h3>
+              <p className="text-xs text-on-surface-variant leading-relaxed">
+                Best for a fast assessment of high-impact pages and core journeys when you need to surface the most critical accessibility barriers first. It is a focused audit that highlights the issues most likely to affect end users without aiming to document every WCAG issue on the site.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-sm font-bold text-secondary-md flex items-center gap-2">
+                <Icon name="layers" className="text-sm" />
+                Mid-Level Accessibility Audit
+              </h3>
+              <p className="text-xs text-on-surface-variant leading-relaxed">
+                Best when you want stronger coverage across a wider range of pages, templates, and components without moving into a fully bespoke program. It balances depth and efficiency, helping teams uncover both major and moderate issues across a representative sample of the experience.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-sm font-bold text-tertiary flex items-center gap-2">
+                <Icon name="verified_user" className="text-sm" />
+                All-Inclusive Accessibility Audit
+              </h3>
+              <p className="text-xs text-on-surface-variant leading-relaxed">
+                Best for clients who need the deepest view of accessibility risk across design, code, content, navigation, forms, multimedia, and interactive behavior. It is the most comprehensive option for teams planning broad remediation work or preparing for stronger compliance and governance expectations.
+              </p>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
   );
 
-  const unassignedReports = reports?.filter(r => !r.projectId) ?? [];
-  const hasUnassigned = unassignedReports.length > 0;
-  const hasAnything =
-    (!loading || reports.length > 0 || projects.length > 0) &&
-    ((reports?.length ?? 0) > 0 || projects.length > 0);
+  // ── Overview (main dashboard) ──────────────────────────────────────────────
 
-  return (
-    <div className="container mx-auto p-6">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <h1 className="text-3xl font-bold">Accessibility Reports</h1>
-        <div className="flex items-center gap-2">
+  const overview = (
+    <div>
+      {/* Page header */}
+      <div className="mb-10 flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-1">Operational Intelligence</p>
+          <h1 className="text-3xl font-extrabold text-on-surface tracking-tight">Audit Dashboard</h1>
+          <p className="text-on-surface-variant text-sm mt-1">System health and compliance monitoring for enterprise accessibility.</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
           <input
             ref={importFileInputRef}
             type="file"
             accept="application/json,.json"
             multiple
             className="sr-only"
+            aria-label="Import JSON reports"
             onChange={handleImportChange}
           />
-          <Button
+          <button
             type="button"
-            variant="outline"
             disabled={isImporting}
             onClick={() => importFileInputRef.current?.click()}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium text-on-surface-variant bg-surface-container-lowest border border-outline-variant hover:border-primary hover:text-primary transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
           >
-            <Upload className="h-4 w-4 mr-1.5" aria-hidden="true" />
+            <Icon name="upload" className="text-base" />
             {isImporting ? 'Importing…' : 'Import JSON'}
-          </Button>
+          </button>
+          <button
+            type="button"
+            onClick={() => { resetForm(); setShowScanForm(true); }}
+            className="flex items-center gap-1.5 px-5 py-2 rounded-full text-sm font-semibold bg-gradient-to-r from-primary to-primary-container text-white shadow-lg shadow-primary/20 hover:opacity-90 transition-opacity focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+          >
+            <Icon name="add" className="text-base" />
+            New Scan
+          </button>
         </div>
       </div>
-      <div className="mb-6 min-h-6">
-        {importStatus && <p className="text-sm text-emerald-600 dark:text-emerald-400">{importStatus}</p>}
-        {importError && <p className="text-sm text-destructive">{importError}</p>}
-      </div>
 
-      {(!hasAnything || showScanForm || scanning) && !(loading && reports.length === 0) && (
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle>New Scan</CardTitle>
-          </CardHeader>
-          <CardContent>{scanForm}</CardContent>
-        </Card>
+      {(importStatus || importError) && (
+        <div className="mb-6">
+          {importStatus && <p role="status" className="text-sm text-secondary-md">{importStatus}</p>}
+          {importError && <p role="alert" className="text-sm text-destructive">{importError}</p>}
+        </div>
       )}
 
-      {loading && reports.length === 0 && <div>Loading…</div>}
-      {error && <div>Error: {error}</div>}
-
-      {/* Projects section */}
-      {projects.length > 0 && (
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold">Projects</h2>
-            <Link to="/projects" className="text-base text-link hover:underline">View all</Link>
+      {/* Stats row */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+        <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-[0px_12px_32px_rgba(24,28,32,0.04)] flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-1">Total Reports</p>
+            <p className="text-4xl font-extrabold text-on-surface">{reports.length}</p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {projects.map(project => (
-              <div
-                key={project.id}
-                className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm transition-colors hover:border-primary hover:bg-primary/5"
-              >
-                <FolderOpen className="h-5 w-5 text-muted-foreground shrink-0" aria-hidden="true" />
-                <Link to={`/projects/${project.id}`} className="min-w-0 flex-1">
-                  <p className="text-base font-medium truncate">{project.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {project.reportCount} {project.reportCount === 1 ? 'report' : 'reports'}
-                  </p>
-                </Link>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setEditingProject(project)}
-                    aria-label={`Edit project ${project.name}`}
-                    className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                  >
-                    <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPendingDeleteProjectId(project.id)}
-                    aria-label={`Delete project ${project.name}`}
-                    className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                  </button>
+          <div className="w-12 h-12 bg-primary-fixed rounded-full flex items-center justify-center text-primary shrink-0">
+            <Icon name="history" className="text-2xl" />
+          </div>
+        </div>
+        <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-[0px_12px_32px_rgba(24,28,32,0.04)] flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-1">Active Projects</p>
+            <p className="text-4xl font-extrabold text-on-surface">{projects.length}</p>
+          </div>
+          <div className="w-12 h-12 bg-secondary-container rounded-full flex items-center justify-center text-on-secondary-container shrink-0">
+            <Icon name="assignment_turned_in" className="text-2xl" />
+          </div>
+        </div>
+        <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-[0px_12px_32px_rgba(24,28,32,0.04)] flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-1">Critical Issues</p>
+            <p className={['text-4xl font-extrabold', totalCritical > 0 ? 'text-destructive' : 'text-on-surface'].join(' ')}>
+              {totalCritical}
+            </p>
+          </div>
+          <div className="w-12 h-12 bg-error-container rounded-full flex items-center justify-center text-on-error-container shrink-0">
+            <Icon name="warning" className="text-2xl" />
+          </div>
+        </div>
+      </div>
+
+      {/* Active Projects */}
+      {projects.length > 0 && (
+        <section className="mb-10">
+          <div className="flex items-end justify-between mb-5">
+            <h2 className="text-lg font-bold text-on-surface">Active Projects</h2>
+            <Link to="/projects" className="text-sm font-semibold text-primary hover:underline">
+              View All Projects
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            {projects.slice(0, 4).map(project => (
+              <div key={project.id} className="bg-surface-container-lowest rounded-2xl p-6 shadow-[0px_12px_32px_rgba(24,28,32,0.04)] group hover:shadow-lg transition-shadow">
+                <div className="flex items-start justify-between mb-5">
+                  <div>
+                    <Link
+                      to={`/projects/${project.id}`}
+                      className="text-base font-bold text-on-surface hover:text-primary transition-colors"
+                    >
+                      {project.name}
+                    </Link>
+                    {project.description && (
+                      <p className="text-xs text-on-surface-variant mt-0.5 line-clamp-1">{project.description}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                    <button
+                      type="button"
+                      onClick={() => setEditingProject(project)}
+                      aria-label={`Edit project ${project.name}`}
+                      className="p-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    >
+                      <Icon name="edit" className="text-sm" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingDeleteProjectId(project.id)}
+                      aria-label={`Delete project ${project.name}`}
+                      className="p-1.5 rounded-lg text-on-surface-variant hover:text-destructive hover:bg-error-container transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    >
+                      <Icon name="delete" className="text-sm" />
+                    </button>
+                  </div>
+                </div>
+                <div className="flex gap-6">
+                  <div>
+                    <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Reports</p>
+                    <p className="text-lg font-bold text-on-surface">{project.reportCount}</p>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
+        </section>
+      )}
+
+      {/* Recent Scans / Reports */}
+      {loading && reports.length === 0 && (
+        <div role="status" aria-live="polite" className="flex items-center gap-2 text-on-surface-variant py-8">
+          <Icon name="sync" className="animate-spin" />
+          <span>Loading reports…</span>
         </div>
       )}
+      {error && <p role="alert" className="text-destructive mb-6">{error}</p>}
 
-      {/* Unassigned reports */}
-      {hasUnassigned && (
-        <h2 className="text-lg font-semibold mb-3">Reports</h2>
+      {reports.length > 0 && (
+        <section>
+          <h2 className="text-lg font-bold text-on-surface mb-5">Recent Scans</h2>
+          <div className="bg-surface-container-lowest rounded-2xl shadow-[0px_12px_32px_rgba(24,28,32,0.04)] overflow-hidden">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="text-[10px] font-bold text-on-surface-variant tracking-widest uppercase">
+                  <th className="px-6 py-4">Report</th>
+                  <th className="px-6 py-4">Audit Type</th>
+                  <th className="px-6 py-4 text-right">Pages</th>
+                  <th className="px-6 py-4 text-right">Violations</th>
+                  <th className="px-6 py-4">Scanned</th>
+                  <th className="px-6 py-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reports.map(report => {
+                  const proj = report.projectId ? projects.find(p => p.id === report.projectId) : null;
+                  return (
+                    <tr key={report.id} className="hover:bg-surface-container-low transition-colors group border-t border-surface-container-high">
+                      <td className="px-6 py-4">
+                        <div>
+                          {renamingReportId === report.id ? (
+                            <div className="flex items-center gap-2">
+                              <input
+                                ref={renameInputRef}
+                                type="text"
+                                value={renameDraft}
+                                onChange={e => setRenameDraft(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') { renameReport(report.id, renameDraft); setRenamingReportId(null); }
+                                  if (e.key === 'Escape') setRenamingReportId(null);
+                                }}
+                                className="text-sm font-semibold bg-transparent border-b-2 border-primary flex-1 min-w-0 text-on-surface focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                                aria-label="Report name"
+                              />
+                              <button type="button" onClick={() => { renameReport(report.id, renameDraft); setRenamingReportId(null); }} aria-label="Save" className="text-on-surface-variant hover:text-on-surface p-1 rounded-md focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring">
+                                <Icon name="check" className="text-sm" />
+                              </button>
+                              <button type="button" onClick={() => setRenamingReportId(null)} aria-label="Cancel" className="text-on-surface-variant hover:text-on-surface p-1 rounded-md focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring">
+                                <Icon name="close" className="text-sm" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 group/title">
+                              <Link
+                                to={`/reports/${report.id}`}
+                                className="text-sm font-semibold text-on-surface hover:text-primary transition-colors"
+                              >
+                                {report.pageTitle || report.sitemap}
+                              </Link>
+                              <button
+                                type="button"
+                                onClick={() => { setRenameDraft(report.pageTitle || report.sitemap); setRenamingReportId(report.id); setTimeout(() => renameInputRef.current?.select(), 0); }}
+                                aria-label={`Rename ${report.pageTitle || report.sitemap}`}
+                                className="opacity-0 text-on-surface-variant hover:text-primary transition-opacity p-1 rounded-md group-hover/title:opacity-100 group-focus-within/title:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                              >
+                                <Icon name="edit" className="text-sm" />
+                              </button>
+                            </div>
+                          )}
+                          {report.pageTitle && report.sitemap.startsWith('http') && (
+                            <ExternalLink href={report.sitemap} className="text-xs text-on-surface-variant break-all">
+                              {report.sitemap}
+                            </ExternalLink>
+                          )}
+                          {proj && (
+                            <Link
+                              to={`/projects/${proj.id}`}
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold mt-1 text-secondary-md hover:underline"
+                            >
+                              <Icon name="folder_open" className="text-xs" />
+                              {proj.name}
+                            </Link>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        {report.auditType && (
+                          <div className="flex items-center gap-1.5">
+                            <span className={[
+                              'w-1.5 h-1.5 rounded-full',
+                              report.auditType === 'all-inclusive' ? 'bg-tertiary' :
+                              report.auditType === 'mid-level' ? 'bg-secondary-md' : 'bg-primary',
+                            ].join(' ')} aria-hidden="true" />
+                            <span className="text-xs font-medium text-on-surface capitalize">
+                              {report.auditType === 'rapid' ? 'Rapid' : report.auditType === 'mid-level' ? 'Mid-Level' : 'All-Inclusive'}
+                            </span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <Link to={`/reports/${report.id}?tab=pages`} className="text-sm font-semibold text-on-surface hover:text-primary transition-colors">
+                          {report.summary.totalPages}
+                        </Link>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <Link
+                          to={`/reports/${report.id}?tab=violations`}
+                          className={['text-sm font-semibold hover:underline', report.summary.totalViolations > 0 ? 'text-destructive' : 'text-on-surface'].join(' ')}
+                        >
+                          {report.summary.totalViolations}
+                        </Link>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-xs text-on-surface-variant">
+                          {new Date(report.startTime).toLocaleDateString()}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center justify-end gap-1">
+                          <Link
+                            to={`/reports/${report.id}`}
+                            className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:opacity-90 transition-opacity focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                          >
+                            View
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => { setAssignReport(report); setAssignProjectId(report.projectId ?? ''); }}
+                            aria-label={`Assign ${report.pageTitle || report.sitemap} to a project`}
+                            className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                          >
+                            <Icon name="folder_open" className="text-base" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setExportReport(report)}
+                            aria-label={`Export report for ${report.sitemap}`}
+                            className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                          >
+                            <Icon name="download" className="text-base" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => downloadReportJson(report.id).catch(err => setImportError(err instanceof Error ? err.message : 'Failed to export JSON'))}
+                            aria-label={`Download JSON for ${report.pageTitle || report.sitemap}`}
+                            className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                          >
+                            <Icon name="data_object" className="text-base" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={e => {
+                              setPendingRemoveId(report.id);
+                            }}
+                            aria-label={`Delete report for ${report.sitemap}`}
+                            className="p-2 rounded-lg text-on-surface-variant hover:text-destructive hover:bg-error-container transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                          >
+                            <Icon name="delete" className="text-base" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
 
-      <div className="grid gap-6">
-        {unassignedReports.map(report => (
-          <Card key={report.id}>
-            <CardHeader className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-              <div>
-                <CardTitle>
-                  {renamingReportId === report.id ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        ref={renameInputRef}
-                        type="text"
-                        value={renameDraft}
-                        onChange={e => setRenameDraft(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') { renameReport(report.id, renameDraft); setRenamingReportId(null); }
-                          if (e.key === 'Escape') setRenamingReportId(null);
-                        }}
-                        className="text-xl font-semibold bg-transparent border-b-2 border-primary focus:outline-none flex-1 min-w-0"
-                        aria-label="Report name"
-                      />
-                      <button type="button" onClick={() => { renameReport(report.id, renameDraft); setRenamingReportId(null); }} aria-label="Save" className="text-muted-foreground hover:text-foreground shrink-0"><Check className="h-4 w-4" /></button>
-                      <button type="button" onClick={() => setRenamingReportId(null)} aria-label="Cancel" className="text-muted-foreground hover:text-foreground shrink-0"><X className="h-4 w-4" /></button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 group/title">
-                      <span>{report.pageTitle || report.sitemap}</span>
-                      <button
-                        type="button"
-                        onClick={() => { setRenameDraft(report.pageTitle || report.sitemap); setRenamingReportId(report.id); setTimeout(() => renameInputRef.current?.select(), 0); }}
-                        aria-label={`Rename ${report.pageTitle || report.sitemap}`}
-                        className="opacity-0 group-hover/title:opacity-100 focus:opacity-100 text-muted-foreground hover:text-foreground transition-opacity shrink-0"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  )}
-                </CardTitle>
-                {report.pageTitle && report.sitemap.startsWith('http') && (
-                  <ExternalLink href={report.sitemap} className="text-base text-muted-foreground break-all font-normal">
-                    {report.sitemap}
-                  </ExternalLink>
-                )}
-                <div className="flex items-center gap-2 mt-1 flex-wrap">
-                  {report.auditType && (
-                    <span className="inline-block text-xs font-medium rounded-full px-2 py-0.5 bg-indigo-100 text-indigo-800 border border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-700">
-                      {AUDIT_TYPE_LABELS[report.auditType]}
-                    </span>
-                  )}
-                  {report.projectId && (() => {
-                    const proj = projects.find(p => p.id === report.projectId);
-                    return proj ? (
-                      <Link
-                        to={`/projects/${proj.id}`}
-                        className="inline-flex items-center gap-1 text-xs font-medium rounded-full px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700 hover:underline"
-                      >
-                        <FolderOpen className="h-3 w-3" aria-hidden="true" />
-                        {proj.name}
-                      </Link>
-                    ) : null;
-                  })()}
-                  <p className="text-base text-muted-foreground">
-                    Scanned on {new Date(report.startTime).toLocaleString()}
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-row items-center gap-2 lg:shrink-0">
-                <Link
-                  to={`/reports/${report.id}`}
-                  className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-base font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors"
-                >
-                  View Report
-                </Link>
-                <button
-                  type="button"
-                  onClick={() => { setAssignReport(report); setAssignProjectId(report.projectId ?? ''); }}
-                  aria-label={`Assign ${report.pageTitle || report.sitemap} to a project`}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border px-4 py-2 text-base font-medium text-foreground transition-colors hover:bg-primary/20 hover:border-primary"
-                >
-                  <FolderOpen className="h-4 w-4" aria-hidden="true" />
-                  Project
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setExportReport(report)}
-                  aria-label={`Export report for ${report.sitemap}`}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border px-4 py-2 text-base font-medium text-foreground transition-colors hover:bg-primary/20 hover:border-primary"
-                >
-                  <Download className="h-4 w-4" aria-hidden="true" />
-                  Export
-                </button>
-                <button
-                  type="button"
-                  onClick={() => downloadReportJson(report.id).catch(err => setImportError(err instanceof Error ? err.message : 'Failed to export JSON'))}
-                  aria-label={`Download JSON backup for ${report.pageTitle || report.sitemap}`}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border px-4 py-2 text-base font-medium text-foreground transition-colors hover:bg-primary/20 hover:border-primary"
-                >
-                  <Download className="h-4 w-4" aria-hidden="true" />
-                  JSON
-                </button>
-                <button
-                  type="button"
-                  onClick={e => {
-                    removeButtonRef.current = e.currentTarget as HTMLButtonElement;
-                    setPendingRemoveId(report.id);
-                  }}
-                  aria-label={`Remove scan for ${report.sitemap}`}
-                  className="inline-flex items-center justify-center rounded-md p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                >
-                  <Trash2 className="h-4 w-4" aria-hidden="true" />
-                </button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-4 gap-4 mb-4">
-                <Link to={`/reports/${report.id}?tab=pages`} className="group">
-                  <p className="text-base text-muted-foreground">Total Pages</p>
-                  <p className="text-2xl font-bold underline decoration-dotted group-hover:decoration-solid">
-                    {report.summary.totalPages}
-                  </p>
-                </Link>
-                <Link to={`/reports/${report.id}?tab=violations`} className="group">
-                  <p className="text-base text-muted-foreground">Total Violations</p>
-                  <p className="text-2xl font-bold text-red-400 underline decoration-dotted group-hover:decoration-solid">
-                    {report.summary.totalViolations}
-                  </p>
-                </Link>
-                <Link to={`/reports/${report.id}?tab=violations&impact=critical`} className="group">
-                  <p className="text-base text-muted-foreground">Critical</p>
-                  <p className="text-2xl font-bold text-red-400 underline decoration-dotted group-hover:decoration-solid">
-                    {report.summary.violationsByImpact.critical || 0}
-                  </p>
-                </Link>
-                <Link to={`/reports/${report.id}?tab=violations&impact=serious`} className="group">
-                  <p className="text-base text-muted-foreground">Serious</p>
-                  <p className="text-2xl font-bold text-orange-400 underline decoration-dotted group-hover:decoration-solid">
-                    {report.summary.violationsByImpact.serious || 0}
-                  </p>
-                </Link>
-              </div>
-              <div className="flex items-center gap-4 text-base text-muted-foreground">
-                <Link
-                  to={`/reports/${report.id}?tab=violations`}
-                  className="underline hover:text-link"
-                >
-                  {Object.keys(report.summary.violationsByType).length} violation types
-                </Link>
-                <span>
-                  {Math.round(
-                    (new Date(report.endTime).getTime() -
-                     new Date(report.startTime).getTime()) / 1000
-                  )}s scan duration
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {/* Empty state */}
+      {!loading && reports.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-24 text-center gap-5">
+          <div className="w-16 h-16 rounded-2xl bg-primary-fixed flex items-center justify-center">
+            <Icon name="biotech" className="text-3xl text-primary" />
+          </div>
+          <div>
+            <p className="text-lg font-bold text-on-surface mb-1">No scans yet</p>
+            <p className="text-sm text-on-surface-variant">Start your first accessibility scan to see results here.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => { resetForm(); setShowScanForm(true); }}
+            className="flex items-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-primary to-primary-container text-white font-semibold text-sm shadow-lg shadow-primary/20 hover:opacity-90 transition-opacity focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+          >
+            <Icon name="add" className="text-base" />
+            Start First Scan
+          </button>
+        </div>
+      )}
+    </div>
+  );
 
-      {/*
-        Radix Dialog provides out-of-the-box:
-          • role="dialog" + aria-modal="true"
-          • aria-labelledby → DialogTitle
-          • aria-describedby → DialogDescription
-          • Keyboard trap (Tab / Shift+Tab cycle inside)
-          • Escape key closes and returns focus to trigger
-          • Focus return to the element that opened the dialog
-        We add on top:
-          • autoFocus on Cancel so the safe action is default
-          • DialogClose wrapping Cancel for Radix-managed close + focus return
-          • aria-live="assertive" status region for screen reader announcement
-      */}
+  return (
+    <>
+      {showScanForm || scanning ? scanForm : overview}
+
+      {/* Dialogs */}
       <Dialog
         open={!!pendingRemoveId}
         onOpenChange={open => {
           if (!open) {
             setPendingRemoveId(null);
-            // Explicitly return focus to the button that opened the dialog
-            setTimeout(() => removeButtonRef.current?.focus(), 0);
           }
         }}
       >
-        <DialogContent className="border-2 border-white" aria-live="assertive">
+        <DialogContent aria-live="assertive" onCloseAutoFocus={handleRemoveCloseAutoFocus}>
           <DialogHeader>
-            <DialogTitle className="text-xl text-foreground">Remove report?</DialogTitle>
-            <DialogDescription className="text-base text-muted-foreground">
-              This will permanently delete this scan report.
+            <DialogTitle className="text-on-surface">Remove report?</DialogTitle>
+            <DialogDescription className="text-on-surface-variant">
+              This will permanently delete this scan report. This action cannot be undone.
             </DialogDescription>
-            <p className="flex items-center gap-1.5 text-base text-destructive font-medium" aria-live="polite">
-              <TriangleAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
-              This action cannot be undone.
-            </p>
           </DialogHeader>
           <DialogFooter className="gap-2">
             <DialogClose asChild>
-              <Button
-                type="button"
-                variant="outline"
-                className="text-foreground border-border"
-                aria-label="Cancel — keep this report"
-                // eslint-disable-next-line jsx-a11y/no-autofocus
-                autoFocus
-              >
+              <Button type="button" variant="outline" aria-label="Cancel — keep this report" autoFocus>
                 Cancel
               </Button>
             </DialogClose>
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={() => pendingRemoveId && handleRemove(pendingRemoveId)}
-              aria-label="Permanently remove this scan report"
-            >
+            <Button type="button" variant="destructive" onClick={() => pendingRemoveId && handleRemove(pendingRemoveId)}>
               Remove report
             </Button>
           </DialogFooter>
@@ -953,31 +1087,21 @@ export function Dashboard() {
         onSave={updateProject}
       />
 
-      {/* Delete project confirmation */}
+      {/* Delete project */}
       {(() => {
         const proj = projects.find(p => p.id === pendingDeleteProjectId);
         return (
           <Dialog open={!!pendingDeleteProjectId} onOpenChange={open => { if (!open) setPendingDeleteProjectId(null); }}>
-            <DialogContent className="text-foreground">
+            <DialogContent className="text-on-surface" onCloseAutoFocus={handleDeleteProjectCloseAutoFocus}>
               <DialogHeader>
                 <DialogTitle>Delete Project</DialogTitle>
                 <DialogDescription>
-                  Delete <strong>{proj?.name}</strong>? Scans in this project will not be deleted — they will just be unassigned.
+                  Delete <strong>{proj?.name}</strong>? Scans will not be deleted — they will just be unassigned.
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter className="gap-2 mt-4">
-                <DialogClose asChild>
-                  <Button type="button" variant="outline">Cancel</Button>
-                </DialogClose>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  onClick={async () => {
-                    if (!pendingDeleteProjectId) return;
-                    await deleteProject(pendingDeleteProjectId);
-                    setPendingDeleteProjectId(null);
-                  }}
-                >
+                <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
+                <Button type="button" variant="destructive" onClick={async () => { if (!pendingDeleteProjectId) return; await deleteProject(pendingDeleteProjectId); setPendingDeleteProjectId(null); }}>
                   Delete Project
                 </Button>
               </DialogFooter>
@@ -986,14 +1110,12 @@ export function Dashboard() {
         );
       })()}
 
-      {/* Assign to project dialog */}
+      {/* Assign to project */}
       <Dialog open={!!assignReport} onOpenChange={open => { if (!open) { setAssignReport(null); setAssignShowNewProjectInput(false); setAssignNewProjectName(''); } }}>
-        <DialogContent className="text-foreground">
+        <DialogContent className="text-on-surface" onCloseAutoFocus={handleAssignCloseAutoFocus}>
           <DialogHeader>
             <DialogTitle>Assign to Project</DialogTitle>
-            <DialogDescription>
-              {assignReport?.pageTitle || assignReport?.sitemap}
-            </DialogDescription>
+            <DialogDescription>{assignReport?.pageTitle || assignReport?.sitemap}</DialogDescription>
           </DialogHeader>
           <div className="py-2">
             <Label htmlFor="assign-project-select">Project</Label>
@@ -1001,7 +1123,6 @@ export function Dashboard() {
               <div className="mt-1.5 flex gap-2">
                 <Input
                   id="assign-project-select"
-                  placeholder="New project name"
                   value={assignNewProjectName}
                   onChange={e => setAssignNewProjectName(e.target.value)}
                 />
@@ -1015,23 +1136,17 @@ export function Dashboard() {
                   id="assign-project-select"
                   value={assignProjectId}
                   onChange={e => setAssignProjectId(e.target.value)}
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 >
                   <option value="">No project</option>
-                  {projects.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
+                  {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
-                <Button type="button" variant="outline" size="sm" onClick={() => setAssignShowNewProjectInput(true)}>
-                  + New
-                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setAssignShowNewProjectInput(true)}>+ New</Button>
               </div>
             )}
           </div>
           <DialogFooter className="gap-2">
-            <DialogClose asChild>
-              <Button type="button" variant="outline">Cancel</Button>
-            </DialogClose>
+            <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
             <Button
               type="button"
               onClick={async () => {
@@ -1058,13 +1173,6 @@ export function Dashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
-
-  async function handleRemove(id: string) {
-    await apiFetch(`/api/reports/${id}`, { method: 'DELETE' });
-    setPendingRemoveId(null);
-    refresh({ background: true });
-  }
-
 }

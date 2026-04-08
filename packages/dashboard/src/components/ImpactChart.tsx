@@ -13,10 +13,10 @@ const patterns: Record<string, string> = {
 };
 
 const colors: Record<string, string> = {
-  critical: '#991b1b',
+  critical: '#ba1a1a',
   serious: '#ea580c',
   moderate: '#ca8a04',
-  minor: '#6b7280',
+  minor: '#70787e',
 };
 
 export function ImpactChart({ data }: ImpactChartProps) {
@@ -45,7 +45,7 @@ export function ImpactChart({ data }: ImpactChartProps) {
           return (
             <div key={d.impact} className="flex items-center">
               <span className="w-24 text-base font-medium capitalize">{d.impact}</span>
-              <div className="flex-1 ml-2 h-6 rounded bg-muted/30">
+              <div className="flex-1 ml-2 h-6 rounded bg-surface-container-high">
                 <div
                   className="h-full rounded"
                   style={{
