@@ -5,6 +5,8 @@ export interface Project {
   name: string;
   description?: string;
   createdAt: string;
+  archived?: boolean;
+  archivedAt?: string;
 }
 
 export type ManualAuditStatus = 'pass' | 'fail' | 'na' | 'not-tested';
@@ -81,6 +83,7 @@ export type DetectedElementType =
   | 'form-field'
   | 'data-table'
   | 'heading'
+  | 'page-language'
   | 'focus-order-map'
   | 'focus-trigger'
   | 'mouse-only'

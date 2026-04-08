@@ -19,6 +19,7 @@ import { detectKeyboardTrap } from './detectors/keyboardTrap.js';
 import { detectLinkPurpose } from './detectors/linkPurpose.js';
 import { detectNonTextContent } from './detectors/nonTextElements.js';
 import { detectInfoRelationships } from './detectors/infoRelationships.js';
+import { detectPageLanguage, processElements as processPageLanguageElements } from './detectors/pageLanguage.js';
 import { detectContrastMinimum } from './detectors/contrastMinimum.js';
 import { detectResizeText } from './detectors/resizeText.js';
 import { captureElementScreenshot } from './detectors/captureScreenshots.js';
@@ -1700,6 +1701,28 @@ app.post('/api/reports/:reportId/pages/:pageId/elements/1.3.1/detect', async (re
 });
 
 // ---------------------------------------------------------------------------
+// Language of Page — on-demand detection (WCAG 3.1.1)
+// ---------------------------------------------------------------------------
+
+// POST /api/reports/:reportId/pages/:pageId/elements/3.1.1/detect
+app.post('/api/reports/:reportId/pages/:pageId/elements/3.1.1/detect', async (req, res) => {
+  try {
+    const detectedElements = await modifyReportPage(req.params.reportId, req.params.pageId, async (page) => {
+      const raw = await detectPageLanguage(page.url);
+      if (!page.detectedElements) page.detectedElements = {};
+      page.detectedElements['3.1.1'] = processPageLanguageElements(raw);
+      return page.detectedElements;
+    });
+
+    if (!detectedElements) return res.status(404).json({ error: 'Page not found' });
+    return res.json({ detectedElements });
+  } catch (err) {
+    console.error('Page language detection error:', err);
+    return res.status(500).json({ error: 'Failed to detect page language' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Contrast Minimum — on-demand detection (WCAG 1.4.3)
 // ---------------------------------------------------------------------------
 
@@ -1775,6 +1798,11 @@ app.post('/api/reports/:reportId/pages/:pageId/elements/1.4.4/detect', async (re
 // Projects
 // ---------------------------------------------------------------------------
 
+type PersistedProject = Project & {
+  archived?: boolean;
+  archivedAt?: string;
+};
+
 app.get('/api/projects', async (_req, res) => {
   try {
     const projects = await db.getProjects();
@@ -1790,11 +1818,12 @@ app.post('/api/projects', async (req, res) => {
   try {
     const { name, description } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'Project name is required' });
-    const project: Project = {
+    const project: PersistedProject = {
       id: randomUUID(),
       name: name.trim(),
       description: description?.trim() || undefined,
       createdAt: new Date().toISOString(),
+      archived: false,
     };
     await db.saveProject(project);
     return res.status(201).json(project);
@@ -1818,11 +1847,15 @@ app.get('/api/projects/:id', async (req, res) => {
 
 app.patch('/api/projects/:id', async (req, res) => {
   try {
-    const project = await db.getProject(req.params.id);
+    const project = await db.getProject(req.params.id) as PersistedProject | undefined;
     if (!project) return res.status(404).json({ error: 'Project not found' });
-    const { name, description } = req.body;
+    const { name, description, archived } = req.body;
     if (name !== undefined) project.name = name.trim() || project.name;
     if (description !== undefined) project.description = description?.trim() || undefined;
+    if (typeof archived === 'boolean') {
+      project.archived = archived;
+      project.archivedAt = archived ? new Date().toISOString() : undefined;
+    }
     await db.updateProject(project);
     return res.json(project);
   } catch (err) {
@@ -1860,8 +1893,9 @@ app.patch('/api/reports/:id/project', async (req, res) => {
   try {
     const { projectId } = req.body;
     if (projectId !== null && projectId !== undefined) {
-      const project = await db.getProject(projectId);
+      const project = await db.getProject(projectId) as PersistedProject | undefined;
       if (!project) return res.status(404).json({ error: 'Project not found' });
+      if (project.archived) return res.status(400).json({ error: 'Archived projects cannot receive new reports' });
     }
     const updated = await db.updateReportMetadata(req.params.id, {
       projectId: projectId ?? undefined,
@@ -1878,7 +1912,7 @@ app.patch('/api/reports/:id/project', async (req, res) => {
 // Scan — start a job and return its ID immediately
 // ---------------------------------------------------------------------------
 
-app.post('/api/scan', (req, res) => {
+app.post('/api/scan', async (req, res) => {
   const { sitemap, xmlContent, filename, crawlUrl, maxPages = 200, auditType = 'all-inclusive', wcagLevel = 'AA', includeBestPractices = false, urls, projectId } = req.body;
 
   const concurrentRaw = Number(req.body.concurrent);
@@ -1910,6 +1944,16 @@ app.post('/api/scan', (req, res) => {
   if (crawlUrl) {
     try { new URL(crawlUrl); } catch {
       return res.status(400).json({ error: 'Invalid crawl URL' });
+    }
+  }
+
+  if (projectId) {
+    const project = await db.getProject(projectId) as PersistedProject | undefined;
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    if (project.archived) {
+      return res.status(400).json({ error: 'Archived projects cannot receive new reports' });
     }
   }
 

@@ -22,10 +22,19 @@ export function getReportIntegrityMessage(report: ReportWithIntegrity | null | u
   return report?.integrity?.message?.trim() || 'This report payload could not be read.';
 }
 
-export function ReportIntegrityNotice({ report, className = '' }: { report: ReportWithIntegrity | null | undefined; className?: string }) {
+export function ReportIntegrityNotice({
+  report,
+  className = '',
+  showRecovered = true,
+}: {
+  report: ReportWithIntegrity | null | undefined;
+  className?: string;
+  showRecovered?: boolean;
+}) {
   if (!report?.integrity) return null;
 
   const corrupted = report.integrity.status === 'corrupted';
+  if (!corrupted && !showRecovered) return null;
 
   return (
     <div

@@ -21,6 +21,9 @@ function Upload({ className = '' }: { className?: string }) {
 function CheckCircle2({ className = '' }: { className?: string }) {
   return <span className={`material-symbols-outlined leading-none select-none ${className}`} aria-hidden="true" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>;
 }
+function OpenInNew({ className = '' }: { className?: string }) {
+  return <span className={`material-symbols-outlined mb-px text-[12px] leading-none select-none ${className}`} aria-hidden="true">open_in_new</span>;
+}
 
 interface ImageAttachment {
   filename: string;
@@ -147,9 +150,10 @@ export function FeatureRequestModal({ open, onClose, restoreFocusRef }: FeatureR
                   href={issueUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-sm text-link hover:underline"
+                  className="inline-flex items-center gap-1 text-sm text-link hover:underline"
                 >
                   View issue on GitHub
+                  <OpenInNew />
                   <span className="sr-only"> (opens in a new tab)</span>
                 </a>
               )}
@@ -170,9 +174,10 @@ export function FeatureRequestModal({ open, onClose, restoreFocusRef }: FeatureR
                       href="https://github.com/settings/tokens"
                       target="_blank"
                       rel="noreferrer"
-                      className="text-link hover:underline font-mono text-xs"
+                      className="inline-flex items-center gap-1 text-link hover:underline font-mono text-xs"
                     >
                       github.com/settings/tokens
+                      <OpenInNew />
                       <span className="sr-only"> (opens in a new tab)</span>
                     </a>
                     {' '}with <span className="font-medium text-foreground">Issues: Read and write</span> permission on this repo.
@@ -253,9 +258,10 @@ export function FeatureRequestModal({ open, onClose, restoreFocusRef }: FeatureR
                         href="https://github.com/settings/tokens"
                         target="_blank"
                         rel="noreferrer"
-                        className="underline hover:no-underline"
+                        className="inline-flex items-center gap-1 underline hover:no-underline"
                       >
                         Create or update your token
+                        <OpenInNew />
                         <span className="sr-only"> (opens in a new tab)</span>
                       </a>
                       , then update <code className="text-xs">packages/scanner/.env</code> and restart the server.
@@ -268,9 +274,10 @@ export function FeatureRequestModal({ open, onClose, restoreFocusRef }: FeatureR
                         href="https://github.com/settings/tokens"
                         target="_blank"
                         rel="noreferrer"
-                        className="underline hover:no-underline"
+                        className="inline-flex items-center gap-1 underline hover:no-underline"
                       >
                         Update your token
+                        <OpenInNew />
                         <span className="sr-only"> (opens in a new tab)</span>
                       </a>
                       , then update <code className="text-xs">packages/scanner/.env</code> and restart the server.

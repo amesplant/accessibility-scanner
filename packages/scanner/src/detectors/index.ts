@@ -15,6 +15,7 @@ export { captureElementScreenshots } from './captureScreenshots.js';
 
 import * as mediaElements from './mediaElements.js';
 import * as captionsElements from './captionsElements.js';
+import * as pageLanguage from './pageLanguage.js';
 
 /**
  * All element detectors in execution order.
@@ -23,6 +24,7 @@ import * as captionsElements from './captionsElements.js';
 export const DETECTORS: DetectorModule[] = [
   mediaElements,
   captionsElements,
+  pageLanguage,
   // infoRelationships (1.3.1) — moved to on-demand, not part of the scan pipeline
   // nonTextElements   (1.1.1) — moved to on-demand, not part of the scan pipeline
   // linkPurpose       (2.4.4) — moved to on-demand, not part of the scan pipeline

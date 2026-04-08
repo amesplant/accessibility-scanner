@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
-import { ScanReport } from '@accessibility-scanner/shared';
+import { Project, ScanReport } from '@accessibility-scanner/shared';
 import { ExportModal } from '@/components/ExportModal';
 import { ViewLayoutToggle, type ViewLayout } from '@/components/ViewLayoutToggle';
 import {
@@ -39,10 +39,12 @@ function Icon({ name, className = '', filled = false }: { name: string; classNam
 }
 
 interface ProjectWithReports {
-  id: string;
-  name: string;
-  description?: string;
-  createdAt: string;
+  id: Project['id'];
+  name: Project['name'];
+  description?: Project['description'];
+  createdAt: Project['createdAt'];
+  archived?: boolean;
+  archivedAt?: string;
   reports: ProjectReportSummary[];
 }
 
@@ -64,6 +66,7 @@ export function ProjectDetail() {
   const [removeConfirmReport, setRemoveConfirmReport] = useState<ProjectReportSummary | null>(null);
   const [deleteConfirmReport, setDeleteConfirmReport] = useState<ProjectReportSummary | null>(null);
   const [deleteProjectConfirm, setDeleteProjectConfirm] = useState(false);
+  const [updatingArchiveState, setUpdatingArchiveState] = useState(false);
   const [reportsLayout, setReportsLayout] = useState<ViewLayout>('list');
   const [actionError, setActionError] = useState<string | null>(null);
   const { handleCloseAutoFocus: handleDeleteProjectCloseAutoFocus } = useRestoreFocus(deleteProjectConfirm);
@@ -204,6 +207,25 @@ export function ProjectDetail() {
     navigate('/projects');
   }
 
+  async function updateArchiveState(archived: boolean) {
+    if (!project) return;
+    try {
+      setActionError(null);
+      setUpdatingArchiveState(true);
+      const res = await fetch(`/api/projects/${project.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archived }),
+      });
+      if (!res.ok) throw new Error(archived ? 'Failed to archive project' : 'Failed to restore project');
+      await load();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : archived ? 'Failed to archive project' : 'Failed to restore project');
+    } finally {
+      setUpdatingArchiveState(false);
+    }
+  }
+
   if (loading) return (
     <div className="flex items-center justify-center h-64 text-on-surface-variant">
       <Icon name="hourglass_empty" className="animate-spin mr-2" />
@@ -219,6 +241,7 @@ export function ProjectDetail() {
         <div className="flex-1 min-w-0">
           <p className="text-[10px] font-bold uppercase tracking-wider text-secondary mb-1">
             Created {new Date(project.createdAt).toLocaleDateString()} · {project.reports.length} {project.reports.length === 1 ? 'report' : 'reports'}
+            {project.archivedAt ? ` · Archived ${new Date(project.archivedAt).toLocaleDateString()}` : ''}
           </p>
 
           {editingName ? (
@@ -242,6 +265,12 @@ export function ProjectDetail() {
           ) : (
             <div className="flex items-center gap-2 group">
               <h1 className="text-2xl font-extrabold text-on-surface tracking-tight">{project.name}</h1>
+              {project.archived && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-surface-container px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-on-surface-variant">
+                  <Icon name="archive" className="text-[14px]" />
+                  Archived
+                </span>
+              )}
               <button
                 type="button"
                 onClick={() => { setEditName(project.name); setEditingName(true); }}
@@ -288,15 +317,32 @@ export function ProjectDetail() {
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={() => setDeleteProjectConfirm(true)}
-          className="shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-error/30 text-error hover:bg-error-container/50 transition-colors text-sm font-medium"
-        >
-          <Icon name="delete" className="text-[18px]" />
-          Delete Project
-        </button>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => updateArchiveState(!project.archived)}
+            disabled={updatingArchiveState}
+            className="inline-flex items-center gap-2 rounded-xl border border-outline-variant/40 px-4 py-2 text-sm font-medium text-on-surface hover:bg-surface-container transition-colors disabled:opacity-60"
+          >
+            <Icon name={project.archived ? 'unarchive' : 'archive'} className="text-[18px]" />
+            {updatingArchiveState ? (project.archived ? 'Restoring…' : 'Archiving…') : (project.archived ? 'Restore Project' : 'Archive Project')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setDeleteProjectConfirm(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-error/30 text-error hover:bg-error-container/50 transition-colors text-sm font-medium"
+          >
+            <Icon name="delete" className="text-[18px]" />
+            Delete Project
+          </button>
+        </div>
       </div>
+
+      {project.archived && (
+        <div className="rounded-2xl border border-outline-variant/40 bg-surface-container-low px-4 py-3 text-sm text-on-surface-variant">
+          This project is archived. Existing reports remain available, but new scans and report assignments are disabled until you restore it.
+        </div>
+      )}
 
       {actionError && (
         <div role="alert" className="rounded-2xl border border-error/25 bg-error-container/40 px-4 py-3 text-sm text-error">
@@ -309,14 +355,20 @@ export function ProjectDetail() {
         <div className="text-center py-20 bg-surface-container-lowest rounded-2xl shadow-[0px_12px_32px_rgba(24,28,32,0.06)]">
           <Icon name="folder_open" className="text-5xl text-on-surface-variant/30 mb-4" />
           <p className="text-sm text-on-surface-variant mb-2">No reports in this project yet.</p>
-          <button
-            type="button"
-            onClick={() => navigate('/', { state: { newScan: true, projectId: project.id } })}
-            className="text-sm font-semibold text-primary hover:underline underline-offset-4"
-          >
-            Start a new scan
-          </button>
-          <span className="text-sm text-on-surface-variant"> and assign it to this project.</span>
+          {project.archived ? (
+            <p className="text-sm text-on-surface-variant">Restore the project to add new scans or assign reports.</p>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => navigate('/', { state: { newScan: true, projectId: project.id } })}
+                className="text-sm font-semibold text-primary hover:underline underline-offset-4"
+              >
+                Start a new scan
+              </button>
+              <span className="text-sm text-on-surface-variant"> and assign it to this project.</span>
+            </>
+          )}
         </div>
       ) : (
         <div className="bg-surface-container-lowest rounded-2xl shadow-[0px_12px_32px_rgba(24,28,32,0.06)] overflow-hidden">
@@ -370,7 +422,7 @@ export function ProjectDetail() {
                         <span className="text-on-surface-variant">critical</span>
                       </span>
                     </div>
-                    <ReportIntegrityNotice report={report} className="max-w-xl" />
+                    <ReportIntegrityNotice report={report} className="max-w-xl" showRecovered={false} />
                   </div>
 
                   <div className="flex shrink-0 flex-col items-start gap-3 lg:min-w-[360px] lg:items-end">
@@ -478,11 +530,11 @@ export function ProjectDetail() {
                       </div>
                       <p className="font-semibold text-on-surface break-words">{reportLabel}</p>
                       {report.pageTitle && report.sitemap.startsWith('http') && (
-                        <ExternalLink href={report.sitemap} className="mt-1 block text-xs text-on-surface-variant break-all">
+                        <ExternalLink href={report.sitemap} className="mt-1 max-w-full text-xs text-on-surface-variant break-all">
                           {report.sitemap}
                         </ExternalLink>
                       )}
-                      <ReportIntegrityNotice report={report} />
+                      <ReportIntegrityNotice report={report} showRecovered={false} />
                     </div>
 
                     <div className="mt-4 grid grid-cols-3 gap-3 rounded-xl bg-surface-container-low p-4 text-sm">

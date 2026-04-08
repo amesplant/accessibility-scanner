@@ -215,8 +215,9 @@ const _CHECKS: Omit<PredefinedCheck, 'auditTags'>[] = [
     category: 'Content & Structure',
     priority: 'medium',
     questions: [
-      'Does the <html> element have a lang attribute that correctly identifies the page\'s primary language (e.g. lang="en")?',
-      'For multilingual sites, is the lang attribute updated when the user switches language?',
+      'Does the <html> element have a non-empty lang attribute, and does it use an appropriate language tag such as lang="en" or lang="en-US"?',
+      'Does the lang value match the page\'s primary language so screen readers pronounce content correctly?',
+      'For multilingual sites or translated views, is the <html lang> value updated when the page language changes?',
     ],
   },
   {

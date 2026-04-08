@@ -292,7 +292,7 @@ export function ReportDetail() {
           )}
 
           {report.pageTitle && report.sitemap.startsWith('http') && (
-            <ExternalLink href={report.sitemap} className="text-sm text-on-surface-variant break-all mt-0.5 block">
+            <ExternalLink href={report.sitemap} className="mt-0.5 max-w-full text-sm text-on-surface-variant break-all">
               {report.sitemap}
             </ExternalLink>
           )}

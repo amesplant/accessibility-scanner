@@ -27,7 +27,19 @@ function Icon({ name, className }: { name: string; className?: string }) {
 }
 
 export function Projects() {
-  const { projects, loading, error, createProject, deleteProject, updateProject } = useProjects();
+  const {
+    projects,
+    activeProjects,
+    archivedProjects,
+    loading,
+    error,
+    statusMessage,
+    createProject,
+    deleteProject,
+    updateProject,
+    archiveProject,
+    restoreProject,
+  } = useProjects();
   const navigate = useNavigate();
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
@@ -73,7 +85,7 @@ export function Projects() {
         <div>
           <h1 className="text-3xl font-extrabold text-on-surface tracking-tight mb-1">Active Engagements</h1>
           <p className="text-on-surface-variant text-sm">
-            Manage your accessibility audits and track progress across client engagements.
+            Manage active and archived accessibility engagements across client work.
           </p>
         </div>
         <Button
@@ -94,36 +106,80 @@ export function Projects() {
       {error && (
         <p role="alert" className="text-destructive mb-6">{error}</p>
       )}
+      {statusMessage && (
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="mb-6 rounded-2xl border border-secondary/20 bg-secondary-container/35 px-4 py-3 text-sm text-on-surface"
+        >
+          {statusMessage}
+        </div>
+      )}
 
-      {/* Project grid */}
-      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-        {projects.map(project => (
-          <ProjectCard
-            key={project.id}
-            project={project}
-            onOpen={(projectId) => navigate(`/projects/${projectId}`)}
-            onEdit={setEditingProject}
-            onDelete={setPendingDeleteId}
-          />
-        ))}
+      <section>
+        <div className="mb-5 flex items-end justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-bold text-on-surface">Active Projects</h2>
+            <p className="mt-1 text-sm text-on-surface-variant">Active projects stay available in scan and assignment flows.</p>
+          </div>
+          <p className="text-sm font-medium text-on-surface-variant">{activeProjects.length} total</p>
+        </div>
 
-        {/* "Start New Project" empty card */}
-        {!loading && (
-          <button
-            type="button"
-            onClick={() => setShowCreate(true)}
-            className="flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-outline-variant p-8 text-on-surface-variant hover:border-primary hover:text-primary hover:bg-primary-fixed/30 transition-all focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
-          >
-            <span className="w-12 h-12 rounded-xl bg-surface-container-low flex items-center justify-center">
-              <Icon name="add" className="text-2xl" />
-            </span>
-            <div className="text-center">
-              <p className="text-sm font-semibold">Start New Project</p>
-              <p className="text-xs mt-0.5">Add a new client or platform to the dashboard</p>
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {activeProjects.map(project => (
+            <ProjectCard
+              key={project.id}
+              project={project}
+              onOpen={(projectId) => navigate(`/projects/${projectId}`)}
+              onEdit={setEditingProject}
+              onDelete={setPendingDeleteId}
+              onArchive={archiveProject}
+            />
+          ))}
+
+          {!loading && (
+            <button
+              type="button"
+              onClick={() => setShowCreate(true)}
+              className="flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-outline-variant p-8 text-on-surface-variant hover:border-primary hover:text-primary hover:bg-primary-fixed/30 transition-all focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              <span className="w-12 h-12 rounded-xl bg-surface-container-low flex items-center justify-center">
+                <Icon name="add" className="text-2xl" />
+              </span>
+              <div className="text-center">
+                <p className="text-sm font-semibold">Start New Project</p>
+                <p className="text-xs mt-0.5">Add a new client or platform to the dashboard</p>
+              </div>
+            </button>
+          )}
+        </div>
+      </section>
+
+      {!loading && archivedProjects.length > 0 && (
+        <section className="mt-10">
+          <div className="mb-5 flex items-end justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-bold text-on-surface">Archived Projects</h2>
+              <p className="mt-1 text-sm text-on-surface-variant">Archived projects remain readable but cannot receive new scans or report assignments.</p>
             </div>
-          </button>
-        )}
-      </div>
+            <p className="text-sm font-medium text-on-surface-variant">{archivedProjects.length} total</p>
+          </div>
+
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {archivedProjects.map(project => (
+              <ProjectCard
+                key={project.id}
+                project={project}
+                onOpen={(projectId) => navigate(`/projects/${projectId}`)}
+                onEdit={setEditingProject}
+                onDelete={setPendingDeleteId}
+                onRestore={restoreProject}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Empty state */}
       {!loading && projects.length === 0 && (

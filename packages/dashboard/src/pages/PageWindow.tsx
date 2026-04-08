@@ -336,7 +336,7 @@ export function PageWindow() {
     }
 
     return (
-      <div className={cn(automatedLayout === 'cards' ? 'grid grid-cols-1 justify-start gap-5 xl:grid-cols-2 2xl:grid-cols-3' : 'overflow-hidden rounded-[24px] border border-slate-200/80 bg-white')}>
+      <div className={cn(automatedLayout === 'cards' ? 'space-y-3' : 'overflow-hidden rounded-2xl border border-outline-variant/10 bg-surface-container-lowest')}>
         {rules.map((rule, index) => {
           const criteria = wcagCriteria(rule.tags);
           const ruleTitle = getRuleTitle(criteria, rule.level);
@@ -349,27 +349,21 @@ export function PageWindow() {
               key={rule.id}
               className={cn(
                 automatedLayout === 'cards'
-                  ? 'h-fit w-full max-w-[540px] overflow-hidden rounded-[28px] border border-slate-200/80 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.08)]'
-                  : 'overflow-hidden bg-white',
-                automatedLayout === 'list' && index > 0 && 'border-t border-slate-200/80',
+                  ? 'overflow-hidden rounded-2xl border border-outline-variant/10 bg-surface-container-lowest shadow-[0px_4px_12px_rgba(24,28,32,0.04)]'
+                  : 'overflow-hidden bg-surface-container-lowest',
+                automatedLayout === 'list' && index > 0 && 'border-t border-surface-container',
               )}
             >
-              {automatedLayout === 'cards' && <div className="h-1.5 w-full bg-gradient-to-r from-cyan-500 via-sky-400 to-transparent" aria-hidden="true" />}
-
-              <div className={cn('flex w-full items-start justify-between gap-4', automatedLayout === 'cards' ? 'px-7 py-6' : 'px-4 py-3')}>
+              <div className={cn('flex w-full items-start justify-between gap-4', automatedLayout === 'cards' ? 'px-6 py-4' : 'px-5 py-3')}>
                 <div className="flex-1 min-w-0 space-y-2">
                   {ruleTitle && (
-                    <p className={cn('text-[11px] font-black uppercase tracking-[0.18em] text-cyan-700/80', automatedLayout === 'list' && 'text-[10px] tracking-[0.14em]')}>
+                    <p className="text-[11px] font-black uppercase tracking-[0.18em] text-cyan-700/80">
                       {ruleTitle}
                     </p>
                   )}
-                  <p className={cn('font-semibold text-on-surface leading-snug', automatedLayout === 'cards' ? 'text-base' : 'text-sm')}>
-                    {rule.help}
-                  </p>
-                  <p className={cn('text-on-surface-variant', automatedLayout === 'cards' ? 'text-sm leading-6' : 'text-xs leading-5 line-clamp-1')}>
-                    {rule.description}
-                  </p>
-                  <div className={cn('flex flex-wrap items-center', automatedLayout === 'cards' ? 'gap-2.5' : 'gap-2')}>
+                  <p className="font-semibold text-sm text-on-surface leading-snug">{rule.help}</p>
+                  <p className="text-xs text-on-surface-variant leading-5">{rule.description}</p>
+                  <div className="flex flex-wrap items-center gap-2">
                     {rule.level && (
                       <button
                         type="button"
@@ -391,19 +385,20 @@ export function PageWindow() {
                       href={rule.helpUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className={cn('text-primary hover:underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring rounded', automatedLayout === 'cards' ? 'text-xs' : 'text-[11px]')}
+                      className="inline-flex items-end gap-1 text-xs text-primary hover:underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring rounded"
                     >
                       Learn more
+                      <Icon name="open_in_new" className="mb-px text-[12px]" />
                       <span className="sr-only"> (opens in a new tab)</span>
                     </a>
                   </div>
 
-                  <div className={cn('flex flex-wrap items-center', automatedLayout === 'cards' ? 'gap-3 pt-1' : 'gap-2')}>
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      className={cn('border-outline-variant/30 text-xs', automatedLayout === 'cards' ? 'h-9 rounded-xl bg-slate-50 px-4' : 'h-8 rounded-lg')}
+                      className="h-8 rounded-lg border-outline-variant/30 text-xs"
                       onClick={() => setPromoteDialogKey(promoteKey)}
                       aria-haspopup="dialog"
                     >
@@ -418,7 +413,7 @@ export function PageWindow() {
                   onClick={() => toggleViolation(rule.id)}
                   aria-expanded={isOpen}
                   aria-label={`${isOpen ? 'Collapse' : 'Expand'} details for ${rule.help}`}
-                  className={cn('flex shrink-0 items-center gap-2 text-on-surface-variant transition-colors hover:text-on-surface rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring', automatedLayout === 'cards' ? 'pt-1' : 'pt-0.5 self-center')}
+                  className="flex shrink-0 items-center gap-2 pt-0.5 text-on-surface-variant transition-colors hover:text-on-surface rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                 >
                   <span className="text-xs font-medium">{nodeCount} {nodeCount === 1 ? 'instance' : 'instances'}</span>
                   <Icon name="expand_more" className={cn('text-[20px] transition-transform', isOpen && 'rotate-180')} />
@@ -426,9 +421,9 @@ export function PageWindow() {
               </div>
 
               {isOpen && (
-                <div className={cn('border-t', automatedLayout === 'cards' ? 'divide-y divide-slate-200/80 border-slate-200/80 bg-slate-50/40' : 'divide-y divide-slate-200/80 border-slate-200/80')}>
+                <div className="divide-y divide-surface-container border-t border-outline-variant/10">
                   {rule.nodes.map((node, index) => (
-                    <div key={`${rule.id}-${index}`} className={cn('space-y-3', automatedLayout === 'cards' ? 'px-7 py-5' : 'px-4 py-3')}>
+                    <div key={`${rule.id}-${index}`} className={cn('space-y-3', automatedLayout === 'cards' ? 'px-6 py-4' : 'px-5 py-3')}>
                       {(() => {
                         const automatedDraftKey = getAutomatedFailureDraftKey(source, rule.id, index);
                         const automatedDraft = automatedFailureDrafts[automatedDraftKey];
@@ -775,7 +770,7 @@ export function PageWindow() {
           {pageDisplayTitle}
         </h1>
 
-        <ExternalLink href={pageUrl} className="block text-sm text-on-surface-variant break-all">
+        <ExternalLink href={pageUrl} className="max-w-full text-sm text-on-surface-variant break-all">
           {pageUrl}
         </ExternalLink>
 
@@ -842,7 +837,7 @@ export function PageWindow() {
               return acc;
             }, {} as Record<string, number>);
 
-            const filteredViolations = page.violations.filter(v => {
+            const filteredViolations = page.violations.filter((v) => {
               if (impactFilter && v.impact !== impactFilter) return false;
               if (levelFilter && (v.level ?? 'best-practice') !== levelFilter) return false;
               return true;
@@ -970,7 +965,7 @@ export function PageWindow() {
 
                 {automatedView === 'violations' ? (
                   filteredViolations.length > 0 ? (
-                  <div className={cn(automatedLayout === 'cards' ? 'grid grid-cols-1 justify-start gap-5 xl:grid-cols-2 2xl:grid-cols-3' : 'overflow-hidden rounded-[24px] border border-slate-200/80 bg-white')}>
+                    <div className={cn(automatedLayout === 'cards' ? 'space-y-3' : 'overflow-hidden rounded-2xl border border-outline-variant/10 bg-surface-container-lowest')}>
                     {filteredViolations.map((v, index) => {
                       const criteria = wcagCriteria(v.tags);
                       const isOpen = expandedViolations.has(v.id);
@@ -982,21 +977,19 @@ export function PageWindow() {
                           key={v.id}
                           className={cn(
                             automatedLayout === 'cards'
-                              ? 'h-fit w-full max-w-[540px] overflow-hidden rounded-[28px] border border-slate-200/80 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.08)]'
-                              : 'overflow-hidden bg-white',
-                            automatedLayout === 'list' && index > 0 && 'border-t border-slate-200/80',
+                              ? 'bg-surface-container-lowest rounded-2xl border border-outline-variant/10 shadow-[0px_4px_12px_rgba(24,28,32,0.04)] overflow-hidden'
+                              : 'bg-surface-container-lowest overflow-hidden',
+                            automatedLayout === 'list' && index > 0 && 'border-t border-surface-container',
                             isOverridden && 'opacity-60'
                           )}
                         >
-                          {automatedLayout === 'cards' && <div className="h-1.5 w-full bg-gradient-to-r from-rose-400 via-amber-300 to-transparent" aria-hidden="true" />}
-
                           {/* Header row */}
-                          <div className={cn('w-full flex items-start justify-between gap-4', automatedLayout === 'cards' ? 'px-7 py-6' : 'px-4 py-3')}>
+                          <div className={cn('w-full flex items-start justify-between gap-4', automatedLayout === 'cards' ? 'px-6 py-4' : 'px-5 py-3')}>
                             <div className="flex-1 min-w-0 space-y-2">
-                              <p className={cn(automatedLayout === 'cards' ? 'text-base' : 'text-sm', 'font-semibold text-on-surface leading-snug', isOverridden && 'line-through text-on-surface-variant')}>
+                              <p className={cn('font-semibold text-sm text-on-surface leading-snug', isOverridden && 'line-through text-on-surface-variant')}>
                                 {v.help}
                               </p>
-                              <div className={cn('flex flex-wrap items-center', automatedLayout === 'cards' ? 'gap-2.5' : 'gap-2')}>
+                              <div className="flex flex-wrap items-center gap-2">
                                 {!isOverridden && (
                                   <button
                                     type="button"
@@ -1040,12 +1033,13 @@ export function PageWindow() {
                                   href={v.helpUrl}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className={cn('text-primary hover:underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring rounded', automatedLayout === 'cards' ? 'text-xs' : 'text-[11px]')}
+                                  className="inline-flex items-end gap-1 text-xs text-primary hover:underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring rounded"
                                 >
                                   Learn more
+                                  <Icon name="open_in_new" className="mb-px text-[12px]" />
                                   <span className="sr-only"> (opens in a new tab)</span>
                                 </a>
-                                {automatedLayout === 'list' && <span className="text-on-surface-variant/30 select-none" aria-hidden="true">|</span>}
+                                <span className="text-on-surface-variant/30 select-none" aria-hidden="true">|</span>
                                 {([
                                   { status: 'fail' as const, label: 'Fail' },
                                   { status: 'pass' as const, label: 'Pass' },
@@ -1086,7 +1080,7 @@ export function PageWindow() {
                               onClick={() => toggleViolation(v.id)}
                               aria-expanded={isOpen}
                               aria-label={`${isOpen ? 'Collapse' : 'Expand'} details for ${v.help}`}
-                              className={cn('flex items-center gap-2 shrink-0 text-on-surface-variant hover:text-on-surface transition-colors rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring', automatedLayout === 'cards' ? 'pt-1' : 'pt-0.5 self-center')}
+                              className="flex items-center gap-2 shrink-0 pt-0.5 text-on-surface-variant hover:text-on-surface transition-colors rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                             >
                               <span className="text-xs font-medium">{nodeCount} {nodeCount === 1 ? 'instance' : 'instances'}</span>
                               <Icon
@@ -1098,7 +1092,7 @@ export function PageWindow() {
 
                           {/* Override notes */}
                           {isOverridden && (
-                            <div className={cn('border-t border-dashed border-outline-variant/20 bg-surface-container-low/50', automatedLayout === 'cards' ? 'px-7 py-4' : 'px-4 py-3')}>
+                            <div className={cn('border-t border-dashed border-outline-variant/20 bg-surface-container-low/50', automatedLayout === 'cards' ? 'px-6 py-3' : 'px-5 py-3')}>
                               <input
                                 type="text"
                                 value={overrideNotesInput[v.id] ?? v.overrideNotes ?? ''}
@@ -1112,11 +1106,11 @@ export function PageWindow() {
 
                           {/* Expanded node list */}
                           {isOpen && (
-                            <div className={cn('border-t', automatedLayout === 'cards' ? 'divide-y divide-slate-200/80 border-slate-200/80 bg-slate-50/40' : 'divide-y divide-slate-200/80 border-slate-200/80')}>
+                            <div className="border-t border-outline-variant/10 divide-y divide-surface-container">
                               {v.nodes.map((n, i) => {
                                 const nodeIsPass = n.overrideStatus === 'pass';
                                 return (
-                                  <div key={i} className={cn(automatedLayout === 'cards' ? 'px-7 py-5' : 'px-4 py-3', 'space-y-3', nodeIsPass && 'opacity-60')}>
+                                  <div key={i} className={cn(automatedLayout === 'cards' ? 'px-6 py-4' : 'px-5 py-3', 'space-y-3', nodeIsPass && 'opacity-60')}>
                                     <div className="flex items-center gap-2">
                                       <span className="text-xs font-semibold text-on-surface-variant">Instance {i + 1}</span>
                                       {n.scope && (
@@ -1238,9 +1232,9 @@ export function PageWindow() {
                         </div>
                       );
                     })}
-                  </div>
-                ) : (
-                  <p className="text-sm text-on-surface-variant py-8 text-center">No violations match the current filters.</p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-on-surface-variant py-8 text-center">No violations match the current filters.</p>
                   )
                 ) : automatedView === 'passes' ? (
                   (page.passRules ?? []).length > 0

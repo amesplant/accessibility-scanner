@@ -1154,6 +1154,7 @@ const ELEMENT_TYPE_LABELS: Record<DetectedElement['elementType'], string> = {
   'form-field': 'Form Field',
   'data-table': 'Table',
   'heading': 'Heading',
+  'page-language': 'Page Language',
   'focus-order-map': 'Focus Order',
   'focus-trigger': 'Focus Trigger',
   'mouse-only': 'Mouse-Only Interaction',
@@ -1992,6 +1993,9 @@ function buildSeededIssueNotes(element: DetectedElement): string | undefined {
       return 'Data table may be missing proper headers or structural relationships for assistive technology.';
     case 'heading':
       return 'Heading structure may be missing, out of order, or not programmatically identifiable.';
+    case 'page-language':
+      if (!text) return 'The page is missing a valid html lang attribute, so assistive technology may use the wrong pronunciation rules.';
+      return `The page language may be set incorrectly: “${text}”.`;
     case 'focus-order-map':
       return 'Focus order may not follow a logical sequence.';
     case 'focus-trigger':
@@ -2322,6 +2326,7 @@ function CheckRow({
                 ? (eid) => onGenerateElementScreenshot(check.wcagCriterion!, eid)
                 : undefined}
               onDetect={onDetectElements && check.wcagCriterion && (
+                check.wcagCriterion === '3.1.1' ||
                 check.wcagCriterion === '3.2.1' ||
                 check.wcagCriterion === '2.4.3' ||
                 check.wcagCriterion === '2.1.1' ||
@@ -2338,6 +2343,8 @@ function CheckRow({
                   ? 'No audio or video-only elements detected on this page — nothing to audit for 1.2.1.'
                   : check.wcagCriterion === '1.2.2'
                   ? 'No video elements with audio detected on this page — nothing to audit for 1.2.2.'
+                  : check.wcagCriterion === '3.1.1'
+                  ? 'No page language data found yet — click "Re-detect elements on page" below to inspect the html lang attribute for this page.'
                   : check.wcagCriterion === '2.4.4'
                   ? 'No ambiguous links detected on this page — nothing to audit for 2.4.4.'
                   : check.wcagCriterion === '1.3.1'
@@ -2362,6 +2369,7 @@ function CheckRow({
               }
             />
           ) : onDetectElements && (
+              check.wcagCriterion === '3.1.1' ||
               check.wcagCriterion === '3.2.1' ||
               check.wcagCriterion === '2.4.3' ||
               check.wcagCriterion === '2.1.1' ||
@@ -3490,6 +3498,7 @@ function DesktopCriterionWorkspace({
               ? (elementId) => onGenerateElementScreenshot(check.wcagCriterion!, elementId)
               : undefined}
             onDetect={onDetectElements && check.wcagCriterion && (
+              check.wcagCriterion === '3.1.1' ||
               check.wcagCriterion === '3.2.1' ||
               check.wcagCriterion === '2.4.3' ||
               check.wcagCriterion === '2.1.1' ||
@@ -3530,6 +3539,7 @@ function DesktopCriterionWorkspace({
             }
           />
         ) : onDetectElements && check.wcagCriterion && (
+          check.wcagCriterion === '3.1.1' ||
           check.wcagCriterion === '3.2.1' ||
           check.wcagCriterion === '2.4.3' ||
           check.wcagCriterion === '2.1.1' ||
