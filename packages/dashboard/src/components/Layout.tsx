@@ -1,7 +1,6 @@
 import { ReactNode, useState, useRef, useEffect, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useScanContext, formatElapsed } from '@/context/ScanContext';
-import { SeymourLogo } from '@/components/SeymourLogo';
 import {
   Dialog,
   DialogContent,
@@ -12,38 +11,24 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { FeatureRequestModal } from '@/components/FeatureRequestModal';
+import { useRestoreFocus } from '@/hooks/useRestoreFocus';
+import { SeymourLogo } from '@/components/SeymourLogo';
 
 type Props = { children: ReactNode };
 
-// ── Icons ─────────────────────────────────────────────────────────────────────
+// ── Material Symbol icon helper ───────────────────────────────────────────────
 
-const IconHamburger = () => (
-  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" width="20" height="20" aria-hidden="true">
-    <path d="M3 5h14M3 10h14M3 15h14" />
-  </svg>
-);
-const IconClose = () => (
-  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" width="20" height="20" aria-hidden="true">
-    <path d="M4 4l12 12M16 4L4 16" />
-  </svg>
-);
-const IconDashboard = () => (
-  <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="18" height="18" aria-hidden="true">
-    <rect x="1" y="1" width="7" height="7" rx="1.5" /><rect x="10" y="1" width="7" height="7" rx="1.5" />
-    <rect x="1" y="10" width="7" height="7" rx="1.5" /><rect x="10" y="10" width="7" height="7" rx="1.5" />
-  </svg>
-);
-const IconProjects = () => (
-  <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="18" height="18" aria-hidden="true">
-    <path d="M1.5 5a1.5 1.5 0 0 1 1.5-1.5h3.879a1.5 1.5 0 0 1 1.06.44L9 5h7.5A1.5 1.5 0 0 1 18 6.5V14A1.5 1.5 0 0 1 16.5 15.5h-15A1.5 1.5 0 0 1 0 14V6.5A1.5 1.5 0 0 1 1.5 5z" />
-  </svg>
-);
-const IconScan = () => (
-  <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="18" height="18" aria-hidden="true">
-    <circle cx="9" cy="9" r="3.5" />
-    <path d="M9 1v2.5M9 14.5V17M1 9h2.5M14.5 9H17M3.2 3.2l1.8 1.8M13 13l1.8 1.8M14.8 3.2L13 5M5 13l-1.8 1.8" />
-  </svg>
-);
+function Icon({ name, filled, className }: { name: string; filled?: boolean; className?: string }) {
+  return (
+    <span
+      className={['material-symbols-outlined', className].filter(Boolean).join(' ')}
+      style={filled ? { fontVariationSettings: "'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24" } : undefined}
+      aria-hidden="true"
+    >
+      {name}
+    </span>
+  );
+}
 
 // ── Nav item ──────────────────────────────────────────────────────────────────
 
@@ -55,7 +40,7 @@ function NavItem({
   onClick,
 }: {
   to: string;
-  icon: ReactNode;
+  icon: string;
   label: string;
   active: boolean;
   onClick?: () => void;
@@ -66,15 +51,15 @@ function NavItem({
       aria-current={active ? 'page' : undefined}
       onClick={onClick}
       className={[
-        'flex items-center gap-3.5 pr-4 pl-3 py-2.5 rounded-lg text-base font-medium transition-colors',
+        'flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-150',
         'focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-[-1px] focus-visible:outline-ring',
         active
-          ? 'border-l-4 border-primary bg-white/10 text-white'
-          : 'border-l-4 border-transparent text-zinc-400 hover:bg-white/5 hover:text-zinc-200',
+          ? 'bg-surface-container-lowest text-primary shadow-sm font-semibold scale-[0.97]'
+          : 'text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors',
       ].join(' ')}
     >
-      {icon}
-      {label}
+      <Icon name={icon} filled={active} />
+      <span>{label}</span>
     </Link>
   );
 }
@@ -101,6 +86,7 @@ export function Layout({ children }: Props) {
     typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : true,
   );
   const [progressVisible, setProgressVisible] = useState(false);
+  const { handleCloseAutoFocus: handleCompletedScanCloseAutoFocus } = useRestoreFocus(!!completedReportId);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -108,35 +94,31 @@ export function Layout({ children }: Props) {
   const hamburgerRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
+  const featureRequestButtonRef = useRef<HTMLElement | null>(null);
 
-  // ── Respond to viewport changes ───────────────────────────────────────────
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 1024px)');
     const handler = (e: MediaQueryListEvent) => {
       setIsDesktop(e.matches);
-      if (e.matches) setMobileSidebarOpen(false); // auto-close if resized to desktop
+      if (e.matches) setMobileSidebarOpen(false);
     };
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, []);
 
-  // isMobileOverlay: sidebar is acting as a modal overlay
   const isMobileOverlay = !isDesktop && mobileSidebarOpen;
 
-  // ── Centralized close ─────────────────────────────────────────────────────
   const closeMobileSidebar = useCallback(() => {
     setMobileSidebarOpen(false);
     requestAnimationFrame(() => hamburgerRef.current?.focus());
   }, []);
 
-  // ── Focus close button after slide-in animation ───────────────────────────
   useEffect(() => {
     if (!isMobileOverlay) return;
     const id = setTimeout(() => closeButtonRef.current?.focus(), 310);
     return () => clearTimeout(id);
   }, [isMobileOverlay]);
 
-  // ── Focus trap (mobile overlay only) ─────────────────────────────────────
   useEffect(() => {
     if (!isMobileOverlay) return;
     function onTab(e: KeyboardEvent) {
@@ -157,7 +139,6 @@ export function Layout({ children }: Props) {
     return () => document.removeEventListener('keydown', onTab);
   }, [isMobileOverlay]);
 
-  // ── Escape key (mobile overlay only) ─────────────────────────────────────
   useEffect(() => {
     if (!isMobileOverlay) return;
     function onEscape(e: KeyboardEvent) {
@@ -167,13 +148,11 @@ export function Layout({ children }: Props) {
     return () => document.removeEventListener('keydown', onEscape);
   }, [isMobileOverlay, closeMobileSidebar]);
 
-  // ── Body scroll lock (mobile overlay only) ───────────────────────────────
   useEffect(() => {
     document.body.style.overflow = isMobileOverlay ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
   }, [isMobileOverlay]);
 
-  // ── Scan progress visibility ──────────────────────────────────────────────
   useEffect(() => {
     if (!scanning) { setProgressVisible(false); return; }
     const el = document.getElementById('scan-progress');
@@ -188,38 +167,53 @@ export function Layout({ children }: Props) {
   const projectPageMatch = location.pathname.match(/^\/projects\/([^/]+)$/);
   const currentProjectId = projectPageMatch?.[1] ?? null;
 
+  const progressPercent = scanState.total > 0
+    ? Math.round((scanState.scanned / scanState.total) * 100)
+    : 0;
+
   // ── Shared sidebar content ────────────────────────────────────────────────
   function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     return (
       <>
-        <nav aria-label="Main navigation" className="flex-1 px-3 py-4 flex flex-col gap-0.5 overflow-y-auto">
-          <NavItem to="/" icon={<IconDashboard />} label="Dashboard" active={onDashboard} onClick={onNavigate} />
-          <NavItem to="/projects" icon={<IconProjects />} label="Projects" active={onProjects} onClick={onNavigate} />
-          {!scanning && (
-            <div className="mt-4 px-1">
-              <button
-                onClick={() => {
-                  onNavigate?.();
-                  navigate('/', { state: { newScan: true, projectId: currentProjectId } });
-                }}
-                className="flex items-center gap-3.5 w-full px-4 py-2.5 rounded-lg text-base font-medium bg-primary text-white hover:bg-primary/85 transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
-              >
-                <IconScan />
-                New Scan
-              </button>
-            </div>
-          )}
+        {/* Logo / brand */}
+        <div className="px-4 py-4">
+          <Link
+            to="/"
+            onClick={onNavigate}
+            className="inline-flex rounded-2xl px-2 py-2 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+          >
+            <SeymourLogo />
+          </Link>
+        </div>
+
+        <nav aria-label="Main navigation" className="flex-1 px-3 flex flex-col gap-1 overflow-y-auto">
+          <NavItem to="/" icon="dashboard" label="Dashboard" active={onDashboard} onClick={onNavigate} />
+          <NavItem to="/projects" icon="folder_open" label="Projects" active={onProjects} onClick={onNavigate} />
         </nav>
 
-        <div className="px-3 pb-4 shrink-0">
+        <div className="px-4 pb-4 flex flex-col gap-2 shrink-0">
+          {!scanning && (
+            <button
+              onClick={() => {
+                onNavigate?.();
+                navigate('/', { state: { newScan: true, projectId: currentProjectId } });
+              }}
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-primary to-primary-container shadow-lg shadow-primary/25 hover:opacity-90 transition-opacity focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              <Icon name="add" className="text-base" />
+              New Scan
+            </button>
+          )}
           <button
             type="button"
-            onClick={() => { onNavigate?.(); setFeatureRequestOpen(true); }}
-            className="flex items-center gap-3.5 w-full px-4 py-2.5 rounded-lg text-sm font-medium text-zinc-400 hover:bg-white/5 hover:text-zinc-200 transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-[-1px] focus-visible:outline-ring"
+            onClick={e => {
+              featureRequestButtonRef.current = e.currentTarget;
+              onNavigate?.();
+              setFeatureRequestOpen(true);
+            }}
+            className="flex items-center gap-3 w-full px-4 py-2.5 rounded-xl text-sm font-medium text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-[-1px] focus-visible:outline-ring"
           >
-            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="18" height="18" aria-hidden="true">
-              <path d="M9 1a8 8 0 1 0 0 16A8 8 0 0 0 9 1zm0 7v4m0-7h.01" />
-            </svg>
+            <Icon name="help_outline" />
             Request a Feature
           </button>
         </div>
@@ -228,31 +222,26 @@ export function Layout({ children }: Props) {
   }
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row bg-background text-foreground">
+    <div className="min-h-screen flex bg-surface text-on-surface">
       {/* Skip link */}
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:z-[60] focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:bg-primary focus:text-primary-foreground focus:rounded focus:outline-none"
+        className="sr-only focus:not-sr-only focus:fixed focus:z-[60] focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:bg-primary focus:text-white focus:rounded-xl focus:outline-none"
       >
         Skip to main content
       </a>
 
-      {/* ── Desktop persistent sidebar (lg+) ── */}
+      {/* ── Desktop persistent sidebar ── */}
       <aside
         aria-label="Main navigation"
-        className="hidden lg:flex flex-col w-64 shrink-0 bg-card border-r border-border min-h-screen"
+        className="hidden lg:flex flex-col w-64 shrink-0 bg-surface-container-low min-h-screen sticky top-0 h-screen overflow-y-auto"
       >
-        <div className="h-14 px-5 flex items-center border-b border-border shrink-0">
-          <Link to="/" className="focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring rounded-sm">
-            <SeymourLogo />
-          </Link>
-        </div>
         <SidebarContent />
       </aside>
 
-      {/* ── Mobile top bar (hidden on lg+) ── */}
+      {/* ── Mobile top bar ── */}
       <header
-        className="lg:hidden sticky top-0 z-30 h-12 flex items-center justify-between px-4 bg-card border-b border-border shrink-0"
+        className="lg:hidden sticky top-0 z-30 h-14 flex items-center justify-between px-4 bg-surface-container-low/90 backdrop-blur-md shrink-0"
         // @ts-expect-error — inert is a valid HTML boolean attribute (React 19)
         inert={isMobileOverlay ? '' : undefined}
       >
@@ -262,21 +251,22 @@ export function Layout({ children }: Props) {
           aria-label="Open navigation menu"
           aria-expanded={mobileSidebarOpen}
           aria-controls="mobile-sidebar"
-          className="h-9 w-9 flex items-center justify-center rounded-md text-zinc-400 hover:text-white hover:bg-white/8 transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+          className="h-10 w-10 flex items-center justify-center rounded-xl text-on-surface-variant hover:bg-surface-container transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
-          <IconHamburger />
+          <Icon name="menu" />
         </button>
-        <div className="w-8" aria-hidden="true" />
+        <span className="text-base font-extrabold text-link tracking-[0.01em]">Seymour</span>
+        <div className="w-10" aria-hidden="true" />
       </header>
 
-      {/* ── Mobile backdrop (hidden on lg+) ── */}
+      {/* ── Mobile backdrop ── */}
       <div
         aria-hidden="true"
         onClick={closeMobileSidebar}
-        className={`lg:hidden fixed inset-0 z-40 bg-black/60 transition-opacity duration-300 ${isMobileOverlay ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        className={`lg:hidden fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity duration-300 ${isMobileOverlay ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
       />
 
-      {/* ── Mobile slide-out sidebar dialog (hidden on lg+) ── */}
+      {/* ── Mobile slide-out sidebar ── */}
       <div
         id="mobile-sidebar"
         ref={sidebarRef}
@@ -284,27 +274,22 @@ export function Layout({ children }: Props) {
         aria-modal={isMobileOverlay ? true : undefined}
         aria-labelledby={isMobileOverlay ? 'mobile-sidebar-title' : undefined}
         className={[
-          'lg:hidden fixed top-0 left-0 bottom-0 z-50 w-72 flex flex-col bg-card border-r border-border',
-          'transform transition-transform duration-300 ease-in-out',
+          'lg:hidden fixed top-0 left-0 bottom-0 z-50 w-72 flex flex-col bg-surface-container-low',
+          'transform transition-transform duration-300 ease-in-out shadow-2xl',
           mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full',
         ].join(' ')}
       >
         <h2 id="mobile-sidebar-title" className="sr-only">Navigation menu</h2>
-
-        <div className="h-14 px-5 flex items-center justify-between border-b border-border shrink-0">
-          <Link to="/" onClick={closeMobileSidebar} className="focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring rounded-sm">
-            <SeymourLogo />
-          </Link>
+        <div className="flex items-center justify-end px-4 pt-4 shrink-0">
           <button
             ref={closeButtonRef}
             onClick={closeMobileSidebar}
             aria-label="Close navigation menu"
-            className="h-8 w-8 flex items-center justify-center rounded-md text-zinc-500 hover:text-white hover:bg-white/8 transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+            className="h-9 w-9 flex items-center justify-center rounded-xl text-on-surface-variant hover:bg-surface-container transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
           >
-            <IconClose />
+            <Icon name="close" />
           </button>
         </div>
-
         <SidebarContent onNavigate={closeMobileSidebar} />
       </div>
 
@@ -313,94 +298,148 @@ export function Layout({ children }: Props) {
         {aborting ? 'Aborting scan…' : ''}
       </span>
 
-      {/* ── Page content (inert on mobile while sidebar overlay is open) ── */}
+      {/* ── Page content ── */}
       <div
         className="flex-1 flex flex-col min-w-0"
         // @ts-expect-error — inert is a valid HTML boolean attribute (React 19)
         inert={isMobileOverlay ? '' : undefined}
       >
-        {/* Floating scan progress pill */}
+        {/* ── Sticky top header ── */}
+        <header className="sticky top-0 z-20 flex items-center justify-between px-8 h-16 bg-white/80 backdrop-blur-md shadow-sm shrink-0">
+          <div className="flex items-center gap-2 text-on-surface-variant">
+            <span className="text-sm font-semibold text-primary">
+              {onDashboard ? 'Audit Dashboard' : onProjects ? 'Projects' : 'Reports'}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1 text-on-surface-variant">
+              <button
+                onClick={() => setFeatureRequestOpen(true)}
+                aria-label="Request a feature"
+                className="p-2 rounded-full hover:bg-surface-container hover:text-primary transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+              >
+                <Icon name="help_outline" />
+              </button>
+            </div>
+            <div className="h-6 w-px bg-outline-variant" aria-hidden="true" />
+            {!scanning ? (
+              <button
+                onClick={() => navigate('/', { state: { newScan: true, projectId: currentProjectId } })}
+                className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold text-white bg-gradient-to-r from-primary to-primary-container shadow-lg shadow-primary/25 hover:opacity-90 transition-opacity focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+              >
+                <Icon name="biotech" className="text-base" />
+                Start New Scan
+              </button>
+            ) : (
+              <span className="flex items-center gap-2 text-sm text-on-surface-variant">
+                <span className="h-2 w-2 rounded-full bg-primary animate-pulse" aria-hidden="true" />
+                Scanning…
+              </span>
+            )}
+          </div>
+        </header>
+
+        {/* ── Floating scan progress pill ── */}
         {scanning && (
           <div
             role="status"
             aria-live="polite"
             aria-atomic="true"
             className={[
-              'fixed top-14 lg:top-4 left-1/2 -translate-x-1/2 z-20',
-              'flex items-center gap-1 rounded-full',
-              'bg-background/70 backdrop-blur-md border border-primary/30 shadow-lg shadow-black/20',
-              'transition-all duration-300 ease-out',
+              'fixed top-20 left-1/2 -translate-x-1/2 z-30',
+              'glass-panel flex items-center gap-4 px-5 py-3 rounded-full',
+              'shadow-[0px_12px_32px_rgba(0,0,0,0.12)] border border-white/30',
+              'transition-all duration-300',
               !progressVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none',
             ].join(' ')}
           >
+            {/* Circular progress indicator */}
+            <div className="relative w-9 h-9 shrink-0" aria-hidden="true">
+              <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
+                <circle
+                  className="text-surface-container-highest"
+                  cx="18" cy="18" r="16"
+                  fill="transparent"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                />
+                <circle
+                  className="text-primary transition-all duration-500"
+                  cx="18" cy="18" r="16"
+                  fill="transparent"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeDasharray="100.5"
+                  strokeDashoffset={100.5 - (progressPercent / 100) * 100.5}
+                  strokeLinecap="round"
+                />
+              </svg>
+              {scanState.total > 0 && (
+                <div className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-primary">
+                  {progressPercent}%
+                </div>
+              )}
+            </div>
+
             <button
               type="button"
               onClick={() => { if (onDashboard) window.scrollTo({ top: 0, behavior: 'smooth' }); else navigate('/'); }}
               aria-label="View scan progress details"
-              className="flex items-center gap-3 px-4 py-2.5 rounded-full hover:bg-primary/10 transition-colors"
+              className="flex flex-col text-left hover:opacity-80 transition-opacity"
             >
-              <div className="h-2 w-2 rounded-full bg-primary animate-pulse shrink-0" aria-hidden="true" />
-              <span className="text-base text-foreground whitespace-nowrap">
-                {aborting ? 'Aborting…' : (
-                  <>
-                    {scanState.phase === 'crawling' && 'Discovering pages…'}
-                    {scanState.phase === 'scanning' && scanState.total > 0 && `Scanning ${scanState.scanned} / ${scanState.total}`}
-                    {scanState.phase === 'scanning' && scanState.total === 0 && 'Scanning…'}
-                    {!scanState.phase && 'Starting scan…'}
-                  </>
-                )}
+              <span className="text-xs font-bold text-on-surface">
+                {aborting ? 'Aborting…' : 'Scan in Progress'}
               </span>
-              <span className="text-xs text-muted-foreground font-mono shrink-0">{formatElapsed(elapsed)}</span>
+              <span className="text-[10px] text-on-surface-variant">
+                {scanState.phase === 'scanning' && scanState.total > 0
+                  ? `${scanState.scanned} / ${scanState.total} pages · ${formatElapsed(elapsed)}`
+                  : scanState.phase === 'crawling'
+                    ? `Discovering pages · ${formatElapsed(elapsed)}`
+                    : `Starting · ${formatElapsed(elapsed)}`}
+              </span>
             </button>
-            {!onDashboard && <Link to="/" className="text-xs text-link hover:underline shrink-0">View</Link>}
-            {!onDashboard && <div className="w-px h-4 bg-border shrink-0" aria-hidden="true" />}
+
+            {!onDashboard && (
+              <Link to="/" className="text-xs text-primary hover:underline shrink-0 font-medium">
+                View
+              </Link>
+            )}
+
             {!aborting && (
               <button
                 type="button"
                 onClick={() => abortScan()}
                 aria-label="Abort current scan"
-                className="text-xs text-muted-foreground hover:text-destructive transition-colors shrink-0 pr-4 py-2.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
+                className="w-8 h-8 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-error-container hover:text-on-error-container transition-colors shrink-0 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
               >
-                Abort
+                <Icon name="close" className="text-base" />
               </button>
             )}
           </div>
         )}
 
         <main id="main-content" className="flex-1" tabIndex={-1}>
-          {/* Content header with New Scan action */}
-          <div className="sticky top-0 lg:top-0 z-10 flex items-center justify-end px-6 py-3 border-b border-border bg-background/80 backdrop-blur-sm">
-            {!scanning ? (
-              <button
-                onClick={() => navigate('/', { state: { newScan: true, projectId: currentProjectId } })}
-                className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg text-base font-medium bg-primary text-white hover:bg-primary/85 transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
-              >
-                <IconScan />
-                New Scan
-              </button>
-            ) : (
-              <span className="text-xs text-muted-foreground flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" aria-hidden="true" />
-                Scan in progress
-              </span>
-            )}
-          </div>
-          <div className="p-6">
+          <div className="p-8">
             {children}
           </div>
         </main>
 
-        <footer className="border-t border-border py-3 px-6 shrink-0">
-          <p className="text-xs text-muted-foreground">Seymour — powered by axe-core</p>
+        <footer className="py-4 px-8 shrink-0">
+          <p className="text-xs text-outline">Seymour — powered by axe-core · WCAG 2.2 A/AA/AAA</p>
         </footer>
       </div>
 
       {/* ── Feature Request modal ── */}
-      <FeatureRequestModal open={featureRequestOpen} onClose={() => setFeatureRequestOpen(false)} />
+      <FeatureRequestModal
+        open={featureRequestOpen}
+        onClose={() => setFeatureRequestOpen(false)}
+        restoreFocusRef={featureRequestButtonRef}
+      />
 
       {/* ── Scan complete dialog ── */}
       <Dialog open={!!completedReportId} onOpenChange={open => { if (!open) clearCompletedReport(); }}>
-        <DialogContent>
+        <DialogContent onCloseAutoFocus={handleCompletedScanCloseAutoFocus}>
           <DialogHeader>
             <DialogTitle>Scan complete</DialogTitle>
             <DialogDescription>

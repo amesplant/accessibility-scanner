@@ -1,6 +1,8 @@
 import { useId, useState } from 'react';
 import { ScanReport } from '@accessibility-scanner/shared';
-import { Download } from 'lucide-react';
+function Download({ className = '' }: { className?: string }) {
+  return <span className={`material-symbols-outlined leading-none select-none ${className}`} aria-hidden="true">download</span>;
+}
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';

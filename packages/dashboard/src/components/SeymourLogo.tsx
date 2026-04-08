@@ -35,7 +35,7 @@ export function SeymourLogo() {
         </g>
       </svg>
 
-      <span className="text-2xl font-light text-white tracking-wide leading-none">
+      <span className="text-2xl font-semibold text-link tracking-wide leading-none">
         Seymour
       </span>
     </div>

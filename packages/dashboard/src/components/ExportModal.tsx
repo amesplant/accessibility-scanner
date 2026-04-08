@@ -8,7 +8,9 @@ import {
   exportFailureAsTeamworkXlsx,
   exportFailureAsJiraCsv,
 } from '@/lib/manualExport';
-import { Download } from 'lucide-react';
+function Download({ className = '' }: { className?: string }) {
+  return <span className={`material-symbols-outlined leading-none select-none ${className}`} aria-hidden="true">download</span>;
+}
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -30,6 +32,7 @@ import {
 } from '@/components/ui/dialog';
 import { useExport, EXPORT_FORMAT_LABELS } from '@/hooks/useExport';
 import { useCurrentReport } from '@/context/CurrentReportContext';
+import { useRestoreFocus } from '@/hooks/useRestoreFocus';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -130,6 +133,8 @@ export function ExportModal({ report, onClose, singleIssue }: ExportModalProps) 
   const [fileName, setFileName] = useState('');
 
   const isSingleIssue = !!singleIssue;
+  const isOpen = isSingleIssue ? true : !!report;
+  const { handleCloseAutoFocus } = useRestoreFocus(isOpen);
 
   // Reset fields when modal opens
   useEffect(() => {
@@ -177,7 +182,6 @@ export function ExportModal({ report, onClose, singleIssue }: ExportModalProps) 
     onClose();
   }
 
-  const isOpen = isSingleIssue ? true : !!report;
   const dialogTitle = isSingleIssue ? 'Export Issue' : 'Export Report';
   const dialogDesc = isSingleIssue
     ? singleIssueDescription(singleIssue!)
@@ -186,7 +190,10 @@ export function ExportModal({ report, onClose, singleIssue }: ExportModalProps) 
   return (
     <Dialog open={isOpen} onOpenChange={open => { if (!open) onClose(); }}>
       {/* p-0 + overflow-hidden so the scrollbar stays inside the rounded border */}
-      <DialogContent className="text-foreground flex flex-col max-h-[90dvh] overflow-hidden p-0">
+      <DialogContent
+        className="text-foreground flex flex-col max-h-[90dvh] overflow-hidden p-0"
+        onCloseAutoFocus={handleCloseAutoFocus}
+      >
         <div className="px-6 pt-6 pb-4 border-b border-border">
           <DialogHeader>
             <DialogTitle>{dialogTitle}</DialogTitle>

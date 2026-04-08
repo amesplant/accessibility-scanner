@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 @theme {
+  /* ── shadcn-compat tokens (resolved via CSS vars below) ── */
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
   --color-card: hsl(var(--card));
@@ -30,74 +31,105 @@
   --border-radius-lg: var(--radius);
   --border-radius-md: calc(var(--radius) - 2px);
   --border-radius-sm: calc(var(--radius) - 4px);
+
+  /* ── MD3 surface hierarchy ── */
+  --color-surface: #f7f9ff;
+  --color-surface-bright: #f7f9ff;
+  --color-surface-dim: #d7dae0;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f1f4fa;
+  --color-surface-container: #ebeef4;
+  --color-surface-container-high: #e5e8ee;
+  --color-surface-container-highest: #dfe3e8;
+
+  /* ── MD3 on-surface ── */
+  --color-on-surface: #181c20;
+  --color-on-surface-variant: #40484e;
+  --color-inverse-surface: #2d3135;
+  --color-inverse-on-surface: #eef1f7;
+
+  /* ── MD3 primary ── */
+  --color-primary-md: #5b54e8;
+  --color-primary-container: #7438da;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #f5edff;
+  --color-primary-fixed: #e8e0ff;
+  --color-primary-fixed-dim: #b8a9ff;
+  --color-on-primary-fixed: #201044;
+  --color-on-primary-fixed-variant: #5326bc;
+  --color-inverse-primary: #c9bcff;
+
+  /* ── MD3 secondary ── */
+  --color-secondary-md: #006a6a;
+  --color-secondary-container: #9deeed;
+  --color-on-secondary: #ffffff;
+  --color-on-secondary-container: #0b6e6e;
+  --color-secondary-fixed: #a0f0f0;
+  --color-secondary-fixed-dim: #84d4d3;
+  --color-on-secondary-fixed: #002020;
+  --color-on-secondary-fixed-variant: #004f4f;
+
+  /* ── MD3 tertiary (AI / insight) ── */
+  --color-tertiary: #600096;
+  --color-tertiary-container: #8200c9;
+  --color-on-tertiary: #ffffff;
+  --color-on-tertiary-container: #e4b9ff;
+  --color-tertiary-fixed: #f3daff;
+  --color-tertiary-fixed-dim: #e3b5ff;
+  --color-on-tertiary-fixed: #2f004c;
+  --color-on-tertiary-fixed-variant: #6e00ab;
+
+  /* ── MD3 error ── */
+  --color-error-md: #ba1a1a;
+  --color-error-container: #ffdad6;
+  --color-on-error: #ffffff;
+  --color-on-error-container: #93000a;
+
+  /* ── MD3 outline ── */
+  --color-outline: #70787e;
+  --color-outline-variant: #c0c7ce;
+
+  /* ── MD3 surface-tint ── */
+  --color-surface-tint: #5b54e8;
+  --color-surface-variant: #dfe3e8;
 }
 
 @layer base {
   :root {
-    /* dark-themed default colors */
-    --background: 0 0% 0%;           /* pure black */
-    --foreground: 0 0% 100%;         /* white */
-    --card: 0 0% 5%;
-    --card-foreground: 0 0% 100%;
-    --popover: 0 0% 5%;
-    --popover-foreground: 0 0% 100%;
-    --primary: 247 100% 68%;         /* Fueled brand purple #6E5BFF */
+    /* Light theme — Seymour/Fueled purple palette */
+    --background: 226 100% 98%;    /* #f7f9ff */
+    --foreground: 209 14% 11%;     /* #181c20 */
+    --card: 0 0% 100%;             /* #ffffff */
+    --card-foreground: 209 14% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 209 14% 11%;
+    --primary: 243 76% 62%;        /* #5b54e8 */
     --primary-foreground: 0 0% 100%;
-    --secondary: 247 82% 57%;        /* Fueled darker purple #4d38ec */
+    --secondary: 180 100% 21%;     /* #006a6a */
     --secondary-foreground: 0 0% 100%;
-    --muted: 0 0% 10%;
-    --muted-foreground: 0 0% 76%;
-    --accent: 247 100% 68%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 84.2% 40%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 40%;  /* ≥3:1 against black bg (WCAG 1.4.11) */
-    --input: 0 0% 45%;   /* ≥3:1 against black bg (WCAG 1.4.11) */
-    --ring: 247 100% 68%;
-    --link: 247 100% 78%;
-    --chart-1: 280 65% 60%;
-    --chart-2: 320 75% 55%;
-    --chart-3: 340 70% 50%;
-    --chart-4: 260 80% 60%;
-    --chart-5: 290 70% 55%;
-    --radius: 0.5rem
-  }
-  .dark {
-    /* explicit dark class matching same scheme */
-    --background: 0 0% 0%;
-    --foreground: 0 0% 100%;
-    --card: 0 0% 5%;
-    --card-foreground: 0 0% 100%;
-    --popover: 0 0% 5%;
-    --popover-foreground: 0 0% 100%;
-    --primary: 247 100% 68%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 247 82% 57%;
-    --secondary-foreground: 0 0% 100%;
-    --muted: 0 0% 10%;
-    --muted-foreground: 0 0% 76%;
-    --accent: 247 100% 68%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 40%;  /* ≥3:1 against black bg (WCAG 1.4.11) */
-    --input: 0 0% 45%;   /* ≥3:1 against black bg (WCAG 1.4.11) */
-    --ring: 247 100% 68%;
-    --link: 247 100% 78%;
-    --chart-1: 280 65% 60%;
-    --chart-2: 320 75% 55%;
-    --chart-3: 340 70% 50%;
-    --chart-4: 260 80% 60%;
-    --chart-5: 290 70% 55%
+    --muted: 221 29% 94%;          /* #ebeef4 */
+    --muted-foreground: 206 10% 28%; /* #40484e */
+    --accent: 220 43% 96%;         /* #f1f4fa */
+    --accent-foreground: 209 14% 11%;
+    --destructive: 0 75% 42%;      /* #ba1a1a */
+    --destructive-foreground: 0 0% 100%;
+    --border: 211 13% 78%;         /* #c0c7ce */
+    --input: 211 13% 78%;
+    --ring: 243 76% 62%;           /* #5b54e8 */
+    --link: 258 69% 54%;           /* #7438da */
+    --chart-1: 180 100% 21%;       /* secondary teal */
+    --chart-2: 243 76% 62%;        /* primary purple */
+    --chart-3: 278 100% 29%;       /* tertiary purple */
+    --chart-4: 0 75% 42%;          /* error red */
+    --chart-5: 254 100% 83%;       /* primary-fixed-dim */
+    --radius: 0.75rem
   }
 }
 
 @layer base {
-  /* Base font size — 112.5% = 18px at the default browser 16px root.
-     Using % rather than px respects user browser font-size preferences. */
   html {
-    font-size: 112.5%;
-    font-family: 'Aeonik', system-ui, -apple-system, sans-serif;
+    font-size: 100%;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
   }
 
   /* WCAG 1.4.12 — minimum line-height of 1.5× font size */
@@ -111,20 +143,36 @@
   input[type="button"],
   input[type="submit"],
   input[type="reset"] {
-    min-height: 1.5rem; /* 24px */
-    min-width:  1.5rem; /* 24px */
+    min-height: 1.5rem;
+    min-width:  1.5rem;
   }
 }
 
-/* WCAG 2.4.13 AAA — focus indicator: ≥ 3 CSS px, 3:1 contrast against adjacent colours.
-   Placed outside @layer so it takes precedence over Tailwind utility layers. */
+/* Material Symbols base style */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  font-size: 1.25rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Glass panel utility */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+/* WCAG 2.4.13 AAA — focus indicator */
 :focus-visible {
   outline: 3px solid hsl(var(--ring));
   outline-offset: 2px;
 }
 
-/* WCAG 2.3.3 AAA — Animation from Interactions: respect prefers-reduced-motion.
-   Suppresses all CSS transitions and animations for users who opt out of motion. */
+/* WCAG 2.3.3 AAA — respect prefers-reduced-motion */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

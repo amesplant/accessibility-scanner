@@ -1,4 +1,4 @@
-import { useId, useRef, useState, useEffect } from 'react';
+import { useId, useRef, useState, useEffect, type RefObject } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { X, Upload, CheckCircle2 } from 'lucide-react';
+import { useRestoreFocus } from '@/hooks/useRestoreFocus';
+function X({ className = '' }: { className?: string }) {
+  return <span className={`material-symbols-outlined leading-none select-none ${className}`} aria-hidden="true">close</span>;
+}
+function Upload({ className = '' }: { className?: string }) {
+  return <span className={`material-symbols-outlined leading-none select-none ${className}`} aria-hidden="true">upload</span>;
+}
+function CheckCircle2({ className = '' }: { className?: string }) {
+  return <span className={`material-symbols-outlined leading-none select-none ${className}`} aria-hidden="true" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>;
+}
 
 interface ImageAttachment {
   filename: string;
@@ -22,14 +31,16 @@ interface ImageAttachment {
 interface FeatureRequestModalProps {
   open: boolean;
   onClose: () => void;
+  restoreFocusRef?: RefObject<HTMLElement | null>;
 }
 
-export function FeatureRequestModal({ open, onClose }: FeatureRequestModalProps) {
+export function FeatureRequestModal({ open, onClose, restoreFocusRef }: FeatureRequestModalProps) {
   const id = useId();
   const nameId = `${id}-name`;
   const requestId = `${id}-request`;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
+  const { handleCloseAutoFocus } = useRestoreFocus(open, restoreFocusRef);
 
   const [tokenConfigured, setTokenConfigured] = useState<boolean | null>(null);
 
@@ -112,7 +123,10 @@ export function FeatureRequestModal({ open, onClose }: FeatureRequestModalProps)
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="text-foreground flex flex-col max-h-[90dvh] overflow-hidden p-0 sm:max-w-lg">
+      <DialogContent
+        className="text-foreground flex flex-col max-h-[90dvh] overflow-hidden p-0 sm:max-w-lg"
+        onCloseAutoFocus={handleCloseAutoFocus}
+      >
         <div className="px-6 pt-6 pb-4 border-b border-border shrink-0">
           <DialogHeader>
             <DialogTitle>Request a Feature</DialogTitle>

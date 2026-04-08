@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { useRestoreFocus } from '@/hooks/useRestoreFocus';
 
 interface EditProjectDialogProps {
   open: boolean;
@@ -24,6 +25,7 @@ export function EditProjectDialog({ open, project, onClose, onSave }: EditProjec
   const [description, setDescription] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { handleCloseAutoFocus } = useRestoreFocus(open);
 
   useEffect(() => {
     if (project) {
@@ -50,7 +52,7 @@ export function EditProjectDialog({ open, project, onClose, onSave }: EditProjec
 
   return (
     <Dialog open={open} onOpenChange={open => { if (!open) onClose(); }}>
-      <DialogContent className="text-foreground">
+      <DialogContent className="text-foreground" onCloseAutoFocus={handleCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>Edit Project</DialogTitle>
           <DialogDescription>Update the project name or description.</DialogDescription>

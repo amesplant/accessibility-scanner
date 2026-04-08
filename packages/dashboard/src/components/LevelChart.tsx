@@ -12,10 +12,10 @@ const patterns: Record<string, string> = {
 };
 
 const colors: Record<string, string> = {
-  A: '#2563eb',
-  AA: '#059669',
-  AAA: '#8b5cf6',
-  'best-practice': '#6b7280',
+  A: '#5b54e8',
+  AA: '#006a6a',
+  AAA: '#7438da',
+  'best-practice': '#70787e',
 };
 
 export function LevelChart({ data }: LevelChartProps) {
@@ -43,7 +43,7 @@ export function LevelChart({ data }: LevelChartProps) {
           return (
             <div key={d.level} className="flex items-center">
               <span className="w-24 text-base font-medium">{levelLabel(d.level)}</span>
-              <div className="flex-1 ml-2 h-6 rounded bg-muted/30">
+              <div className="flex-1 ml-2 h-6 rounded bg-surface-container-high">
                 <div
                   className="h-full rounded"
                   style={{

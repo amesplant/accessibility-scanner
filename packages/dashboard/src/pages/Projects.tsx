@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { FolderOpen, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useProjects } from '@/hooks/useProjects';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,7 +14,16 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { EditProjectDialog } from '@/components/EditProjectDialog';
+import { useRestoreFocus } from '@/hooks/useRestoreFocus';
 import type { ProjectWithCount } from '@/hooks/useProjects';
+
+function Icon({ name, className }: { name: string; className?: string }) {
+  return (
+    <span className={['material-symbols-outlined', className].filter(Boolean).join(' ')} aria-hidden="true">
+      {name}
+    </span>
+  );
+}
 
 export function Projects() {
   const { projects, loading, error, createProject, deleteProject, updateProject } = useProjects();
@@ -26,6 +34,8 @@ export function Projects() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<ProjectWithCount | null>(null);
+  const { handleCloseAutoFocus: handleCreateCloseAutoFocus } = useRestoreFocus(showCreate);
+  const { handleCloseAutoFocus: handleDeleteCloseAutoFocus } = useRestoreFocus(!!pendingDeleteId);
 
   useEffect(() => { document.title = 'Seymour — Projects'; }, []);
 
@@ -55,88 +65,135 @@ export function Projects() {
   const pendingProject = projects.find(p => p.id === pendingDeleteId);
 
   return (
-    <div className="container mx-auto p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">Projects</h1>
-        <Button onClick={() => setShowCreate(true)}>
-          <Plus className="h-4 w-4 mr-1.5" aria-hidden="true" />
+    <div>
+      {/* Page header */}
+      <div className="flex items-start justify-between mb-8">
+        <div>
+          <h1 className="text-3xl font-extrabold text-on-surface tracking-tight mb-1">Active Engagements</h1>
+          <p className="text-on-surface-variant text-sm">
+            Manage your accessibility audits and track progress across client engagements.
+          </p>
+        </div>
+        <Button
+          onClick={() => setShowCreate(true)}
+          className="flex items-center gap-2 bg-gradient-to-r from-primary to-primary-container text-white rounded-full px-5 py-2.5 font-semibold shadow-lg shadow-primary/20 hover:opacity-90 transition-opacity border-0"
+        >
+          <Icon name="add" className="text-base" />
           New Project
         </Button>
       </div>
 
-      {loading && <p className="text-muted-foreground">Loading…</p>}
-      {error && <p className="text-destructive">{error}</p>}
-
-      {!loading && projects.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-24 text-center text-muted-foreground gap-3">
-          <FolderOpen className="h-12 w-12 opacity-30" aria-hidden="true" />
-          <p className="text-lg font-medium">No projects yet</p>
-          <p className="text-base">Create a project to group related scans together.</p>
-          <Button variant="outline" onClick={() => setShowCreate(true)} className="mt-2">
-            <Plus className="h-4 w-4 mr-1.5" aria-hidden="true" />
-            New Project
-          </Button>
+      {loading && (
+        <div className="flex items-center gap-2 text-on-surface-variant py-8">
+          <Icon name="sync" className="animate-spin" />
+          <span>Loading projects…</span>
         </div>
       )}
+      {error && (
+        <p role="alert" className="text-destructive mb-6">{error}</p>
+      )}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {/* Project grid */}
+      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {projects.map(project => (
           <div
             key={project.id}
-            className="rounded-xl border border-border bg-card shadow-sm flex flex-col"
+            className="bg-surface-container-lowest rounded-2xl p-6 shadow-[0px_12px_32px_rgba(24,28,32,0.04)] hover:shadow-lg transition-shadow group flex flex-col gap-4"
           >
-            <div className="p-5 flex-1">
-              <div className="flex items-start justify-between gap-2 mb-1">
-                <Link
-                  to={`/projects/${project.id}`}
-                  className="text-base font-semibold hover:underline leading-snug"
-                >
-                  {project.name}
-                </Link>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setEditingProject(project)}
-                    aria-label={`Edit project ${project.name}`}
-                    className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                  >
-                    <Pencil className="h-4 w-4" aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPendingDeleteId(project.id)}
-                    aria-label={`Delete project ${project.name}`}
-                    className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                  >
-                    <Trash2 className="h-4 w-4" aria-hidden="true" />
-                  </button>
-                </div>
+            {/* Card header */}
+            <div className="flex items-start justify-between gap-2">
+              <div className="w-10 h-10 rounded-xl bg-surface-container-low flex items-center justify-center shrink-0">
+                <Icon name="folder_open" className="text-primary" />
               </div>
-              {project.description && (
-                <p className="text-base text-muted-foreground mb-3">{project.description}</p>
-              )}
-              <p className="text-xs text-muted-foreground">
-                Created {new Date(project.createdAt).toLocaleDateString()}
-              </p>
+              <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  type="button"
+                  onClick={() => setEditingProject(project)}
+                  aria-label={`Edit project ${project.name}`}
+                  className="p-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                >
+                  <Icon name="edit" className="text-base" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPendingDeleteId(project.id)}
+                  aria-label={`Delete project ${project.name}`}
+                  className="p-1.5 rounded-lg text-on-surface-variant hover:text-destructive hover:bg-error-container transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                >
+                  <Icon name="delete" className="text-base" />
+                </button>
+              </div>
             </div>
-            <div className="px-5 py-3 border-t border-border flex items-center justify-between">
-              <span className="text-base text-muted-foreground">
-                {project.reportCount} {project.reportCount === 1 ? 'report' : 'reports'}
-              </span>
+
+            {/* Card body */}
+            <div className="flex-1">
               <Link
                 to={`/projects/${project.id}`}
-                className="text-base text-link hover:underline"
+                className="text-base font-bold text-on-surface hover:text-primary transition-colors leading-snug focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring rounded"
               >
-                View reports →
+                {project.name}
               </Link>
+              {project.description && (
+                <p className="text-xs text-on-surface-variant mt-1 leading-relaxed line-clamp-2">{project.description}</p>
+              )}
             </div>
+
+            {/* Card footer */}
+            <div className="flex items-center justify-between pt-2 border-t border-surface-container-high">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Reports</p>
+                <p className="text-lg font-bold text-on-surface">{project.reportCount}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Created</p>
+                <p className="text-xs text-on-surface-variant">{new Date(project.createdAt).toLocaleDateString()}</p>
+              </div>
+            </div>
+
+            <Link
+              to={`/projects/${project.id}`}
+              className="flex items-center justify-center gap-1.5 w-full py-2 rounded-xl text-xs font-semibold text-primary bg-surface-container-low hover:bg-primary-fixed transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+              View reports
+              <Icon name="arrow_forward" className="text-sm" />
+            </Link>
           </div>
         ))}
+
+        {/* "Start New Project" empty card */}
+        {!loading && (
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            className="flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-outline-variant p-8 text-on-surface-variant hover:border-primary hover:text-primary hover:bg-primary-fixed/30 transition-all focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+          >
+            <span className="w-12 h-12 rounded-xl bg-surface-container-low flex items-center justify-center">
+              <Icon name="add" className="text-2xl" />
+            </span>
+            <div className="text-center">
+              <p className="text-sm font-semibold">Start New Project</p>
+              <p className="text-xs mt-0.5">Add a new client or platform to the dashboard</p>
+            </div>
+          </button>
+        )}
       </div>
+
+      {/* Empty state */}
+      {!loading && projects.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-20 text-center gap-4">
+          <div className="w-16 h-16 rounded-2xl bg-surface-container-low flex items-center justify-center">
+            <Icon name="folder_open" className="text-3xl text-on-surface-variant" />
+          </div>
+          <div>
+            <p className="text-lg font-bold text-on-surface mb-1">No projects yet</p>
+            <p className="text-sm text-on-surface-variant">Create a project to group related scans together.</p>
+          </div>
+        </div>
+      )}
 
       {/* Create project dialog */}
       <Dialog open={showCreate} onOpenChange={open => { if (!open) { setShowCreate(false); setNewName(''); setNewDescription(''); setCreateError(null); } }}>
-        <DialogContent className="text-foreground">
+        <DialogContent className="text-on-surface" onCloseAutoFocus={handleCreateCloseAutoFocus}>
           <DialogHeader>
             <DialogTitle>New Project</DialogTitle>
             <DialogDescription>Group related scans under a shared project.</DialogDescription>
@@ -153,14 +210,14 @@ export function Projects() {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="project-description">Description <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                <Label htmlFor="project-description">Description <span className="text-on-surface-variant font-normal">(optional)</span></Label>
                 <Input
                   id="project-description"
                   value={newDescription}
                   onChange={e => setNewDescription(e.target.value)}
                 />
               </div>
-              {createError && <p className="text-base text-destructive">{createError}</p>}
+              {createError && <p role="alert" className="text-sm text-destructive">{createError}</p>}
             </div>
             <DialogFooter className="gap-2 mt-4">
               <DialogClose asChild>
@@ -183,7 +240,7 @@ export function Projects() {
 
       {/* Delete confirmation dialog */}
       <Dialog open={!!pendingDeleteId} onOpenChange={open => { if (!open) setPendingDeleteId(null); }}>
-        <DialogContent className="text-foreground">
+        <DialogContent className="text-on-surface" onCloseAutoFocus={handleDeleteCloseAutoFocus}>
           <DialogHeader>
             <DialogTitle>Delete Project</DialogTitle>
             <DialogDescription>
