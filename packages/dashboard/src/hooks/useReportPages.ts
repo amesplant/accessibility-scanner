@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ScanReport } from '@accessibility-scanner/shared';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, readApiError, toApiErrorMessage } from '@/lib/api';
 
 type ReportPage = ScanReport['results'][number];
 
@@ -24,15 +24,16 @@ export function useReportPages(reportId: string | undefined, pageSize = 25) {
     setLoading(true);
     const offset = (page - 1) * pageSize;
     apiFetch(`/api/reports/${reportId}/pages?offset=${offset}&limit=${pageSize}`)
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to fetch pages');
+      .then(async (res) => {
+        if (!res.ok) throw await readApiError(res, 'Failed to fetch pages');
         return res.json();
       })
       .then(data => {
         setPages(data.items ?? []);
         setTotal(data.total ?? 0);
+        setError(null);
       })
-      .catch(err => setError(err instanceof Error ? err.message : 'Failed to fetch pages'))
+      .catch(err => setError(toApiErrorMessage(err, 'Failed to fetch pages')))
       .finally(() => setLoading(false));
   }, [reportId, pageSize, page]);
 

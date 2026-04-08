@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ScanReport } from '@accessibility-scanner/shared';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, readApiError, toApiErrorMessage } from '@/lib/api';
 
 export type ReportSummary = Omit<ScanReport, 'results'> & {
   summary: ScanReport['summary'] & {
@@ -22,12 +22,12 @@ export function useReport(id: string | undefined) {
 
     setLoading(true);
     apiFetch(`/api/reports/${id}/summary`)
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to fetch report');
+      .then(async res => {
+        if (!res.ok) throw await readApiError(res, 'Failed to fetch report');
         return res.json();
       })
       .then(setReport)
-      .catch(err => setError(err.message))
+      .catch(err => setError(toApiErrorMessage(err, 'Failed to fetch report')))
       .finally(() => setLoading(false));
   }, [id]);
 

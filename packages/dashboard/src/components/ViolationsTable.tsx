@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Pagination } from '@/components/ui/pagination';
+import { ViewLayoutToggle, type ViewLayout } from '@/components/ViewLayoutToggle';
 import { useViolationGroups } from '@/hooks/useViolationGroups';
 
 interface ViolationsTableProps {
@@ -36,17 +38,22 @@ function TypeBadge({ kind }: { kind: 'automated' | 'manual' }) {
 
 export function ViolationsTable({ reportId }: ViolationsTableProps) {
   const { items, total, loading, error, page, setPage, totalPages } = useViolationGroups(reportId);
+  const [layout, setLayout] = useState<ViewLayout>('list');
 
   if (loading) return <div className="text-sm text-on-surface-variant py-4">Loading violations…</div>;
   if (error) return <div className="text-sm text-error py-4">{error}</div>;
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-xs text-on-surface-variant">
-        <span>Page {page} of {totalPages} — {total} violation groups</span>
-        <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-2 text-xs text-on-surface-variant sm:flex-row sm:items-center">
+          <span>Page {page} of {totalPages} — {total} violation groups</span>
+          <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
+        </div>
+        <ViewLayoutToggle value={layout} onChange={setLayout} ariaLabel="Violation groups layout" />
       </div>
 
+      {layout === 'list' ? (
       <div className="overflow-hidden rounded-xl border border-outline-variant/10">
         <table className="w-full text-left" aria-label="Accessibility violations grouped by type">
           <thead>
@@ -114,6 +121,61 @@ export function ViolationsTable({ reportId }: ViolationsTableProps) {
           </tbody>
         </table>
       </div>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {items.map(item => {
+            const title = item.kind === 'automated' ? item.violation.help : item.title;
+            const level = item.kind === 'automated' ? item.violation.level || '—' : item.level ?? '—';
+            const identifier = item.kind === 'automated' ? item.violation.id : item.wcagCriterion ?? 'Custom issue';
+            const destination = item.kind === 'automated'
+              ? `/reports/${reportId}/violation/${item.violation.id}`
+              : `/reports/${reportId}/page/${item.firstPageId}`;
+
+            return (
+              <div
+                key={item.kind === 'automated' ? `auto-${item.violation.id}` : `manual-${item.checkId}`}
+                className="rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-5 shadow-[0px_12px_32px_rgba(24,28,32,0.04)]"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold leading-snug text-on-surface">{title}</p>
+                    <p className="mt-1 text-xs font-mono text-on-surface-variant">{identifier}</p>
+                  </div>
+                  <TypeBadge kind={item.kind} />
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <ImpactBadge impact={item.impact} />
+                  <span className="inline-flex items-center rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-on-surface-variant">
+                    {level}
+                  </span>
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-surface-container-low p-4 text-sm">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Occurrences</p>
+                    <p className="mt-1 font-semibold text-on-surface">{item.count}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Pages</p>
+                    <p className="mt-1 font-semibold text-on-surface">{item.pageCount}</p>
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <Link
+                    to={destination}
+                    state={item.kind === 'manual' ? { tab: 'manual' } : undefined}
+                    className="inline-flex h-10 items-center rounded-xl bg-primary px-4 text-xs font-semibold text-white whitespace-nowrap hover:opacity-90 transition-opacity focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                  >
+                    Details
+                  </Link>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

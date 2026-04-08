@@ -127,6 +127,8 @@ export interface ScanResult {
   passes: number;
   incomplete: number;
   inapplicable: number;
+  passRules?: AxeRuleResult[];
+  incompleteRules?: AxeRuleResult[];
   manualAudit?: ManualAudit;
   detectedElements?: DetectedCriteriaElements;
 }
@@ -153,8 +155,43 @@ export interface ViolationNode {
   html: string;
   target: string[];
   failureSummary: string;
+  status?: 'pass' | 'fail';
+  scope?: FailureScope;
+  impact?: 'minor' | 'moderate' | 'serious' | 'critical';
+  title?: string;
+  notes?: string;
+  codeSnippet?: string;
   screenshotDataUrl?: string;
+  remediationRecommendation?: string;
+  assignedTo?: RemediationAssignee[];
+  relatedCriteria?: string[];
+  relatedCriteriaNotes?: Record<string, string>;
   overrideStatus?: 'pass' | 'fail';
+}
+
+export interface AxeRuleNode {
+  html: string;
+  target: string[];
+  failureSummary?: string;
+}
+
+export interface AxeRuleResult {
+  id: string;
+  impact?: 'minor' | 'moderate' | 'serious' | 'critical';
+  description: string;
+  help: string;
+  helpUrl: string;
+  tags: string[];
+  level?: 'A' | 'AA' | 'AAA' | 'best-practice';
+  nodes: AxeRuleNode[];
+}
+
+export type ReportIntegrityStatus = 'corrupted' | 'recovered';
+
+export interface ReportIntegrity {
+  status: ReportIntegrityStatus;
+  message?: string;
+  recoveredAt?: string;
 }
 
 export interface ScanReport {
@@ -167,6 +204,7 @@ export interface ScanReport {
   wcagLevel?: 'A' | 'AA' | 'AAA';
   includeBestPractices?: boolean;
   projectId?: string;
+  integrity?: ReportIntegrity;
   results: ScanResult[];
   summary: {
     totalPages: number;

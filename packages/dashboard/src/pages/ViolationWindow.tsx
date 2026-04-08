@@ -1,6 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useViolationDetail } from '@/hooks/useViolationDetail';
+import { useReport } from '@/hooks/useReport';
+import { useLayoutBreadcrumbs } from '@/context/LayoutBreadcrumbContext';
 import { ExternalLink } from '@/components/ExternalLink';
 import { Pagination } from '@/components/ui/pagination';
 
@@ -26,6 +28,7 @@ const impactBadgeStyle: Record<string, string> = {
 export function ViolationWindow() {
   const { id, violationId } = useParams<{ id: string; violationId: string }>();
   const { group, pages, total, loading, error, page, setPage, totalPages } = useViolationDetail(id, violationId);
+  const { report } = useReport(id);
   const navigate = useNavigate();
 
   const violation = group?.kind === 'automated' ? group.violation : null;
@@ -36,6 +39,16 @@ export function ViolationWindow() {
     }
     return () => { document.title = 'Seymour'; };
   }, [violation]);
+
+  const breadcrumbs = useMemo(() => ([
+    { label: 'Dashboard', to: '/' },
+    { label: 'Reports', to: '/' },
+    { label: report?.pageTitle || report?.sitemap || 'Report', to: `/reports/${id}?tab=violations` },
+    { label: 'Violations', to: `/reports/${id}?tab=violations` },
+    { label: violation?.help || 'Violation detail' },
+  ]), [id, report?.pageTitle, report?.sitemap, violation?.help]);
+
+  useLayoutBreadcrumbs(breadcrumbs);
 
   if (loading) return (
     <div className="flex items-center justify-center h-64 text-on-surface-variant">
@@ -63,14 +76,7 @@ export function ViolationWindow() {
     <div className="p-8 space-y-8">
       {/* Nav row */}
       <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={() => navigate(`/reports/${id}?tab=violations`)}
-          className="inline-flex items-center gap-1.5 text-sm text-on-surface-variant hover:text-on-surface transition-colors"
-        >
-          <Icon name="arrow_back" className="text-[18px]" />
-          Back to violations
-        </button>
+        <div aria-hidden="true" />
         <button
           type="button"
           aria-label="Close violation detail"

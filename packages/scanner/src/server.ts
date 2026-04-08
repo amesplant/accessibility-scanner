@@ -203,39 +203,57 @@ app.get('/api/reports', async (_req, res) => {
 });
 
 app.get('/api/reports/:id/summary', async (req, res) => {
-  const report = await db.getReportSummary(req.params.id);
-  if (!report) {
-    return res.status(404).json({ error: 'Report not found' });
+  try {
+    const report = await db.getReportSummary(req.params.id);
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+    return res.json(report);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to fetch report summary';
+    await db.markReportCorrupted(req.params.id, message);
+    return res.status(500).json({ error: message });
   }
-  return res.json(report);
 });
 
 app.get('/api/reports/:id', async (req, res) => {
-  const report = await db.getReport(req.params.id);
-  if (!report) {
-    return res.status(404).json({ error: 'Report not found' });
+  try {
+    const report = await db.getReport(req.params.id);
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+    return res.json(report);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to fetch report';
+    await db.markReportCorrupted(req.params.id, message);
+    return res.status(500).json({ error: message });
   }
-  return res.json(report);
 });
 
 app.get('/api/reports/:id/export/json', async (req, res) => {
-  const report = await db.getReport(req.params.id);
-  if (!report) {
-    return res.status(404).json({ error: 'Report not found' });
+  try {
+    const report = await db.getReport(req.params.id);
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    const baseName = toSlug(report.pageTitle || report.sitemap || report.id) || report.id;
+    const filename = `${baseName}-report.json`;
+    const payload = {
+      format: 'accessibility-scanner-report',
+      formatVersion: 1,
+      exportedAt: new Date().toISOString(),
+      report,
+    };
+
+    res.header('Content-Type', 'application/json; charset=utf-8');
+    res.header('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(JSON.stringify(payload, null, 2));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to export report JSON';
+    await db.markReportCorrupted(req.params.id, message);
+    return res.status(500).json({ error: message });
   }
-
-  const baseName = toSlug(report.pageTitle || report.sitemap || report.id) || report.id;
-  const filename = `${baseName}-report.json`;
-  const payload = {
-    format: 'accessibility-scanner-report',
-    formatVersion: 1,
-    exportedAt: new Date().toISOString(),
-    report,
-  };
-
-  res.header('Content-Type', 'application/json; charset=utf-8');
-  res.header('Content-Disposition', `attachment; filename="${filename}"`);
-  return res.send(JSON.stringify(payload, null, 2));
 });
 
 app.post('/api/reports/import', async (req, res) => {
@@ -276,12 +294,16 @@ app.post('/api/reports/import', async (req, res) => {
 app.get('/api/reports/:id/pages', async (req, res) => {
   try {
     const offset = Math.max(0, Number(req.query.offset ?? 0));
-    const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 25)));
+    const limit = Math.min(250, Math.max(1, Number(req.query.limit ?? 25)));
     const slice = await db.listReportPages(req.params.id, offset, limit);
     return res.json(slice);
   } catch (err) {
     console.error('Error listing pages:', err);
-    return res.status(500).json({ error: 'Failed to list pages' });
+    const message = err instanceof Error && err.message.trim()
+      ? err.message
+      : 'Failed to list pages';
+    await db.markReportCorrupted(req.params.id, message);
+    return res.status(500).json({ error: message });
   }
 });
 
@@ -293,6 +315,48 @@ app.get('/api/reports/:id/pages/:pageId', async (req, res) => {
   } catch (err) {
     console.error('Error fetching page:', err);
     return res.status(500).json({ error: 'Failed to fetch page' });
+  }
+});
+
+app.post('/api/reports/:id/pages/:pageId/rescan', async (req, res) => {
+  try {
+    const existingPage = await db.getReportPage(req.params.id, req.params.pageId);
+    if (!existingPage) return res.status(404).json({ error: 'Page not found' });
+
+    const report = await db.getReportSummary(req.params.id);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+
+    const scanner = new SitemapScanner({
+      headless: 'new',
+      concurrent: '1',
+      wcagLevel: report.wcagLevel ?? 'AA',
+      includeBestPractices: report.includeBestPractices ?? false,
+    });
+
+    const rescannedPage = await scanner.scanSingle(existingPage.url);
+    const page = await modifyReportPage(req.params.id, req.params.pageId, (storedPage) => {
+      const manualAudit = storedPage.manualAudit;
+
+      storedPage.url = rescannedPage.url;
+      storedPage.title = rescannedPage.title;
+      storedPage.timestamp = rescannedPage.timestamp;
+      storedPage.violations = rescannedPage.violations;
+      storedPage.passes = rescannedPage.passes;
+      storedPage.incomplete = rescannedPage.incomplete;
+      storedPage.inapplicable = rescannedPage.inapplicable;
+      storedPage.passRules = rescannedPage.passRules;
+      storedPage.incompleteRules = rescannedPage.incompleteRules;
+      storedPage.detectedElements = rescannedPage.detectedElements;
+      storedPage.manualAudit = manualAudit;
+
+      return storedPage;
+    });
+
+    if (!page) return res.status(404).json({ error: 'Page not found' });
+    return res.json({ page });
+  } catch (err) {
+    console.error('Page rescan error:', err);
+    return res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to rescan page' });
   }
 });
 
@@ -417,6 +481,129 @@ app.post('/api/reports/:id/export/jira', async (req, res) => {
   } catch (error) {
     console.error('Jira export error:', error);
     return res.status(500).json({ error: 'Jira export failed' });
+  }
+});
+
+app.post('/api/reports/:reportId/pages/:pageId/rules/:ruleId/promote', async (req, res) => {
+  try {
+    const page = await modifyReportPage(req.params.reportId, req.params.pageId, (storedPage) => {
+      const { source, customNode, impact } = req.body as {
+        source?: 'pass' | 'incomplete';
+        impact?: 'minor' | 'moderate' | 'serious' | 'critical';
+        customNode?: {
+          html?: string;
+          target?: string[];
+          failureSummary?: string;
+          status?: 'pass' | 'fail';
+          scope?: ManualFailureInstance['scope'];
+          impact?: ManualFailureInstance['impact'];
+          title?: string;
+          notes?: string;
+          codeSnippet?: string;
+          screenshotDataUrl?: string;
+          remediationRecommendation?: string;
+          assignedTo?: ManualFailureInstance['assignedTo'];
+          relatedCriteria?: string[];
+          relatedCriteriaNotes?: Record<string, string>;
+        };
+      };
+
+      if (source !== 'pass' && source !== 'incomplete') {
+        throw new Error('Invalid rule source');
+      }
+
+      const sourceRules = source === 'pass' ? (storedPage.passRules ?? []) : (storedPage.incompleteRules ?? []);
+      const ruleIndex = sourceRules.findIndex((rule) => rule.id === req.params.ruleId);
+      if (ruleIndex === -1) throw new Error('Rule not found');
+
+      const rule = sourceRules[ruleIndex];
+      const fallbackSummary = source === 'pass'
+        ? 'Flagged during manual review from passed result.'
+        : 'Flagged during manual review from incomplete result.';
+
+      const promotedNodes = rule.nodes.map((node) => ({
+        html: node.html,
+        target: node.target,
+        failureSummary: node.failureSummary || fallbackSummary,
+      }));
+
+      const normalizedCustomNode = customNode && (
+        (customNode.failureSummary && customNode.failureSummary.trim()) ||
+        (customNode.html && customNode.html.trim()) ||
+        (customNode.target && customNode.target.length > 0)
+      )
+        ? {
+            html: customNode.html?.trim() || '',
+            target: Array.isArray(customNode.target) ? customNode.target.filter((value): value is string => typeof value === 'string' && value.trim().length > 0) : [],
+            failureSummary: customNode.failureSummary?.trim() || fallbackSummary,
+            status: customNode.status === 'pass' ? 'pass' : 'fail',
+            scope: customNode.scope,
+            impact: customNode.impact,
+            title: typeof customNode.title === 'string' ? customNode.title.trim() || undefined : undefined,
+            notes: typeof customNode.notes === 'string' ? customNode.notes.trim() || undefined : undefined,
+            codeSnippet: typeof customNode.codeSnippet === 'string' ? customNode.codeSnippet.trim() || undefined : undefined,
+            screenshotDataUrl: typeof customNode.screenshotDataUrl === 'string' ? customNode.screenshotDataUrl : undefined,
+            remediationRecommendation: typeof customNode.remediationRecommendation === 'string' ? customNode.remediationRecommendation.trim() || undefined : undefined,
+            assignedTo: sanitizeRemediationAssignees(customNode.assignedTo),
+            relatedCriteria: sanitizeStringArray(customNode.relatedCriteria),
+            relatedCriteriaNotes: sanitizeStringRecord(customNode.relatedCriteriaNotes),
+          }
+        : null;
+
+      const existingViolation = storedPage.violations.find((violation) => violation.id === rule.id);
+      const dedupeKey = (node: { html: string; target: string[]; failureSummary?: string }) => JSON.stringify({
+        html: node.html,
+        target: node.target,
+        failureSummary: node.failureSummary ?? '',
+      });
+
+      if (existingViolation) {
+        const seen = new Set(existingViolation.nodes.map((node) => dedupeKey(node)));
+        for (const node of [...promotedNodes, ...(normalizedCustomNode ? [normalizedCustomNode] : [])]) {
+          const key = dedupeKey(node);
+          if (!seen.has(key)) {
+            existingViolation.nodes.push(node);
+            seen.add(key);
+          }
+        }
+      } else {
+        storedPage.violations.push({
+          id: rule.id,
+          impact: impact ?? rule.impact ?? 'moderate',
+          description: rule.description,
+          help: rule.help,
+          helpUrl: rule.helpUrl,
+          tags: rule.tags,
+          level: rule.level,
+          nodes: [...promotedNodes, ...(normalizedCustomNode ? [normalizedCustomNode] : [])],
+        });
+      }
+
+      sourceRules.splice(ruleIndex, 1);
+      if (source === 'pass') {
+        storedPage.passRules = sourceRules;
+        storedPage.passes = sourceRules.length;
+      } else {
+        storedPage.incompleteRules = sourceRules;
+        storedPage.incomplete = sourceRules.length;
+      }
+
+      return storedPage;
+    });
+
+    if (!page) return res.status(404).json({ error: 'Page not found' });
+    return res.status(201).json({ page });
+  } catch (err) {
+    if (err instanceof Error) {
+      if (err.message === 'Invalid rule source') {
+        return res.status(400).json({ error: err.message });
+      }
+      if (err.message === 'Rule not found') {
+        return res.status(404).json({ error: err.message });
+      }
+    }
+    console.error('Promote rule error:', err);
+    return res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to promote rule to violation' });
   }
 });
 

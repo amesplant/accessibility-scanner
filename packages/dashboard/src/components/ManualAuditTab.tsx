@@ -17,12 +17,13 @@ import {
 } from '@accessibility-scanner/shared';
 import { cn } from '@/lib/utils';
 import { ExportModal } from '@/components/ExportModal';
+import { ViewLayoutToggle, type ViewLayout } from '@/components/ViewLayoutToggle';
 import { useCurrentReport } from '@/context/CurrentReportContext';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
+import { Select, SelectTrigger, SelectContent, SelectItem } from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -524,20 +525,35 @@ function StatusSelect({
 // FailureInstanceItem — one recorded failure for a check
 // ---------------------------------------------------------------------------
 
-function FailureInstanceItem({
+export function FailureInstanceItem({
   index,
   failure,
   checkContext,
   onUpdate,
   onDelete,
+  pageUrl: explicitPageUrl,
+  showDelete = true,
+  showExport = true,
+  showSaveButton = true,
+  saveButtonLabel = 'Save',
+  onSaveExtra,
+  onDraftChange,
 }: {
   index: number;
   failure: ManualFailureInstance;
-  checkContext?: { id: string; title: string; criterion?: string; description?: string; level?: string };
+  checkContext?: FailureInstanceCheckContext;
   onUpdate: (data: FailureUpdateData) => void;
   onDelete: () => void;
+  pageUrl?: string;
+  showDelete?: boolean;
+  showExport?: boolean;
+  showSaveButton?: boolean;
+  saveButtonLabel?: string;
+  onSaveExtra?: (data: FailureUpdateData) => void | Promise<void>;
+  onDraftChange?: (data: FailureUpdateData) => void;
 }) {
-  const pageUrl = useContext(PageUrlContext);
+  const pageUrlFromContext = useContext(PageUrlContext);
+  const pageUrl = explicitPageUrl ?? pageUrlFromContext;
   const [localTitle, setLocalTitle] = useState(failure.title ?? '');
   const [localAssignedTo, setLocalAssignedTo] = useState<RemediationAssignee[]>(normalizeRemediationAssignees(failure.assignedTo));
   const [localRelatedCriteria, setLocalRelatedCriteria] = useState<string[]>(failure.relatedCriteria ?? []);
@@ -566,14 +582,14 @@ function FailureInstanceItem({
     setJustSaved(false);
   }
 
-  function handleSave() {
+  function buildUpdateData(): FailureUpdateData {
     const cleanedRelatedCriteriaNotes = Object.fromEntries(
       localRelatedCriteria
         .map((criterionId) => [criterionId, (localRelatedCriteriaNotes[criterionId] ?? '').trim()] as const)
         .filter((entry) => entry[1].length > 0),
     );
 
-    onUpdate({
+    return {
       title: localTitle || undefined,
       assignedTo: localAssignedTo.length > 0 ? localAssignedTo : undefined,
       relatedCriteria: localRelatedCriteria.length > 0 ? localRelatedCriteria : undefined,
@@ -582,7 +598,18 @@ function FailureInstanceItem({
       codeSnippet: localCode || undefined,
       screenshotDataUrl: screenshot,
       remediationRecommendation: localRemediation || undefined,
-    });
+    };
+  }
+
+  useEffect(() => {
+    onDraftChange?.(buildUpdateData());
+  }, [localTitle, localAssignedTo, localRelatedCriteria, localRelatedCriteriaNotes, localNotes, localCode, screenshot, localRemediation]);
+
+  async function handleSave() {
+    const data = buildUpdateData();
+
+    onUpdate(data);
+    await onSaveExtra?.(data);
     setDirty(false);
     setJustSaved(true);
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
@@ -779,14 +806,16 @@ function FailureInstanceItem({
             );
           })}
         </div>
-        <button
-          type="button"
-          onClick={onDelete}
-          aria-label={`Delete failure instance ${index}`}
-          className="text-muted-foreground hover:text-destructive transition-colors rounded shrink-0"
-        >
-          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
+        {showDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            aria-label={`Delete failure instance ${index}`}
+            className="text-muted-foreground hover:text-destructive transition-colors rounded shrink-0"
+          >
+            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        )}
       </div>
 
       {/* Issue title */}
@@ -830,7 +859,9 @@ function FailureInstanceItem({
             }}
           >
             <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder={availableCriteria.length > 0 ? 'Add related criterion' : 'All criteria already selected'} />
+              <span className="text-muted-foreground">
+                {availableCriteria.length > 0 ? 'Select criterion' : 'All criteria selected'}
+              </span>
             </SelectTrigger>
             <SelectContent>
               {availableCriteria.length > 0 ? (
@@ -877,7 +908,6 @@ function FailureInstanceItem({
                       id={inputId}
                       value={localRelatedCriteriaNotes[criterionId] ?? ''}
                       onChange={e => updateRelatedCriterionNote(criterionId, e.target.value)}
-                      placeholder="Describe how this related criterion is affected"
                       rows={2}
                       className="text-sm resize-y"
                     />
@@ -1036,16 +1066,18 @@ function FailureInstanceItem({
         >
           {justSaved ? 'Changes saved.' : ''}
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-7 text-xs gap-1.5"
-          onClick={() => setExportOpen(true)}
-        >
-          <Download className="h-3.5 w-3.5" aria-hidden="true" /> Export issue
-        </Button>
-        {exportOpen && (
+        {showExport && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs gap-1.5"
+            onClick={() => setExportOpen(true)}
+          >
+            <Download className="h-3.5 w-3.5" aria-hidden="true" /> Export issue
+          </Button>
+        )}
+        {showExport && exportOpen && (
           <ExportModal
             report={null}
             singleIssue={{
@@ -1076,22 +1108,24 @@ function FailureInstanceItem({
             onClose={() => setExportOpen(false)}
           />
         )}
-        <Button
-          type="button"
-          size="sm"
-          className={cn(
-            'h-7 text-xs gap-1.5 transition-colors',
-            justSaved && 'text-emerald-900',
-          )}
-          onClick={handleSave}
-          disabled={!dirty}
-          aria-describedby={statusRegionId}
-        >
-          {justSaved
-            ? <><CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> Saved</>
-            : <><Save className="h-3.5 w-3.5" aria-hidden="true" /> Save</>
-          }
-        </Button>
+        {showSaveButton && (
+          <Button
+            type="button"
+            size="sm"
+            className={cn(
+              'h-7 text-xs gap-1.5 transition-colors',
+              justSaved && 'text-emerald-900',
+            )}
+            onClick={() => { void handleSave(); }}
+            disabled={!dirty}
+            aria-describedby={statusRegionId}
+          >
+            {justSaved
+              ? <><CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> Saved</>
+              : <><Save className="h-3.5 w-3.5" aria-hidden="true" /> {saveButtonLabel}</>
+            }
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -1919,7 +1953,8 @@ function NonTextElementsPanel({
 // FailureUpdateData — shared type for failure instance patch payloads
 // ---------------------------------------------------------------------------
 
-type FailureUpdateData = Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'impact' | 'title' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'assignedTo' | 'relatedCriteria' | 'relatedCriteriaNotes'>>;
+export type FailureUpdateData = Partial<Pick<ManualFailureInstance, 'status' | 'scope' | 'impact' | 'title' | 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'assignedTo' | 'relatedCriteria' | 'relatedCriteriaNotes'>>;
+export type FailureInstanceCheckContext = { id: string; title: string; criterion?: string; description?: string; level?: string };
 type FailureSeedData = Partial<Pick<ManualFailureInstance, 'notes' | 'codeSnippet' | 'screenshotDataUrl' | 'remediationRecommendation' | 'assignedTo' | 'relatedCriteria' | 'relatedCriteriaNotes'>>;
 function buildSeededIssueNotes(element: DetectedElement): string | undefined {
   const text = element.textAlternative?.trim();
@@ -2442,18 +2477,23 @@ function CustomCheckItem({
         )}
         <StatusSelect value={check.status} onChange={onStatusChange} />
       </div>
-      <input
-        type="text"
-        placeholder="Add notes…"
-        value={localNotes}
-        onChange={e => setLocalNotes(e.target.value)}
-        onBlur={() => {
-          if (localNotes !== (check.notes ?? '')) {
-            onNotesChange(localNotes);
-          }
-        }}
-        className="w-full text-xs border-0 border-b border-dashed border-muted-foreground/30 bg-transparent px-0 py-0.5 focus:outline-none focus:border-muted-foreground placeholder:text-muted-foreground/50"
-      />
+      <div className="space-y-1">
+        <Label htmlFor={`custom-check-notes-${check.id}`} className="text-xs font-medium text-muted-foreground">
+          Notes
+        </Label>
+        <input
+          id={`custom-check-notes-${check.id}`}
+          type="text"
+          value={localNotes}
+          onChange={e => setLocalNotes(e.target.value)}
+          onBlur={() => {
+            if (localNotes !== (check.notes ?? '')) {
+              onNotesChange(localNotes);
+            }
+          }}
+          className="w-full text-xs border-0 border-b border-dashed border-muted-foreground/30 bg-transparent px-0 py-0.5 focus:outline-none focus:border-muted-foreground"
+        />
+      </div>
       {check.remediationRecommendation && (
         <div className="rounded border border-dashed border-border bg-muted/20 px-2.5 py-2 text-xs text-muted-foreground">
           <p className="mb-1 font-medium text-foreground">Remediation</p>
@@ -2779,7 +2819,6 @@ function AddCustomCheckDialog({
               required
               value={form.title}
               onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
-              placeholder="e.g. Videos autoplay with sound"
             />
           </div>
           <div className="space-y-1.5">
@@ -2788,7 +2827,6 @@ function AddCustomCheckDialog({
               id="custom-desc"
               value={form.description}
               onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
-              placeholder="Describe the issue…"
               className="min-h-[60px]"
             />
           </div>
@@ -2860,7 +2898,6 @@ function AddCustomCheckDialog({
               id="custom-notes"
               value={form.notes}
               onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
-              placeholder="Additional context…"
               className="min-h-[60px]"
             />
           </div>
@@ -2902,7 +2939,6 @@ function AddCustomCheckDialog({
               id={remediationId}
               value={form.remediationRecommendation}
               onChange={e => setForm(prev => ({ ...prev, remediationRecommendation: e.target.value }))}
-              placeholder="Optional remediation guidance…"
               className="min-h-[90px]"
             />
           </div>
@@ -2978,6 +3014,37 @@ const DETAIL_STATUS_BUTTONS: Record<ManualAuditStatus, string> = {
   'not-tested': 'data-[state=active]:bg-slate-500 data-[state=active]:text-white data-[state=active]:border-slate-500 text-slate-500 hover:text-slate-800',
 };
 
+type BoardColumnId = 'backlog' | 'in-review' | 'complete';
+
+const BOARD_COLUMN_META: Record<BoardColumnId, { title: string; accent: string; badge: string; empty: string }> = {
+  backlog: {
+    title: 'Audit Backlog',
+    accent: 'text-slate-600',
+    badge: 'bg-slate-200 text-slate-700',
+    empty: 'No criteria are waiting in the backlog.',
+  },
+  'in-review': {
+    title: 'In Review',
+    accent: 'text-cyan-800',
+    badge: 'bg-cyan-900 text-white',
+    empty: 'No criteria currently need active review.',
+  },
+  complete: {
+    title: 'Complete',
+    accent: 'text-emerald-800',
+    badge: 'bg-emerald-700 text-white',
+    empty: 'No criteria have been completed yet.',
+  },
+};
+
+const DESKTOP_AUDIT_BOARD_HELP_ID = 'desktop-audit-board-help';
+
+function getBoardColumn(status: ManualAuditStatus): BoardColumnId | null {
+  if (status === 'not-tested') return 'backlog';
+  if (status === 'fail') return 'in-review';
+  return 'complete';
+}
+
 function MasterDetailStatusPill({ status }: { status: ManualAuditStatus }) {
   return (
     <span className={cn('inline-flex items-center whitespace-nowrap rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em]', DETAIL_STATUS_BADGES[status])}>
@@ -2986,83 +3053,221 @@ function MasterDetailStatusPill({ status }: { status: ManualAuditStatus }) {
   );
 }
 
-function DesktopCriterionSidebarSection({
-  title,
+function DesktopAuditBoardCard({
+  check,
+  selected,
+  onSelect,
+  registerButtonRef,
+}: {
+  check: ManualCheckResult;
+  selected: boolean;
+  onSelect: (checkId: string, focusDetail?: boolean) => void;
+  registerButtonRef: (checkId: string, element: HTMLButtonElement | null) => void;
+}) {
+  const meta = check.wcagCriterion ? PREDEFINED_MAP[check.wcagCriterion] : undefined;
+  const priorityTone = meta?.priority === 'high'
+    ? 'bg-red-100 text-red-700'
+    : meta?.priority === 'medium'
+    ? 'bg-teal-100 text-teal-700'
+    : 'bg-slate-200 text-slate-600';
+  const cardLabel = `Open criterion ${check.wcagCriterion} ${check.title}. Status ${DETAIL_STATUS_TEXT[check.status]}.`;
+
+  return (
+    <button
+      ref={(element) => registerButtonRef(check.id, element)}
+      type="button"
+      onClick={() => onSelect(check.id, true)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect(check.id, true);
+        }
+      }}
+      aria-pressed={selected}
+      aria-haspopup="dialog"
+      aria-label={cardLabel}
+      aria-describedby={DESKTOP_AUDIT_BOARD_HELP_ID}
+      className={cn(
+        'w-full rounded-[22px] border border-slate-200/70 bg-white p-4 text-left shadow-[0_16px_32px_rgba(15,23,42,0.06)] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-inset',
+        selected
+          ? 'border-cyan-300 ring-2 ring-cyan-200 ring-inset shadow-[0_20px_36px_rgba(15,23,42,0.08)]'
+          : 'hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_20px_36px_rgba(15,23,42,0.08)]',
+        check.status === 'fail' && 'border-l-4 border-l-red-500',
+      )}
+    >
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <span className={cn('rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em]', priorityTone)}>
+          {meta?.priority === 'high' ? 'High Priority' : meta?.priority === 'medium' ? 'Medium Priority' : 'Low Priority'}
+        </span>
+        {check.level && (
+          <span className={cn('rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-tight', LEVEL_COLORS[check.level])}>
+            Level {check.level}
+          </span>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <div>
+          <div className="text-base font-bold leading-tight text-slate-950">{check.wcagCriterion} {check.title}</div>
+          {check.description && (
+            <p className="mt-2 line-clamp-3 text-xs leading-5 text-slate-600">{check.description}</p>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between gap-3 pt-1">
+          <div className="flex min-w-0 items-center gap-2 text-[11px] font-medium text-slate-500">
+            {meta?.category && <span className="truncate">{meta.category}</span>}
+            {!!(check.failures ?? []).length && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+                {check.failures?.length} issue{check.failures?.length === 1 ? '' : 's'}
+              </span>
+            )}
+          </div>
+          <MasterDetailStatusPill status={check.status} />
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function DesktopAuditBoardColumn({
+  columnId,
   checks,
   selectedCheckId,
   onSelect,
   registerButtonRef,
 }: {
-  title: string;
+  columnId: BoardColumnId;
   checks: ManualCheckResult[];
   selectedCheckId: string | null;
   onSelect: (checkId: string, focusDetail?: boolean) => void;
   registerButtonRef: (checkId: string, element: HTMLButtonElement | null) => void;
 }) {
-  if (checks.length === 0) return null;
+  const meta = BOARD_COLUMN_META[columnId];
+  const headingId = `desktop-audit-board-column-${columnId}`;
 
   return (
-    <section className="space-y-3">
-      <div className="flex items-center justify-between px-1">
-        <h3 className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-500">{title}</h3>
-        <span className="text-xs font-medium text-slate-400">{checks.length}</span>
+    <section aria-labelledby={headingId} className="flex min-h-[420px] min-w-[280px] flex-1 flex-col rounded-[28px] border border-slate-200/80 bg-slate-50/80 p-4 shadow-[0_18px_40px_rgba(15,23,42,0.05)]">
+      <div className="mb-4 flex items-center justify-between gap-3 px-1">
+        <h3 id={headingId} className={cn('text-[11px] font-black uppercase tracking-[0.22em]', meta.accent)}>{meta.title}</h3>
+        <span className={cn('rounded-full px-2.5 py-1 text-[10px] font-black', meta.badge)}>{checks.length}</span>
       </div>
-      <div className="space-y-3">
-        {checks.map((check) => {
-          const meta = check.wcagCriterion ? PREDEFINED_MAP[check.wcagCriterion] : undefined;
-          const selected = check.id === selectedCheckId;
+      <ul role="list" className="flex-1 space-y-4 overflow-y-auto overflow-x-visible px-1 py-1">
+        {checks.map((check) => (
+          <li key={check.id}>
+            <DesktopAuditBoardCard
+              check={check}
+              selected={check.id === selectedCheckId}
+              onSelect={onSelect}
+              registerButtonRef={registerButtonRef}
+            />
+          </li>
+        ))}
+        {checks.length === 0 && (
+          <li>
+            <div className="rounded-[22px] border border-dashed border-slate-300 bg-white/80 px-5 py-6 text-sm text-slate-500">
+              {meta.empty}
+            </div>
+          </li>
+        )}
+      </ul>
+    </section>
+  );
+}
 
-          return (
-            <button
-              key={check.id}
-              ref={(element) => registerButtonRef(check.id, element)}
-              type="button"
-              onClick={() => onSelect(check.id, false)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  onSelect(check.id, true);
-                }
-              }}
-              aria-pressed={selected}
-              aria-controls={selected ? `criterion-workspace-${check.id}` : undefined}
-              className={cn(
-                'w-full rounded-[22px] border px-5 py-4 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-inset',
-                selected
-                  ? 'border-cyan-200 bg-white shadow-[0_20px_40px_rgba(15,23,42,0.08)] ring-1 ring-cyan-100'
-                  : 'border-slate-200/80 bg-slate-50/75 hover:border-slate-300 hover:bg-white',
-              )}
-            >
-              <div className="mb-3 flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className={cn('mb-1 text-[11px] font-black tracking-tight', selected ? 'text-cyan-700' : 'text-slate-400')}>
-                    {check.wcagCriterion}
-                  </div>
-                  <div className="text-sm font-bold leading-snug text-slate-900">{check.title}</div>
-                </div>
-                <MasterDetailStatusPill status={check.status} />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {check.level && (
-                  <span className={cn('rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight', LEVEL_COLORS[check.level])}>
-                    {check.level}
-                  </span>
-                )}
-                {meta?.category && (
-                  <span className="rounded-md bg-slate-200/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight text-slate-600">
-                    {meta.category}
-                  </span>
-                )}
-                {meta?.auditTags?.map((tag) => (
-                  <span key={tag} className="rounded-md bg-slate-200/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight text-slate-600">
-                    {tag === 'rapid' ? 'Rapid' : 'Standard'}
-                  </span>
-                ))}
-              </div>
-            </button>
-          );
-        })}
+function DesktopAuditListView({
+  checks,
+  selectedCheckId,
+  onSelect,
+  registerButtonRef,
+}: {
+  checks: ManualCheckResult[];
+  selectedCheckId: string | null;
+  onSelect: (checkId: string, focusDetail?: boolean) => void;
+  registerButtonRef: (checkId: string, element: HTMLButtonElement | null) => void;
+}) {
+  return (
+    <section aria-labelledby="desktop-audit-list-heading" className="rounded-[28px] border border-slate-200/80 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.05)]">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-6 py-4">
+        <div>
+          <h3 id="desktop-audit-list-heading" className="text-[11px] font-black uppercase tracking-[0.22em] text-cyan-800">Criteria List</h3>
+          <p className="mt-1 text-sm text-slate-500">Switch to a denser view without changing the review flow.</p>
+        </div>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-600">{checks.length} items</span>
       </div>
+
+      {checks.length === 0 ? (
+        <div className="px-6 py-10 text-sm text-slate-500">No criteria match the current filters.</div>
+      ) : (
+        <ul role="list" className="divide-y divide-slate-200">
+          {checks.map((check) => {
+            const meta = check.wcagCriterion ? PREDEFINED_MAP[check.wcagCriterion] : undefined;
+            const selected = selectedCheckId === check.id;
+
+            return (
+              <li key={check.id}>
+                <button
+                  ref={(element) => registerButtonRef(check.id, element)}
+                  type="button"
+                  onClick={() => onSelect(check.id, true)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      onSelect(check.id, true);
+                    }
+                  }}
+                  aria-pressed={selected}
+                  aria-haspopup="dialog"
+                  aria-describedby={DESKTOP_AUDIT_BOARD_HELP_ID}
+                  className={cn(
+                    'flex w-full items-start gap-4 px-6 py-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-inset',
+                    selected ? 'bg-cyan-50/70' : 'hover:bg-slate-50',
+                  )}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-black text-slate-950">{check.wcagCriterion} {check.title}</span>
+                      {check.level && (
+                        <span className={cn('rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-tight', LEVEL_COLORS[check.level])}>
+                          Level {check.level}
+                        </span>
+                      )}
+                      {meta?.priority && (
+                        <span className={cn(
+                          'rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em]',
+                          meta.priority === 'high'
+                            ? 'bg-red-100 text-red-700'
+                            : meta.priority === 'medium'
+                              ? 'bg-teal-100 text-teal-700'
+                              : 'bg-slate-200 text-slate-600',
+                        )}>
+                          {meta.priority} priority
+                        </span>
+                      )}
+                    </div>
+                    {check.description && (
+                      <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-600">{check.description}</p>
+                    )}
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                      {meta?.category && <span>{meta.category}</span>}
+                      {!!(check.failures ?? []).length && (
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 font-bold text-slate-600">
+                          {check.failures?.length} issue{check.failures?.length === 1 ? '' : 's'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-3">
+                    <MasterDetailStatusPill status={check.status} />
+                    <span className="text-xs font-bold uppercase tracking-[0.16em] text-cyan-800">Open</span>
+                  </div>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </section>
   );
 }
@@ -3074,7 +3279,6 @@ function DesktopCriterionWorkspace({
   onEscapeToSidebar,
   onStatusChange,
   onUpdateQuestionStatuses,
-  onNotesChange,
   onAddFailure,
   onUpdateFailure,
   onDeleteFailure,
@@ -3092,7 +3296,6 @@ function DesktopCriterionWorkspace({
   onEscapeToSidebar?: () => void;
   onStatusChange: (status: ManualAuditStatus) => void;
   onUpdateQuestionStatuses?: (statuses: ManualAuditStatus[]) => void;
-  onNotesChange: (notes: string) => void;
   onAddFailure: () => void;
   onUpdateFailure: (failureId: string, data: FailureUpdateData) => void;
   onDeleteFailure: (failureId: string) => void;
@@ -3105,7 +3308,6 @@ function DesktopCriterionWorkspace({
   onGenerateElementScreenshot?: (criterionId: string, elementId: string) => Promise<void>;
 }) {
   const pageUrl = useContext(PageUrlContext);
-  const [criterionNotes, setCriterionNotes] = useState(check.notes ?? '');
   const [exportOpen, setExportOpen] = useState(false);
   const meta = check.wcagCriterion ? PREDEFINED_MAP[check.wcagCriterion] : undefined;
   const questions = meta?.questions ?? [];
@@ -3114,12 +3316,12 @@ function DesktopCriterionWorkspace({
   );
 
   useEffect(() => {
-    setCriterionNotes(check.notes ?? '');
-  }, [check.id, check.notes]);
-
-  useEffect(() => {
     setQuestionStatuses(check.questionStatuses ?? questions.map(() => 'not-tested'));
   }, [check.id, check.questionStatuses, questions]);
+
+  function handleSaveAndClose() {
+    onEscapeToSidebar?.();
+  }
 
   const handleSmartElementUpdate = useCallback(
     (elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => {
@@ -3229,28 +3431,6 @@ function DesktopCriterionWorkspace({
       </div>
 
       <div className="flex-1 space-y-6 overflow-y-auto px-7 py-7 lg:px-8">
-        <section className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <Label htmlFor={`criterion-notes-${check.id}`} className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
-              Criterion Notes
-            </Label>
-            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-violet-700">Workspace notes</span>
-          </div>
-          <Textarea
-            id={`criterion-notes-${check.id}`}
-            value={criterionNotes}
-            onChange={(event) => setCriterionNotes(event.target.value)}
-            onBlur={() => {
-              if (criterionNotes !== (check.notes ?? '')) {
-                onNotesChange(criterionNotes);
-              }
-            }}
-            placeholder="Describe the issue, expected behavior, and any repro steps for this criterion..."
-            rows={5}
-            className="rounded-[20px] border-slate-200 bg-slate-50 px-4 py-3 text-sm shadow-none"
-          />
-        </section>
-
         {questions.length > 0 && (
           <section className="space-y-3 rounded-[24px] border border-slate-200/80 bg-slate-50/80 p-5">
             <div>
@@ -3396,6 +3576,20 @@ function DesktopCriterionWorkspace({
           )}
         </section>
       </div>
+
+        <div className="border-t border-slate-200/70 bg-white px-7 py-4 lg:px-8">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-slate-500">Changes save automatically as you work.</p>
+            <Button
+              type="button"
+              className="h-10 rounded-full px-5"
+              onClick={handleSaveAndClose}
+            >
+              <Save className="mr-2 h-4 w-4" aria-hidden="true" />
+              Save
+            </Button>
+          </div>
+        </div>
     </div>
   );
 }
@@ -3430,12 +3624,13 @@ export function ManualAuditTab({
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [desktopLayout, setDesktopLayout] = useState<ViewLayout>('cards');
   const [auditorNotes, setAuditorNotes] = useState(audit.auditorNotes ?? '');
   const markCompleteRef = useRef<HTMLButtonElement>(null);
   const reopenRef = useRef<HTMLButtonElement>(null);
   const detailRegionRef = useRef<HTMLDivElement>(null);
   const sidebarButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const [returnFocusCheckId, setReturnFocusCheckId] = useState<string | null>(null);
+  const [desktopCriterionOpen, setDesktopCriterionOpen] = useState(false);
 
   // Apply level, tier, and category filters — custom checks always visible
   const visibleChecks = audit.checks.filter(c => {
@@ -3460,6 +3655,7 @@ export function ManualAuditTab({
   useEffect(() => {
     if (wcagChecks.length === 0) {
       setSelectedCheckId(null);
+      setDesktopCriterionOpen(false);
       return;
     }
 
@@ -3471,12 +3667,6 @@ export function ManualAuditTab({
     });
   }, [wcagChecks]);
 
-  useEffect(() => {
-    if (!returnFocusCheckId) return;
-    detailRegionRef.current?.focus();
-    setReturnFocusCheckId(null);
-  }, [returnFocusCheckId, selectedCheckId]);
-
   const selectedCheck = wcagChecks.find((check) => check.id === selectedCheckId) ?? wcagChecks[0];
   const hasActiveDesktopFilters = levelFilter !== 'all' || categoryFilter !== null || priorityFilter !== 'all' || statusFilter !== 'all';
   const desktopSortedChecks = [...wcagChecks].sort((left, right) => {
@@ -3484,13 +3674,18 @@ export function ManualAuditTab({
     const rightCriterion = right.wcagCriterion ?? '';
     return leftCriterion.localeCompare(rightCriterion, undefined, { numeric: true });
   });
-  const desktopGroups = levelFilter === 'all'
-    ? [{ id: 'desktop-all-levels', label: 'All Criteria', checks: desktopSortedChecks }]
-    : [{
-        id: `desktop-level-${levelFilter.toLowerCase()}`,
-        label: `WCAG ${levelFilter}`,
-        checks: wcagChecks,
-      }];
+  const desktopBoardColumns: Record<BoardColumnId, ManualCheckResult[]> = {
+    backlog: [],
+    'in-review': [],
+    complete: [],
+  };
+
+  desktopSortedChecks.forEach((check) => {
+    const columnId = getBoardColumn(check.status);
+    if (columnId) {
+      desktopBoardColumns[columnId].push(check);
+    }
+  });
 
   // Progress stats scoped to the current level filter
   const total = visibleChecks.length;
@@ -3548,7 +3743,7 @@ export function ManualAuditTab({
         </div>
       )}
 
-      <div className="hidden lg:block sticky top-0 z-10 rounded-[28px] border border-slate-200/80 bg-white/95 p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)] backdrop-blur">
+      <div className="hidden lg:block rounded-[28px] border border-slate-200/80 bg-white/95 p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)] backdrop-blur">
         <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
             <div className="space-y-2">
@@ -3564,7 +3759,6 @@ export function ManualAuditTab({
               </label>
               <Textarea
                 id="auditor-notes-desktop"
-                placeholder="Overall notes for this page…"
                 value={auditorNotes}
                 onChange={e => setAuditorNotes(e.target.value)}
                 onBlur={() => {
@@ -3574,12 +3768,15 @@ export function ManualAuditTab({
                 }}
                 className="min-h-[112px] rounded-[20px] border-slate-200 bg-slate-50 px-4 py-3 text-sm shadow-none"
               />
+              <p className="text-xs text-slate-500">
+                Use page notes for overall findings, scope context, and cross-criterion observations.
+              </p>
             </div>
           </div>
 
           <div className="rounded-[24px] border border-slate-200/70 bg-slate-50/70 px-5 py-4">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div className="space-y-2 xl:max-w-md">
+            <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-center 2xl:justify-between">
+              <div className="space-y-2 2xl:max-w-md">
                 <div className="flex items-center justify-between text-sm font-bold text-slate-600">
                   <span>Audit Progress</span>
                   <span className="text-cyan-800">{checked} / {total} criteria checked</span>
@@ -3588,11 +3785,42 @@ export function ManualAuditTab({
                   <Progress value={progressPct} aria-label={`${progressPct}% of checks completed`} className="h-2 bg-transparent" />
                 </div>
               </div>
-              <div className="flex flex-wrap gap-3 text-xs xl:justify-end" aria-label="Audit progress breakdown">
-                <span className="font-semibold text-emerald-800">● {counts.pass} Pass</span>
-                <span className="font-semibold text-red-700">● {counts.fail} Fail</span>
-                <span className="text-slate-500">● {counts.na} N/A</span>
-                <span className="text-slate-500">● {counts['not-tested']} Not Tested</span>
+              <div className="flex flex-col gap-3 2xl:items-end">
+                <div className="flex flex-wrap gap-2 text-xs 2xl:justify-end" aria-label="Audit progress breakdown">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 font-semibold text-emerald-800">{counts.pass} Pass</span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-1.5 font-semibold text-red-700">{counts.fail} Needs Fix</span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 text-slate-600">{counts.na} N/A</span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 text-slate-600">{counts['not-tested']} Not Tested</span>
+                </div>
+                <div className="flex flex-wrap gap-3 2xl:justify-end">
+                  {onToggleComplete && !isCompleted && (
+                    <Button
+                      ref={markCompleteRef}
+                      type="button"
+                      className="h-11 rounded-2xl bg-cyan-900 px-5 text-white hover:bg-cyan-950"
+                      onClick={() => { onToggleComplete(true); setTimeout(() => reopenRef.current?.focus(), 0); }}
+                    >
+                      <CheckCircle2 className="mr-2 h-4 w-4" aria-hidden="true" />
+                      Mark audit complete
+                    </Button>
+                  )}
+                  {onToggleComplete && isCompleted && (
+                    <Button
+                      ref={reopenRef}
+                      type="button"
+                      variant="outline"
+                      className="h-11 rounded-2xl bg-white px-5"
+                      onClick={() => { onToggleComplete(false); setTimeout(() => markCompleteRef.current?.focus(), 0); }}
+                    >
+                      <RotateCcw className="mr-2 h-4 w-4 text-cyan-700" aria-hidden="true" />
+                      Re-open audit
+                    </Button>
+                  )}
+                  <Button type="button" variant="outline" className="h-11 rounded-2xl bg-white px-5" onClick={() => setDialogOpen(true)}>
+                    <Plus className="mr-2 h-4 w-4 text-cyan-700" aria-hidden="true" />
+                    Add custom issue
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
@@ -3632,7 +3860,6 @@ export function ManualAuditTab({
                 onChange={setStatusFilter}
                 className="min-w-[176px]"
               />
-              <div className="mx-1 hidden h-10 w-px bg-slate-300 2xl:block" />
               <Button
                 type="button"
                 variant="ghost"
@@ -3650,111 +3877,131 @@ export function ManualAuditTab({
                 Clear All
               </Button>
             </div>
+            <p id={DESKTOP_AUDIT_BOARD_HELP_ID} className="text-xs leading-5 text-slate-500">
+              Keyboard: Tab to a criterion card and press Enter or Space to open the selected criterion drawer. Press Escape to close the drawer and return to the same card.
+            </p>
           </div>
         </div>
       </div>
 
-      <div className="hidden lg:grid lg:grid-cols-[minmax(340px,0.95fr)_minmax(0,1.25fr)] lg:gap-6 lg:items-start">
-        <div className="rounded-[28px] border border-slate-200/80 bg-slate-50/80 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.05)]">
-          <div className="max-h-[calc(100vh-17rem)] space-y-6 overflow-y-auto pr-2">
-            {desktopGroups.map((group) => (
-              <DesktopCriterionSidebarSection
-                key={group.id}
-                title={group.label}
-                checks={group.checks}
-                selectedCheckId={selectedCheckId}
-                onSelect={(checkId, focusDetail) => {
-                  setSelectedCheckId(checkId);
-                  if (focusDetail) {
-                    setReturnFocusCheckId(checkId);
-                  }
-                }}
-                registerButtonRef={(checkId, element) => {
-                  sidebarButtonRefs.current[checkId] = element;
-                }}
-              />
-            ))}
-            {desktopGroups.length === 0 && (
-              <div className="rounded-[22px] border border-dashed border-slate-300 bg-white px-5 py-6 text-sm text-slate-500">
-                No WCAG criteria match the current filters.
-              </div>
-            )}
+      <div className="hidden lg:block space-y-6">
+        <div className="flex items-center justify-between gap-4 px-2">
+          <div>
+            <div className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Audit Layout</div>
+            <p className="mt-1 text-sm text-slate-500">Switch between the board and a denser list without changing the audit flow.</p>
           </div>
+          <ViewLayoutToggle value={desktopLayout} onChange={setDesktopLayout} ariaLabel="Desktop manual audit layout" />
         </div>
 
-        <div className="min-h-[720px]">
-          {selectedCheck ? (
-            <div className="grid h-full grid-rows-[minmax(0,1fr)_auto] gap-4">
-              <DesktopCriterionWorkspace
-                check={selectedCheck}
-                smartElements={selectedCheck.wcagCriterion ? detectedElements?.[selectedCheck.wcagCriterion] : undefined}
-                detailRegionRef={detailRegionRef}
-                onEscapeToSidebar={() => {
-                  const button = sidebarButtonRefs.current[selectedCheck.id];
-                  button?.focus();
-                }}
-                onStatusChange={(status) => onStatusChange(selectedCheck.id, status)}
-                onUpdateQuestionStatuses={onUpdateQuestionStatuses
-                  ? (statuses) => onUpdateQuestionStatuses(selectedCheck.id, statuses)
-                  : undefined}
-                onNotesChange={(notes) => onNotesChange(selectedCheck.id, notes)}
-                onAddFailure={() => onAddFailure(selectedCheck.id)}
-                onUpdateFailure={(failureId, data) => onUpdateFailure(selectedCheck.id, failureId, data)}
-                onDeleteFailure={(failureId) => onDeleteFailure(selectedCheck.id, failureId)}
-                onUpdateSmartElement={selectedCheck.wcagCriterion && onUpdateDetectedElement
-                  ? (elementId, status, comment) => onUpdateDetectedElement(selectedCheck.wcagCriterion!, elementId, status, comment)
-                  : undefined}
-                onAddElementFailure={selectedCheck.wcagCriterion && onAddElementFailure
-                  ? (elementId, data) => onAddElementFailure(selectedCheck.wcagCriterion!, elementId, data)
-                  : undefined}
-                onUpdateElementFailure={selectedCheck.wcagCriterion && onUpdateElementFailure
-                  ? (elementId, failureId, data) => onUpdateElementFailure(selectedCheck.wcagCriterion!, elementId, failureId, data)
-                  : undefined}
-                onDeleteElementFailure={selectedCheck.wcagCriterion && onDeleteElementFailure
-                  ? (elementId, failureId) => onDeleteElementFailure(selectedCheck.wcagCriterion!, elementId, failureId)
-                  : undefined}
-                onGenerateFocusOrderScreenshot={onGenerateFocusOrderScreenshot}
-                onDetectElements={onDetectElements}
-                onGenerateElementScreenshot={onGenerateElementScreenshot}
-              />
-
-              <div className="flex items-center gap-3 rounded-[24px] border border-slate-200/80 bg-white px-6 py-4 shadow-[0_12px_32px_rgba(15,23,42,0.06)]">
-                {onToggleComplete && !isCompleted && (
-                  <Button
-                    ref={markCompleteRef}
-                    size="sm"
-                    onClick={() => { onToggleComplete(true); setTimeout(() => reopenRef.current?.focus(), 0); }}
-                    className="h-11 flex-1 rounded-2xl bg-cyan-900 text-white hover:bg-cyan-950"
-                  >
-                    <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
-                    Mark Audit Complete
-                  </Button>
-                )}
-                {onToggleComplete && isCompleted && (
-                  <Button
-                    ref={reopenRef}
-                    size="sm"
-                    variant="outline"
-                    onClick={() => { onToggleComplete(false); setTimeout(() => markCompleteRef.current?.focus(), 0); }}
-                    className="h-11 rounded-2xl px-5"
-                  >
-                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
-                    Re-open Audit
-                  </Button>
-                )}
-                <Button size="sm" variant="outline" className="h-11 rounded-2xl px-5" onClick={() => setDialogOpen(true)}>
-                  <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
-                  Add Custom Issue
-                </Button>
+        <div className="min-w-0 overflow-visible">
+          {desktopLayout === 'cards' ? (
+            <div className="overflow-x-auto overflow-y-visible px-2 pb-3 pt-2 -mx-2">
+              <div className="flex min-w-[1040px] gap-6">
+                {(['backlog', 'in-review', 'complete'] as BoardColumnId[]).map((columnId) => (
+                  <DesktopAuditBoardColumn
+                    key={columnId}
+                    columnId={columnId}
+                    checks={desktopBoardColumns[columnId]}
+                    selectedCheckId={selectedCheckId}
+                    onSelect={(checkId, focusDetail) => {
+                      setSelectedCheckId(checkId);
+                      if (focusDetail) {
+                        setDesktopCriterionOpen(true);
+                      }
+                    }}
+                    registerButtonRef={(checkId, element) => {
+                      sidebarButtonRefs.current[checkId] = element;
+                    }}
+                  />
+                ))}
               </div>
             </div>
           ) : (
-            <div className="flex min-h-[720px] items-center justify-center rounded-[28px] border border-dashed border-slate-300 bg-white px-8 text-center text-sm text-slate-500">
-              Choose a criterion from the sidebar to begin auditing.
-            </div>
+            <DesktopAuditListView
+              checks={desktopSortedChecks}
+              selectedCheckId={selectedCheckId}
+              onSelect={(checkId, focusDetail) => {
+                setSelectedCheckId(checkId);
+                if (focusDetail) {
+                  setDesktopCriterionOpen(true);
+                }
+              }}
+              registerButtonRef={(checkId, element) => {
+                sidebarButtonRefs.current[checkId] = element;
+              }}
+            />
           )}
         </div>
       </div>
+
+      <Dialog open={desktopCriterionOpen && !!selectedCheck} onOpenChange={(open) => {
+        setDesktopCriterionOpen(open);
+        if (!open && selectedCheckId) {
+          setTimeout(() => sidebarButtonRefs.current[selectedCheckId]?.focus(), 0);
+        }
+      }}>
+        {selectedCheck && (
+          <DialogContent
+            aria-describedby="desktop-criterion-drawer-description"
+            className="left-auto right-0 top-0 h-screen w-full max-w-[920px] translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-0 border-l border-slate-200 bg-slate-50 p-0 shadow-[0_24px_64px_rgba(15,23,42,0.18)] data-[state=closed]:slide-out-to-right data-[state=closed]:slide-out-to-top-0 data-[state=open]:slide-in-from-right data-[state=open]:slide-in-from-top-0 sm:max-w-[920px] sm:rounded-none"
+            onOpenAutoFocus={(event) => {
+              event.preventDefault();
+              detailRegionRef.current?.focus();
+            }}
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              if (selectedCheckId) {
+                sidebarButtonRefs.current[selectedCheckId]?.focus();
+              }
+            }}
+          >
+            <DialogHeader className="sr-only">
+              <DialogTitle>{selectedCheck.wcagCriterion} {selectedCheck.title}</DialogTitle>
+              <DialogDescription id="desktop-criterion-drawer-description">
+                Review the selected WCAG criterion, update status, document notes, and capture failure evidence. Press Escape to close this drawer and return to the selected card.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex h-full flex-col overflow-hidden">
+              <div className="border-b border-slate-200 bg-white px-8 py-4">
+                <div className="pr-10">
+                  <div className="text-[11px] font-black uppercase tracking-[0.2em] text-cyan-700/80">Selected Criterion</div>
+                  <p className="mt-2 text-sm text-slate-500">Review the criterion, update status in place, and press Escape to return to the board.</p>
+                </div>
+              </div>
+              <div className="min-h-0 flex-1 overflow-hidden p-6">
+                <DesktopCriterionWorkspace
+                  check={selectedCheck}
+                  smartElements={selectedCheck.wcagCriterion ? detectedElements?.[selectedCheck.wcagCriterion] : undefined}
+                  detailRegionRef={detailRegionRef}
+                  onEscapeToSidebar={() => setDesktopCriterionOpen(false)}
+                  onStatusChange={(status) => onStatusChange(selectedCheck.id, status)}
+                  onUpdateQuestionStatuses={onUpdateQuestionStatuses
+                    ? (statuses) => onUpdateQuestionStatuses(selectedCheck.id, statuses)
+                    : undefined}
+                  onAddFailure={() => onAddFailure(selectedCheck.id)}
+                  onUpdateFailure={(failureId, data) => onUpdateFailure(selectedCheck.id, failureId, data)}
+                  onDeleteFailure={(failureId) => onDeleteFailure(selectedCheck.id, failureId)}
+                  onUpdateSmartElement={selectedCheck.wcagCriterion && onUpdateDetectedElement
+                    ? (elementId, status, comment) => onUpdateDetectedElement(selectedCheck.wcagCriterion!, elementId, status, comment)
+                    : undefined}
+                  onAddElementFailure={selectedCheck.wcagCriterion && onAddElementFailure
+                    ? (elementId, data) => onAddElementFailure(selectedCheck.wcagCriterion!, elementId, data)
+                    : undefined}
+                  onUpdateElementFailure={selectedCheck.wcagCriterion && onUpdateElementFailure
+                    ? (elementId, failureId, data) => onUpdateElementFailure(selectedCheck.wcagCriterion!, elementId, failureId, data)
+                    : undefined}
+                  onDeleteElementFailure={selectedCheck.wcagCriterion && onDeleteElementFailure
+                    ? (elementId, failureId) => onDeleteElementFailure(selectedCheck.wcagCriterion!, elementId, failureId)
+                    : undefined}
+                  onGenerateFocusOrderScreenshot={onGenerateFocusOrderScreenshot}
+                  onDetectElements={onDetectElements}
+                  onGenerateElementScreenshot={onGenerateElementScreenshot}
+                />
+              </div>
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
 
       {/* Controls row */}
       <div className="space-y-2 lg:hidden">

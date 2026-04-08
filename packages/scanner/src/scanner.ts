@@ -6,7 +6,7 @@ import pLimit from 'p-limit';
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { ScanResult, ScanReport, DetectedElement } from '../../shared/dist/index.js';
+import { ScanResult, ScanReport, DetectedElement, AxeRuleResult } from '../../shared/dist/index.js';
 import { DETECTORS, DetectorModule } from './detectors/index.js';
 import { BROWSER_UTILS_SCRIPT } from './detectors/browserUtils.js';
 
@@ -132,6 +132,39 @@ export class SitemapScanner {
     return urls;
   }
 
+  async scanSingle(url: string): Promise<ScanResult> {
+    this.browser = await puppeteer.launch({
+      headless: this.options.headless,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    });
+
+    try {
+      return await this.scanPage(url);
+    } finally {
+      if (this.browser) {
+        await this.browser.close();
+        this.browser = null;
+      }
+    }
+  }
+
+  private mapRuleResults(rules: any[]): AxeRuleResult[] {
+    return rules.map((rule: any) => ({
+      id: rule.id,
+      impact: rule.impact as AxeRuleResult['impact'],
+      description: rule.description,
+      help: rule.help,
+      helpUrl: rule.helpUrl,
+      tags: rule.tags,
+      level: this.deriveLevel(rule.tags),
+      nodes: (rule.nodes ?? []).map((node: any) => ({
+        html: node.html,
+        target: node.target,
+        failureSummary: node.failureSummary,
+      })),
+    }));
+  }
+
   private async scanPage(url: string): Promise<ScanResult> {
     const page = await this.browser!.newPage();
 
@@ -179,6 +212,8 @@ export class SitemapScanner {
       }
 
       const results = axeResults;
+      const passRules = this.mapRuleResults(results.passes);
+      const incompleteRules = this.mapRuleResults(results.incomplete);
 
       // Build violations array before return so we can mutate nodes for screenshots
       const violations = results.violations.map((v: any) => ({
@@ -242,6 +277,8 @@ export class SitemapScanner {
         passes: results.passes.length,
         incomplete: results.incomplete.length,
         inapplicable: results.inapplicable.length,
+        passRules,
+        incompleteRules,
         detectedElements: detectedElementsMap,
       };
     } catch (error) {
@@ -253,7 +290,9 @@ export class SitemapScanner {
         violations: [],
         passes: 0,
         incomplete: 0,
-        inapplicable: 0
+        inapplicable: 0,
+        passRules: [],
+        incompleteRules: [],
       };
     } finally {
       await page.close();

@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/button';
 import { FeatureRequestModal } from '@/components/FeatureRequestModal';
 import { useRestoreFocus } from '@/hooks/useRestoreFocus';
 import { SeymourLogo } from '@/components/SeymourLogo';
+import { Breadcrumbs } from '@/components/Breadcrumbs';
+import { LayoutBreadcrumbProvider, useCurrentLayoutBreadcrumbs } from '@/context/LayoutBreadcrumbContext';
 
 type Props = { children: ReactNode };
 
@@ -77,7 +79,7 @@ function getFocusable(el: HTMLElement): HTMLElement[] {
 
 // ── Layout ────────────────────────────────────────────────────────────────────
 
-export function Layout({ children }: Props) {
+function LayoutShell({ children }: Props) {
   const { scanning, aborting, scanState, elapsed, abortScan, completedReportId, clearCompletedReport } = useScanContext();
 
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -166,6 +168,7 @@ export function Layout({ children }: Props) {
   const onProjects = location.pathname.startsWith('/projects');
   const projectPageMatch = location.pathname.match(/^\/projects\/([^/]+)$/);
   const currentProjectId = projectPageMatch?.[1] ?? null;
+  const breadcrumbItems = useCurrentLayoutBreadcrumbs();
 
   const progressPercent = scanState.total > 0
     ? Math.round((scanState.scanned / scanState.total) * 100)
@@ -306,10 +309,14 @@ export function Layout({ children }: Props) {
       >
         {/* ── Sticky top header ── */}
         <header className="sticky top-0 z-20 flex items-center justify-between px-8 h-16 bg-white/80 backdrop-blur-md shadow-sm shrink-0">
-          <div className="flex items-center gap-2 text-on-surface-variant">
-            <span className="text-sm font-semibold text-primary">
-              {onDashboard ? 'Audit Dashboard' : onProjects ? 'Projects' : 'Reports'}
-            </span>
+          <div className="min-w-0 flex items-center gap-2 text-on-surface-variant">
+            {breadcrumbItems.length > 0 ? (
+              <Breadcrumbs items={breadcrumbItems} className="min-w-0" />
+            ) : (
+              <span className="text-sm font-semibold text-primary">
+                {onDashboard ? 'Audit Dashboard' : onProjects ? 'Projects' : 'Reports'}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-3">
@@ -455,5 +462,13 @@ export function Layout({ children }: Props) {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export function Layout({ children }: Props) {
+  return (
+    <LayoutBreadcrumbProvider>
+      <LayoutShell>{children}</LayoutShell>
+    </LayoutBreadcrumbProvider>
   );
 }

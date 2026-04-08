@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ScanReport } from '@accessibility-scanner/shared';
-import { apiFetchJson } from '@/lib/api';
+import { apiFetchJson, toApiErrorMessage } from '@/lib/api';
 
 /** List payload from `/api/reports` — metadata + aggregate summary only (no per-page `results`). */
 export type ReportListItem = Omit<ScanReport, 'results'>;
@@ -18,7 +18,7 @@ export function useReports() {
         setReports(data);
         setError(null);
       })
-      .catch(err => setError(err instanceof Error ? err.message : 'Unknown error'))
+      .catch(err => setError(toApiErrorMessage(err, 'Failed to fetch reports')))
       .finally(() => {
         if (blocking) setLoading(false);
       });

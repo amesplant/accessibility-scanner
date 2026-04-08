@@ -5,12 +5,19 @@ import { useProjects } from '@/hooks/useProjects';
 import { useScanContext, formatElapsed } from '@/context/ScanContext';
 import { apiFetch } from '@/lib/api';
 import { downloadReportJson, importReportJsonPayload } from '@/lib/reportTransfer';
-import { AuditType } from '@accessibility-scanner/shared';
+import { AuditType, ScanReport } from '@accessibility-scanner/shared';
 import { Progress } from '@/components/ui';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { ExternalLink } from '@/components/ExternalLink';
+import { ProjectCard } from '@/components/ProjectCard';
+import {
+  ReportIntegrityNotice,
+  getReportIntegrityMessage,
+  isCorruptedReport,
+} from '@/components/ReportIntegrityNotice';
+import { ViewLayoutToggle, type ViewLayout } from '@/components/ViewLayoutToggle';
 import {
   Dialog,
   DialogClose,
@@ -23,6 +30,7 @@ import {
 import { ExportModal } from '@/components/ExportModal';
 import { EditProjectDialog } from '@/components/EditProjectDialog';
 import { useRestoreFocus } from '@/hooks/useRestoreFocus';
+import { readApiError } from '@/lib/api';
 import type { ProjectWithCount } from '@/hooks/useProjects';
 
 type InputMode = 'url' | 'file' | 'crawl' | 'urllist';
@@ -64,6 +72,7 @@ export function Dashboard() {
   const navigate = useNavigate();
 
   const [showScanForm, setShowScanForm] = useState(false);
+  const [recentScansLayout, setRecentScansLayout] = useState<ViewLayout>('list');
 
   const [auditType, setAuditType] = useState<AuditType>('all-inclusive');
   const [wcagLevel, setWcagLevel] = useState<'A' | 'AA' | 'AAA'>('AA');
@@ -96,6 +105,8 @@ export function Dashboard() {
   const [isImporting, setIsImporting] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [openingManualAuditReportId, setOpeningManualAuditReportId] = useState<string | null>(null);
+  const [reportAuditActionLabels, setReportAuditActionLabels] = useState<Record<string, 'start' | 'continue'>>({});
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importFileInputRef = useRef<HTMLInputElement>(null);
@@ -284,14 +295,117 @@ export function Dashboard() {
   }
 
   async function handleRemove(id: string) {
-    await apiFetch(`/api/reports/${id}`, { method: 'DELETE' });
-    setPendingRemoveId(null);
-    refresh({ background: true });
+    try {
+      const res = await apiFetch(`/api/reports/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw await readApiError(res, 'Failed to remove report');
+      setPendingRemoveId(null);
+      refresh({ background: true });
+      refreshProjects({ background: true });
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Failed to remove report');
+    }
   }
+
+  function getManualAuditState(pageResult: ScanReport['results'][number]) {
+    const checks = pageResult.manualAudit?.checks ?? [];
+    const failCount = checks.filter((check) => check.status === 'fail').length;
+    const checkedCount = checks.filter((check) => check.status !== 'not-tested').length;
+    const completed = pageResult.manualAudit?.completed === true;
+
+    return {
+      failCount,
+      checkedCount,
+      completed,
+    };
+  }
+
+  function getAuditActionLabelFromPages(pages: ScanReport['results']): 'start' | 'continue' {
+    const hasAuditProgress = pages.some((pageResult) => {
+      const state = getManualAuditState(pageResult);
+      return state.failCount > 0 || state.checkedCount > 0 || state.completed;
+    });
+
+    return hasAuditProgress ? 'continue' : 'start';
+  }
+
+  async function handleOpenManualAudit(report: ReportListItem) {
+    try {
+      setOpeningManualAuditReportId(report.id);
+      const res = await apiFetch(`/api/reports/${report.id}/pages?offset=0&limit=250`);
+      if (!res.ok) throw await readApiError(res, 'Failed to fetch report pages');
+      const data = await res.json() as { items?: ScanReport['results'] };
+      const pages = data.items ?? [];
+
+      setReportAuditActionLabels((current) => ({
+        ...current,
+        [report.id]: getAuditActionLabelFromPages(pages),
+      }));
+
+      const targetPage =
+        pages.find((pageResult) => getManualAuditState(pageResult).failCount > 0) ??
+        pages.find((pageResult) => {
+          const state = getManualAuditState(pageResult);
+          return !state.completed && state.checkedCount > 0;
+        }) ??
+        pages.find((pageResult) => !getManualAuditState(pageResult).completed) ??
+        null;
+
+      if (targetPage) {
+        navigate(`/reports/${report.id}/page/${targetPage.id}`, { state: { tab: 'manual' } });
+        return;
+      }
+
+      navigate(`/reports/${report.id}?tab=pages`);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Failed to open manual audit');
+    } finally {
+      setOpeningManualAuditReportId(null);
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAuditActionLabels() {
+      const labelEntries = await Promise.all(
+        reports.map(async (report) => {
+          if (isCorruptedReport(report)) {
+            return [report.id, 'start'] as const;
+          }
+          try {
+            const limit = Math.min(report.summary.totalPages || 250, 250);
+            const res = await apiFetch(`/api/reports/${report.id}/pages?offset=0&limit=${Math.max(limit, 1)}`);
+            if (!res.ok) return [report.id, 'start'] as const;
+            const data = await res.json() as { items?: ScanReport['results'] };
+            return [report.id, getAuditActionLabelFromPages(data.items ?? [])] as const;
+          } catch {
+            return [report.id, 'start'] as const;
+          }
+        }),
+      );
+
+      if (!cancelled) {
+        setReportAuditActionLabels(Object.fromEntries(labelEntries));
+      }
+    }
+
+    if (reports.length > 0) {
+      loadAuditActionLabels();
+    } else {
+      setReportAuditActionLabels({});
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reports]);
 
   const progressPercent = scanState.total > 0
     ? Math.round((scanState.scanned / scanState.total) * 100)
     : 0;
+  const pendingRemoveReport = pendingRemoveId
+    ? reports.find((report) => report.id === pendingRemoveId) ?? null
+    : null;
 
   const totalCritical = reports.reduce((sum, r) => sum + (r.summary.violationsByImpact?.critical ?? 0), 0);
 
@@ -326,16 +440,32 @@ export function Dashboard() {
                     className={[
                       'relative group cursor-pointer rounded-xl p-5 text-left transition-all border-2',
                       isSelected
-                        ? 'bg-surface-container-lowest shadow-xl border-primary-container'
-                        : 'bg-surface-container-lowest border-transparent hover:bg-white hover:shadow-lg hover:border-primary-fixed',
+                        ? type === 'all-inclusive'
+                          ? 'bg-surface-container-lowest shadow-xl border-tertiary-fixed-dim'
+                          : type === 'mid-level'
+                            ? 'bg-surface-container-lowest shadow-xl border-secondary-fixed-dim'
+                            : 'bg-surface-container-lowest shadow-xl border-emerald-300'
+                        : type === 'all-inclusive'
+                          ? 'bg-surface-container-lowest border-transparent hover:bg-white hover:shadow-lg hover:border-tertiary-fixed-dim'
+                          : type === 'mid-level'
+                            ? 'bg-surface-container-lowest border-transparent hover:bg-white hover:shadow-lg hover:border-secondary-fixed-dim'
+                            : 'bg-surface-container-lowest border-transparent hover:bg-white hover:shadow-lg hover:border-emerald-200',
                       scanning ? 'opacity-50 cursor-not-allowed' : '',
                     ].join(' ')}
                   >
                     <div className={[
                       'w-10 h-10 rounded-lg flex items-center justify-center mb-3 transition-colors',
                       isSelected
-                        ? (isAI ? 'bg-tertiary-fixed text-tertiary' : 'bg-primary-container text-on-primary')
-                        : (isAI ? 'bg-surface-container-low text-tertiary' : 'bg-surface-container-low text-primary'),
+                        ? (isAI
+                          ? 'bg-tertiary-fixed text-tertiary'
+                          : type === 'mid-level'
+                            ? 'bg-secondary-fixed text-on-secondary-fixed'
+                            : 'bg-emerald-100 text-emerald-700')
+                        : (isAI
+                          ? 'bg-surface-container-low text-tertiary'
+                          : type === 'mid-level'
+                            ? 'bg-surface-container-low text-secondary-md'
+                            : 'bg-emerald-50 text-emerald-700'),
                     ].join(' ')}>
                       <Icon name={AUDIT_TYPE_ICONS[type]} className="text-xl" />
                     </div>
@@ -805,47 +935,15 @@ export function Dashboard() {
               View All Projects
             </Link>
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            {projects.slice(0, 4).map(project => (
-              <div key={project.id} className="bg-surface-container-lowest rounded-2xl p-6 shadow-[0px_12px_32px_rgba(24,28,32,0.04)] group hover:shadow-lg transition-shadow">
-                <div className="flex items-start justify-between mb-5">
-                  <div>
-                    <Link
-                      to={`/projects/${project.id}`}
-                      className="text-base font-bold text-on-surface hover:text-primary transition-colors"
-                    >
-                      {project.name}
-                    </Link>
-                    {project.description && (
-                      <p className="text-xs text-on-surface-variant mt-0.5 line-clamp-1">{project.description}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                    <button
-                      type="button"
-                      onClick={() => setEditingProject(project)}
-                      aria-label={`Edit project ${project.name}`}
-                      className="p-1.5 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
-                    >
-                      <Icon name="edit" className="text-sm" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPendingDeleteProjectId(project.id)}
-                      aria-label={`Delete project ${project.name}`}
-                      className="p-1.5 rounded-lg text-on-surface-variant hover:text-destructive hover:bg-error-container transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
-                    >
-                      <Icon name="delete" className="text-sm" />
-                    </button>
-                  </div>
-                </div>
-                <div className="flex gap-6">
-                  <div>
-                    <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Reports</p>
-                    <p className="text-lg font-bold text-on-surface">{project.reportCount}</p>
-                  </div>
-                </div>
-              </div>
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {projects.slice(0, 3).map(project => (
+              <ProjectCard
+                key={project.id}
+                project={project}
+                onOpen={(projectId) => navigate(`/projects/${projectId}`)}
+                onEdit={setEditingProject}
+                onDelete={setPendingDeleteProjectId}
+              />
             ))}
           </div>
         </section>
@@ -862,13 +960,16 @@ export function Dashboard() {
 
       {reports.length > 0 && (
         <section>
-          <h2 className="text-lg font-bold text-on-surface mb-5">Recent Scans</h2>
+          <div className="mb-5 flex items-center justify-between gap-4">
+            <h2 className="text-lg font-bold text-on-surface">Recent Scans</h2>
+            <ViewLayoutToggle value={recentScansLayout} onChange={setRecentScansLayout} ariaLabel="Recent scans layout" />
+          </div>
+          {recentScansLayout === 'list' ? (
           <div className="bg-surface-container-lowest rounded-2xl shadow-[0px_12px_32px_rgba(24,28,32,0.04)] overflow-hidden">
             <table className="w-full text-left">
               <thead>
                 <tr className="text-[10px] font-bold text-on-surface-variant tracking-widest uppercase">
                   <th className="px-6 py-4">Report</th>
-                  <th className="px-6 py-4">Audit Type</th>
                   <th className="px-6 py-4 text-right">Pages</th>
                   <th className="px-6 py-4 text-right">Violations</th>
                   <th className="px-6 py-4">Scanned</th>
@@ -878,10 +979,40 @@ export function Dashboard() {
               <tbody>
                 {reports.map(report => {
                   const proj = report.projectId ? projects.find(p => p.id === report.projectId) : null;
+                  const reportLabel = report.pageTitle || report.sitemap;
+                  const reportCorrupted = isCorruptedReport(report);
+                  const manualAuditActionLabel = reportAuditActionLabels[report.id] === 'continue'
+                    ? 'Continue Audit'
+                    : 'Start Audit';
                   return (
                     <tr key={report.id} className="hover:bg-surface-container-low transition-colors group border-t border-surface-container-high">
                       <td className="px-6 py-4">
                         <div>
+                          {report.auditType && (
+                            <div className="mb-2">
+                              <span className={[
+                                'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.14em]',
+                                report.auditType === 'all-inclusive'
+                                  ? 'border-tertiary-fixed-dim bg-tertiary-fixed text-on-tertiary-fixed'
+                                  : report.auditType === 'mid-level'
+                                    ? 'border-secondary-fixed-dim bg-secondary-fixed text-on-secondary-fixed'
+                                    : 'border-emerald-200 bg-emerald-50 text-emerald-900',
+                              ].join(' ')}>
+                                <Icon
+                                  name={AUDIT_TYPE_ICONS[report.auditType]}
+                                  className={[
+                                    'text-sm',
+                                    report.auditType === 'all-inclusive'
+                                      ? 'text-tertiary'
+                                      : report.auditType === 'mid-level'
+                                        ? 'text-secondary-md'
+                                        : 'text-emerald-700',
+                                  ].join(' ')}
+                                />
+                                {AUDIT_TYPE_LABELS[report.auditType]}
+                              </span>
+                            </div>
+                          )}
                           {renamingReportId === report.id ? (
                             <div className="flex items-center gap-2">
                               <input
@@ -935,21 +1066,8 @@ export function Dashboard() {
                               {proj.name}
                             </Link>
                           )}
+                          <ReportIntegrityNotice report={report} className="max-w-xl" />
                         </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        {report.auditType && (
-                          <div className="flex items-center gap-1.5">
-                            <span className={[
-                              'w-1.5 h-1.5 rounded-full',
-                              report.auditType === 'all-inclusive' ? 'bg-tertiary' :
-                              report.auditType === 'mid-level' ? 'bg-secondary-md' : 'bg-primary',
-                            ].join(' ')} aria-hidden="true" />
-                            <span className="text-xs font-medium text-on-surface capitalize">
-                              {report.auditType === 'rapid' ? 'Rapid' : report.auditType === 'mid-level' ? 'Mid-Level' : 'All-Inclusive'}
-                            </span>
-                          </div>
-                        )}
                       </td>
                       <td className="px-6 py-4 text-right">
                         <Link to={`/reports/${report.id}?tab=pages`} className="text-sm font-semibold text-on-surface hover:text-primary transition-colors">
@@ -970,47 +1088,77 @@ export function Dashboard() {
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center justify-end gap-1">
+                        <div className="flex items-center justify-end gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenManualAudit(report)}
+                            disabled={openingManualAuditReportId === report.id || reportCorrupted}
+                            aria-label={reportCorrupted
+                              ? `Manual audit unavailable for ${reportLabel}: ${getReportIntegrityMessage(report)}`
+                              : `${openingManualAuditReportId === report.id ? 'Opening manual audit for' : `${manualAuditActionLabel} for`} ${reportLabel}`}
+                            className="h-10 rounded-xl bg-secondary px-4 text-xs font-semibold text-white whitespace-nowrap hover:opacity-90 transition-opacity disabled:opacity-60 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                          >
+                            {reportCorrupted ? 'Audit unavailable' : openingManualAuditReportId === report.id ? 'Opening…' : manualAuditActionLabel}
+                          </button>
                           <Link
                             to={`/reports/${report.id}`}
-                            className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:opacity-90 transition-opacity focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                            aria-label={`View report details for ${reportLabel}`}
+                            className="inline-flex h-10 items-center rounded-xl bg-primary px-4 text-xs font-semibold text-white whitespace-nowrap hover:opacity-90 transition-opacity focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
                           >
-                            View
+                            {reportCorrupted ? 'Review' : 'View'}
                           </Link>
-                          <button
-                            type="button"
-                            onClick={() => { setAssignReport(report); setAssignProjectId(report.projectId ?? ''); }}
-                            aria-label={`Assign ${report.pageTitle || report.sitemap} to a project`}
-                            className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
-                          >
-                            <Icon name="folder_open" className="text-base" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setExportReport(report)}
-                            aria-label={`Export report for ${report.sitemap}`}
-                            className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
-                          >
-                            <Icon name="download" className="text-base" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => downloadReportJson(report.id).catch(err => setImportError(err instanceof Error ? err.message : 'Failed to export JSON'))}
-                            aria-label={`Download JSON for ${report.pageTitle || report.sitemap}`}
-                            className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
-                          >
-                            <Icon name="data_object" className="text-base" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPendingRemoveId(report.id);
-                            }}
-                            aria-label={`Delete report for ${report.sitemap}`}
-                            className="p-2 rounded-lg text-on-surface-variant hover:text-destructive hover:bg-error-container transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
-                          >
-                            <Icon name="delete" className="text-base" />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => { setAssignReport(report); setAssignProjectId(report.projectId ?? ''); }}
+                              aria-label={`Assign ${reportLabel} to a project`}
+                              className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                            >
+                              <Icon name="folder_open" className="text-base" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setExportReport(report)}
+                              aria-label={`Export report for ${reportLabel}`}
+                              disabled={reportCorrupted}
+                              className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors disabled:opacity-40 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                            >
+                              <Icon name="download" className="text-base" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => downloadReportJson(report.id).catch(err => setImportError(err instanceof Error ? err.message : 'Failed to export JSON'))}
+                              aria-label={`Download JSON for ${reportLabel}`}
+                              disabled={reportCorrupted}
+                              className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors disabled:opacity-40 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                            >
+                              <Icon name="data_object" className="text-base" />
+                            </button>
+                            {reportCorrupted ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPendingRemoveId(report.id);
+                                }}
+                                aria-label={`Cleanup broken report for ${reportLabel}`}
+                                className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-error/30 px-3 text-xs font-semibold text-error hover:bg-error-container/50 transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                              >
+                                <Icon name="cleaning_services" className="text-base" />
+                                Cleanup
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPendingRemoveId(report.id);
+                                }}
+                                aria-label={`Delete report for ${reportLabel}`}
+                                className="p-2 rounded-lg text-on-surface-variant hover:text-destructive hover:bg-error-container transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                              >
+                                <Icon name="delete" className="text-base" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </td>
                     </tr>
@@ -1019,6 +1167,185 @@ export function Dashboard() {
               </tbody>
             </table>
           </div>
+          ) : (
+            <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-3">
+              {reports.map(report => {
+                const proj = report.projectId ? projects.find(p => p.id === report.projectId) : null;
+                const reportLabel = report.pageTitle || report.sitemap;
+                const reportCorrupted = isCorruptedReport(report);
+                const manualAuditActionLabel = reportAuditActionLabels[report.id] === 'continue'
+                  ? 'Continue Audit'
+                  : 'Start Audit';
+
+                return (
+                  <div key={report.id} className="rounded-2xl bg-surface-container-lowest p-6 shadow-[0px_12px_32px_rgba(24,28,32,0.04)]">
+                    <div>
+                      {report.auditType && (
+                        <div className="mb-3">
+                          <span className={[
+                            'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.14em]',
+                            report.auditType === 'all-inclusive'
+                              ? 'border-tertiary-fixed-dim bg-tertiary-fixed text-on-tertiary-fixed'
+                              : report.auditType === 'mid-level'
+                                ? 'border-secondary-fixed-dim bg-secondary-fixed text-on-secondary-fixed'
+                                : 'border-emerald-200 bg-emerald-50 text-emerald-900',
+                          ].join(' ')}>
+                            <Icon
+                              name={AUDIT_TYPE_ICONS[report.auditType]}
+                              className={[
+                                'text-sm',
+                                report.auditType === 'all-inclusive'
+                                  ? 'text-tertiary'
+                                  : report.auditType === 'mid-level'
+                                    ? 'text-secondary-md'
+                                    : 'text-emerald-700',
+                              ].join(' ')}
+                            />
+                            {AUDIT_TYPE_LABELS[report.auditType]}
+                          </span>
+                        </div>
+                      )}
+
+                      {renamingReportId === report.id ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            ref={renameInputRef}
+                            type="text"
+                            value={renameDraft}
+                            onChange={e => setRenameDraft(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') { renameReport(report.id, renameDraft); setRenamingReportId(null); }
+                              if (e.key === 'Escape') setRenamingReportId(null);
+                            }}
+                            className="text-sm font-semibold bg-transparent border-b-2 border-primary flex-1 min-w-0 text-on-surface focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                            aria-label="Report name"
+                          />
+                          <button type="button" onClick={() => { renameReport(report.id, renameDraft); setRenamingReportId(null); }} aria-label="Save" className="text-on-surface-variant hover:text-on-surface p-1 rounded-md focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring">
+                            <Icon name="check" className="text-sm" />
+                          </button>
+                          <button type="button" onClick={() => setRenamingReportId(null)} aria-label="Cancel" className="text-on-surface-variant hover:text-on-surface p-1 rounded-md focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring">
+                            <Icon name="close" className="text-sm" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 group/title">
+                          <Link to={`/reports/${report.id}`} className="text-base font-semibold text-on-surface hover:text-primary transition-colors break-words">
+                            {reportLabel}
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => { setRenameDraft(reportLabel); setRenamingReportId(report.id); setTimeout(() => renameInputRef.current?.select(), 0); }}
+                            aria-label={`Rename ${reportLabel}`}
+                            className="opacity-0 text-on-surface-variant hover:text-primary transition-opacity p-1 rounded-md group-hover/title:opacity-100 group-focus-within/title:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                          >
+                            <Icon name="edit" className="text-sm" />
+                          </button>
+                        </div>
+                      )}
+
+                      {report.pageTitle && report.sitemap.startsWith('http') && (
+                        <ExternalLink href={report.sitemap} className="mt-1 block text-xs text-on-surface-variant break-all">
+                          {report.sitemap}
+                        </ExternalLink>
+                      )}
+                      {proj && (
+                        <Link to={`/projects/${proj.id}`} className="mt-2 inline-flex items-center gap-1 text-[10px] font-semibold text-secondary-md hover:underline">
+                          <Icon name="folder_open" className="text-xs" />
+                          {proj.name}
+                        </Link>
+                      )}
+                      <ReportIntegrityNotice report={report} />
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-3 gap-3 rounded-xl bg-surface-container-low p-4 text-sm">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Pages</p>
+                        <p className="mt-1 font-semibold text-on-surface">{report.summary.totalPages}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Violations</p>
+                        <p className={['mt-1 font-semibold', report.summary.totalViolations > 0 ? 'text-destructive' : 'text-on-surface'].join(' ')}>{report.summary.totalViolations}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Scanned</p>
+                        <p className="mt-1 text-xs text-on-surface-variant">{new Date(report.startTime).toLocaleDateString()}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenManualAudit(report)}
+                        disabled={openingManualAuditReportId === report.id || reportCorrupted}
+                        aria-label={reportCorrupted
+                          ? `Manual audit unavailable for ${reportLabel}: ${getReportIntegrityMessage(report)}`
+                          : `${openingManualAuditReportId === report.id ? 'Opening manual audit for' : `${manualAuditActionLabel} for`} ${reportLabel}`}
+                        className="h-10 rounded-xl bg-secondary px-4 text-xs font-semibold text-white whitespace-nowrap hover:opacity-90 transition-opacity disabled:opacity-60 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                      >
+                        {reportCorrupted ? 'Audit unavailable' : openingManualAuditReportId === report.id ? 'Opening…' : manualAuditActionLabel}
+                      </button>
+                      <Link
+                        to={`/reports/${report.id}`}
+                        aria-label={`View report details for ${reportLabel}`}
+                        className="inline-flex h-10 items-center rounded-xl bg-primary px-4 text-xs font-semibold text-white whitespace-nowrap hover:opacity-90 transition-opacity focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                      >
+                        {reportCorrupted ? 'Review' : 'View'}
+                      </Link>
+                    </div>
+
+                    <div className="mt-4 flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => { setAssignReport(report); setAssignProjectId(report.projectId ?? ''); }}
+                        aria-label={`Assign ${reportLabel} to a project`}
+                        className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                      >
+                        <Icon name="folder_open" className="text-base" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExportReport(report)}
+                        aria-label={`Export report for ${reportLabel}`}
+                        disabled={reportCorrupted}
+                        className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors disabled:opacity-40 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                      >
+                        <Icon name="download" className="text-base" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadReportJson(report.id).catch(err => setImportError(err instanceof Error ? err.message : 'Failed to export JSON'))}
+                        aria-label={`Download JSON for ${reportLabel}`}
+                        disabled={reportCorrupted}
+                        className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors disabled:opacity-40 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                      >
+                        <Icon name="data_object" className="text-base" />
+                      </button>
+                      {reportCorrupted ? (
+                        <button
+                          type="button"
+                          onClick={() => { setPendingRemoveId(report.id); }}
+                          aria-label={`Cleanup broken report for ${reportLabel}`}
+                          className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-error/30 px-3 text-xs font-semibold text-error hover:bg-error-container/50 transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                        >
+                          <Icon name="cleaning_services" className="text-base" />
+                          Cleanup
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => { setPendingRemoveId(report.id); }}
+                          aria-label={`Delete report for ${reportLabel}`}
+                          className="p-2 rounded-lg text-on-surface-variant hover:text-destructive hover:bg-error-container transition-colors focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                        >
+                          <Icon name="delete" className="text-base" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
       )}
 
@@ -1060,9 +1387,13 @@ export function Dashboard() {
       >
         <DialogContent aria-live="assertive" onCloseAutoFocus={handleRemoveCloseAutoFocus}>
           <DialogHeader>
-            <DialogTitle className="text-on-surface">Remove report?</DialogTitle>
+            <DialogTitle className="text-on-surface">
+              {isCorruptedReport(pendingRemoveReport) ? 'Cleanup broken report?' : 'Remove report?'}
+            </DialogTitle>
             <DialogDescription className="text-on-surface-variant">
-              This will permanently delete this scan report. This action cannot be undone.
+              {isCorruptedReport(pendingRemoveReport)
+                ? 'This will permanently remove the unreadable report payload and its summary entry. This action cannot be undone.'
+                : 'This will permanently delete this scan report. This action cannot be undone.'}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
@@ -1072,7 +1403,7 @@ export function Dashboard() {
               </Button>
             </DialogClose>
             <Button type="button" variant="destructive" onClick={() => pendingRemoveId && handleRemove(pendingRemoveId)}>
-              Remove report
+              {isCorruptedReport(pendingRemoveReport) ? 'Cleanup report' : 'Remove report'}
             </Button>
           </DialogFooter>
         </DialogContent>

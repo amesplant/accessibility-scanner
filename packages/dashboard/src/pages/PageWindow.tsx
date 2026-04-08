@@ -1,12 +1,31 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useReportPage } from '@/hooks/useReportPage';
+import { useReport } from '@/hooks/useReport';
 import { useManualAudit } from '@/hooks/useManualAudit';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { ManualAuditTab } from '@/components/ManualAuditTab';
+import { FailureInstanceItem, type FailureInstanceCheckContext, type FailureUpdateData, ManualAuditTab } from '@/components/ManualAuditTab';
+import { useLayoutBreadcrumbs } from '@/context/LayoutBreadcrumbContext';
 import { ExternalLink } from '@/components/ExternalLink';
+import { ExportModal } from '@/components/ExportModal';
+import type { AxeRuleResult, ManualFailureInstance } from '@accessibility-scanner/shared';
+import { ViewLayoutToggle, type ViewLayout } from '@/components/ViewLayoutToggle';
+
+type AutomatedRuleSource = 'pass' | 'incomplete';
+
+type PromoteDraft = {
+  target: string;
+  failure: ManualFailureInstance;
+};
 
 function Icon({ name, className = '', filled = false }: { name: string; className?: string; filled?: boolean }) {
   return (
@@ -20,9 +39,29 @@ function Icon({ name, className = '', filled = false }: { name: string; classNam
   );
 }
 
+function createPromoteDraft(source: AutomatedRuleSource, rule: AxeRuleResult): PromoteDraft {
+  const createdAt = new Date().toISOString();
+
+  return {
+    target: '',
+    failure: {
+      id: `promote-${source}-${rule.id}`,
+      createdAt,
+      status: 'fail',
+      scope: 'page-specific',
+      impact: rule.impact ?? 'moderate',
+      title: rule.help,
+      notes: '',
+      codeSnippet: '',
+      remediationRecommendation: '',
+    },
+  };
+}
+
 export function PageWindow() {
   const { id, pageId } = useParams<{ id: string; pageId: string }>();
-  const { page, loading, error, updateViolationOverride, updateViolationNode } = useReportPage(id, pageId);
+  const { page, loading, error, rescanning, updateViolationOverride, updateViolationNode, rescanPage, promoteRuleToViolation } = useReportPage(id, pageId);
+  const { report: reportSummary } = useReport(id);
   const navigate = useNavigate();
   const location = useLocation();
   const initialTab = (location.state as { tab?: string } | null)?.tab ?? 'automated';
@@ -31,13 +70,20 @@ export function PageWindow() {
     useManualAudit(id ?? '', pageId ?? '', page?.manualAudit, page?.detectedElements);
 
   const [activeTab, setActiveTab] = useState(initialTab);
+  const [automatedView, setAutomatedView] = useState<'violations' | 'passes' | 'incomplete'>('violations');
+  const [automatedLayout, setAutomatedLayout] = useState<ViewLayout>('cards');
   const [impactFilter, setImpactFilter] = useState('');
   const [levelFilter, setLevelFilter] = useState('');
   const [expandedViolations, setExpandedViolations] = useState<Set<string>>(new Set());
   const [overrideNotesInput, setOverrideNotesInput] = useState<Record<string, string>>({});
+  const [promoteDrafts, setPromoteDrafts] = useState<Record<string, PromoteDraft>>({});
+  const [promoteDialogKey, setPromoteDialogKey] = useState<string | null>(null);
+  const [promotingRuleKey, setPromotingRuleKey] = useState<string | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [pendingNode, setPendingNode] = useState<{ violationId: string; nodeIndex: number } | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const promoteDetailRef = useRef<HTMLDivElement>(null);
 
   function openFilePicker(violationId: string, nodeIndex: number) {
     setPendingNode({ violationId, nodeIndex });
@@ -91,6 +137,209 @@ export function PageWindow() {
     });
   }
 
+  function getPromoteDraftKey(source: AutomatedRuleSource, ruleId: string) {
+    return `${source}:${ruleId}`;
+  }
+
+  function getPromoteDraft(source: AutomatedRuleSource, rule: AxeRuleResult): PromoteDraft {
+    return promoteDrafts[getPromoteDraftKey(source, rule.id)] ?? createPromoteDraft(source, rule);
+  }
+
+  function updatePromoteDraft(source: AutomatedRuleSource, rule: AxeRuleResult, patch: Partial<PromoteDraft>) {
+    const key = getPromoteDraftKey(source, rule.id);
+    setPromoteDrafts((current) => ({
+      ...current,
+      [key]: {
+        ...getPromoteDraft(source, rule),
+        ...patch,
+      },
+    }));
+  }
+
+  function updatePromoteFailureDraft(source: AutomatedRuleSource, rule: AxeRuleResult, patch: FailureUpdateData) {
+    const key = getPromoteDraftKey(source, rule.id);
+    setPromoteDrafts((current) => {
+      const base = current[key] ?? createPromoteDraft(source, rule);
+      return {
+        ...current,
+        [key]: {
+          ...base,
+          failure: {
+            ...base.failure,
+            ...patch,
+            status: patch.status ?? base.failure.status ?? 'fail',
+            impact: patch.impact ?? base.failure.impact ?? rule.impact ?? 'moderate',
+          },
+        },
+      };
+    });
+  }
+
+  async function handlePromoteRule(source: AutomatedRuleSource, rule: AxeRuleResult, includeCustomNode: boolean) {
+    const draft = getPromoteDraft(source, rule);
+    const key = getPromoteDraftKey(source, rule.id);
+
+    setPromotingRuleKey(key);
+    const nextPage = await promoteRuleToViolation(source, rule.id, {
+      impact: draft.failure.impact,
+      customNode: includeCustomNode
+        ? {
+            failureSummary: draft.failure.notes?.trim() || draft.failure.title?.trim() || undefined,
+            target: draft.target
+              .split('\n')
+              .map((value) => value.trim())
+              .filter(Boolean),
+            html: draft.failure.codeSnippet ?? '',
+            status: draft.failure.status,
+            scope: draft.failure.scope,
+            impact: draft.failure.impact,
+            title: draft.failure.title,
+            notes: draft.failure.notes,
+            codeSnippet: draft.failure.codeSnippet,
+            screenshotDataUrl: draft.failure.screenshotDataUrl,
+            remediationRecommendation: draft.failure.remediationRecommendation,
+            assignedTo: draft.failure.assignedTo,
+            relatedCriteria: draft.failure.relatedCriteria,
+            relatedCriteriaNotes: draft.failure.relatedCriteriaNotes,
+          }
+        : undefined,
+    });
+    setPromotingRuleKey(null);
+
+    if (nextPage) {
+      setAutomatedView('violations');
+      setExpandedViolations((current) => new Set(current).add(rule.id));
+      setPromoteDialogKey(null);
+      setPromoteDrafts((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+    }
+  }
+
+  function renderAutomatedRules(source: AutomatedRuleSource, rules: AxeRuleResult[], emptyMessage: string) {
+    if (rules.length === 0) {
+      return <p className="text-sm text-on-surface-variant py-8 text-center">{emptyMessage}</p>;
+    }
+
+    return (
+      <div className={cn(automatedLayout === 'cards' ? 'space-y-3' : 'overflow-hidden rounded-2xl border border-outline-variant/10 bg-surface-container-lowest')}>
+        {rules.map((rule, index) => {
+          const criteria = wcagCriteria(rule.tags);
+          const isOpen = expandedViolations.has(rule.id);
+          const nodeCount = rule.nodes.length;
+          const promoteKey = getPromoteDraftKey(source, rule.id);
+          const promoting = promotingRuleKey === promoteKey;
+
+          return (
+            <div
+              key={rule.id}
+              className={cn(
+                automatedLayout === 'cards'
+                  ? 'overflow-hidden rounded-2xl border border-outline-variant/10 bg-surface-container-lowest shadow-[0px_4px_12px_rgba(24,28,32,0.04)]'
+                  : 'overflow-hidden bg-surface-container-lowest',
+                automatedLayout === 'list' && index > 0 && 'border-t border-surface-container',
+              )}
+            >
+              <div className={cn('flex w-full items-start justify-between gap-4', automatedLayout === 'cards' ? 'px-6 py-4' : 'px-5 py-3')}>
+                <div className="flex-1 min-w-0 space-y-2">
+                  <p className="font-semibold text-sm text-on-surface leading-snug">{rule.help}</p>
+                  <p className="text-xs text-on-surface-variant leading-5">{rule.description}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {rule.level && (
+                      <button
+                        type="button"
+                        onClick={() => setLevelFilter((current) => current === rule.level ? '' : (rule.level ?? ''))}
+                        aria-label={`Filter by level: ${rule.level === 'best-practice' ? 'Best Practice' : `WCAG ${rule.level}`}`}
+                        className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <span className="inline-flex items-center rounded-full bg-primary-fixed px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary transition-opacity hover:opacity-75">
+                          {rule.level === 'best-practice' ? 'Best Practice' : `WCAG ${rule.level}`}
+                        </span>
+                      </button>
+                    )}
+                    {criteria.map((criterion) => (
+                      <span key={`${rule.id}-${criterion}`} className="inline-flex items-center rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] font-mono font-bold text-on-surface-variant">
+                        {criterion}
+                      </span>
+                    ))}
+                    <a
+                      href={rule.helpUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-primary hover:underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring rounded"
+                    >
+                      Learn more
+                      <span className="sr-only"> (opens in a new tab)</span>
+                    </a>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 rounded-lg border-outline-variant/30 text-xs"
+                      onClick={() => { void handlePromoteRule(source, rule, false); }}
+                      disabled={promoting}
+                    >
+                      <Icon name={promoting ? 'progress_activity' : 'error'} className={cn('text-[16px]', promoting && 'animate-spin')} />
+                      {promoting ? 'Promoting…' : 'Mark as failure'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 rounded-lg border-outline-variant/30 text-xs"
+                      onClick={() => setPromoteDialogKey(promoteKey)}
+                      aria-haspopup="dialog"
+                    >
+                      <Icon name="playlist_add" className="text-[16px]" />
+                      Add failure instance
+                    </Button>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => toggleViolation(rule.id)}
+                  aria-expanded={isOpen}
+                  aria-label={`${isOpen ? 'Collapse' : 'Expand'} details for ${rule.help}`}
+                  className="flex shrink-0 items-center gap-2 pt-0.5 text-on-surface-variant transition-colors hover:text-on-surface rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                >
+                  <span className="text-xs font-medium">{nodeCount} {nodeCount === 1 ? 'instance' : 'instances'}</span>
+                  <Icon name="expand_more" className={cn('text-[20px] transition-transform', isOpen && 'rotate-180')} />
+                </button>
+              </div>
+
+              {isOpen && (
+                <div className="divide-y divide-surface-container border-t border-outline-variant/10">
+                  {rule.nodes.map((node, index) => (
+                    <div key={`${rule.id}-${index}`} className={cn('space-y-3', automatedLayout === 'cards' ? 'px-6 py-4' : 'px-5 py-3')}>
+                      <span className="text-xs font-semibold text-on-surface-variant">Instance {index + 1}</span>
+                      {node.failureSummary && (
+                        <p className="text-sm text-on-surface">{node.failureSummary}</p>
+                      )}
+                      {node.target.length > 0 && (
+                        <p className="text-xs font-mono text-on-surface-variant break-all">{node.target.join(' > ')}</p>
+                      )}
+                      {node.html && (
+                        <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-xl bg-surface-container-high p-4 font-mono text-xs leading-relaxed text-on-surface">
+                          {node.html}
+                        </pre>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   async function handleGenerateFocusOrderScreenshot(elementId: string, colorScheme: 'light' | 'dark') {
     const focusElements = detectedElements?.['2.4.3'] ?? [];
     const el = focusElements.find(e => e.id === elementId);
@@ -109,6 +358,15 @@ export function PageWindow() {
     }
     return () => { document.title = 'Seymour'; };
   }, [page]);
+
+  const breadcrumbs = useMemo(() => ([
+    { label: 'Dashboard', to: '/' },
+    { label: 'Reports', to: '/' },
+    { label: reportSummary?.pageTitle || reportSummary?.sitemap || 'Report', to: `/reports/${id}?tab=pages` },
+    { label: page?.title || page?.url || 'Page detail' },
+  ]), [id, page?.title, page?.url, reportSummary?.pageTitle, reportSummary?.sitemap]);
+
+  useLayoutBreadcrumbs(breadcrumbs);
 
   if (loading) return (
     <div className="flex items-center justify-center h-64 text-on-surface-variant">
@@ -146,6 +404,24 @@ export function PageWindow() {
         ? `Manual Audit (${manualFailCount} fail / ${manualNotTestedCount} not tested)`
         : `Manual Audit (${audit.checks.length - manualNotTestedCount} checked)`;
 
+  const visiblePassRules = (page.passRules ?? []).filter((rule) => !levelFilter || (rule.level ?? 'best-practice') === levelFilter);
+  const visibleIncompleteRules = (page.incompleteRules ?? []).filter((rule) => !levelFilter || (rule.level ?? 'best-practice') === levelFilter);
+  const promoteDialogSourceRule = promoteDialogKey
+    ? ([...(page.passRules ?? []).map((rule) => ({ source: 'pass' as const, rule })), ...(page.incompleteRules ?? []).map((rule) => ({ source: 'incomplete' as const, rule }))]
+      .find((entry) => getPromoteDraftKey(entry.source, entry.rule.id) === promoteDialogKey) ?? null)
+    : null;
+  const promoteDialogDraft = promoteDialogSourceRule ? getPromoteDraft(promoteDialogSourceRule.source, promoteDialogSourceRule.rule) : null;
+  const promoteDialogPromoting = promoteDialogKey !== null && promotingRuleKey === promoteDialogKey;
+  const promoteDialogCheckContext: FailureInstanceCheckContext | undefined = promoteDialogSourceRule
+    ? {
+        id: promoteDialogSourceRule.rule.id,
+        title: promoteDialogSourceRule.rule.help,
+        criterion: wcagCriteria(promoteDialogSourceRule.rule.tags)[0],
+        description: promoteDialogSourceRule.rule.description,
+        level: promoteDialogSourceRule.rule.level === 'best-practice' ? undefined : promoteDialogSourceRule.rule.level,
+      }
+    : undefined;
+
   return (
     <div className="p-8 space-y-6 text-base">
       {/* Lightbox modal */}
@@ -174,16 +450,147 @@ export function PageWindow() {
         </div>
       )}
 
+      <Dialog
+        open={!!promoteDialogSourceRule}
+        onOpenChange={(open) => {
+          if (!open) setPromoteDialogKey(null);
+        }}
+      >
+        {promoteDialogSourceRule && promoteDialogDraft && (
+          <DialogContent
+            aria-describedby="automated-failure-dialog-description"
+            className="left-auto right-0 top-0 h-screen w-full max-w-[920px] translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-0 border-l border-slate-200 bg-slate-50 p-0 shadow-[0_24px_64px_rgba(15,23,42,0.18)] data-[state=closed]:slide-out-to-right data-[state=closed]:slide-out-to-top-0 data-[state=open]:slide-in-from-right data-[state=open]:slide-in-from-top-0 sm:max-w-[920px] sm:rounded-none"
+            onOpenAutoFocus={(event) => {
+              event.preventDefault();
+              promoteDetailRef.current?.focus();
+            }}
+          >
+            <DialogHeader className="sr-only">
+              <DialogTitle>{promoteDialogSourceRule.rule.help}</DialogTitle>
+              <DialogDescription id="automated-failure-dialog-description">
+                Review the automated rule, add a failure instance, and promote it into the page violations list.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="flex h-full flex-col overflow-hidden">
+              <div className="border-b border-slate-200 bg-white px-8 py-4">
+                <div className="pr-10">
+                  <div className="text-[11px] font-black uppercase tracking-[0.2em] text-cyan-700/80">Automated Rule</div>
+                  <p className="mt-2 text-sm text-slate-500">Use the same review drawer pattern as manual audit checks, then save to create a failure instance and move this rule into violations.</p>
+                </div>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-hidden p-6">
+                <div
+                  ref={promoteDetailRef}
+                  tabIndex={-1}
+                  className="flex h-full flex-col overflow-hidden rounded-[28px] border border-slate-200/80 bg-white shadow-[0_24px_48px_rgba(15,23,42,0.08)] focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-inset"
+                >
+                  <div className="border-b border-slate-200/70 px-7 py-7 lg:px-8">
+                    <div className="mb-4 flex items-start justify-between gap-4">
+                      <span className="inline-flex items-center rounded-full bg-cyan-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-700">
+                        Add Failure Instance
+                      </span>
+                      <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-600">
+                        {promoteDialogSourceRule.source === 'pass' ? 'Passed rule' : 'Incomplete rule'}
+                      </span>
+                    </div>
+
+                    <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="text-2xl font-extrabold tracking-tight text-slate-950">
+                          {promoteDialogSourceRule.rule.help}
+                        </h3>
+                        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+                          {promoteDialogSourceRule.rule.description}
+                        </p>
+                      </div>
+                      <span className={cn('inline-flex items-center rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em]', impactBadgeStyle[promoteDialogDraft.failure.impact ?? 'minor'] ?? impactBadgeStyle.minor)}>
+                        {promoteDialogDraft.failure.impact}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {promoteDialogSourceRule.rule.level && (
+                        <span className="rounded-full border border-cyan-100 bg-cyan-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-cyan-700">
+                          {promoteDialogSourceRule.rule.level === 'best-practice' ? 'Best Practice' : `WCAG ${promoteDialogSourceRule.rule.level}`}
+                        </span>
+                      )}
+                      {wcagCriteria(promoteDialogSourceRule.rule.tags).map((criterion) => (
+                        <span key={`dialog-${promoteDialogSourceRule.rule.id}-${criterion}`} className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-[0.14em] text-slate-600">
+                          {criterion}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex-1 space-y-6 overflow-y-auto px-7 py-7 lg:px-8">
+                    <section className="space-y-3 rounded-[24px] border border-slate-200/80 bg-slate-50/80 p-5">
+                      <div>
+                        <h4 className="text-sm font-black uppercase tracking-[0.16em] text-slate-700">Failure Tracking</h4>
+                        <p className="mt-1 text-sm text-slate-500">Capture the same failure instance details here before promoting this automated rule.</p>
+                      </div>
+
+                      <label className="space-y-1.5">
+                        <span className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Selector targets</span>
+                        <textarea
+                          value={promoteDialogDraft.target}
+                          onChange={(event) => updatePromoteDraft(promoteDialogSourceRule.source, promoteDialogSourceRule.rule, { target: event.target.value })}
+                          rows={4}
+                          className="w-full rounded-[20px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
+                        />
+                        <p className="text-xs text-slate-500">One selector per line. Leave blank to promote the rule without adding a custom located instance.</p>
+                      </label>
+
+                      <FailureInstanceItem
+                        index={1}
+                        failure={promoteDialogDraft.failure}
+                        checkContext={promoteDialogCheckContext}
+                        pageUrl={page.url}
+                        showDelete={false}
+                        showExport={false}
+                        showSaveButton={false}
+                        onUpdate={(data) => updatePromoteFailureDraft(promoteDialogSourceRule.source, promoteDialogSourceRule.rule, data)}
+                        onDraftChange={(data) => updatePromoteFailureDraft(promoteDialogSourceRule.source, promoteDialogSourceRule.rule, data)}
+                        onDelete={() => undefined}
+                      />
+                    </section>
+                  </div>
+
+                  <div className="border-t border-slate-200/70 bg-white px-7 py-4 lg:px-8">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-xs text-slate-500">This creates the failure instance and moves the automated rule into the active violations list.</p>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-10 rounded-full px-5"
+                          onClick={() => setPromoteDialogKey(null)}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="button"
+                          className="h-10 rounded-full px-5"
+                          onClick={() => { void handlePromoteRule(promoteDialogSourceRule.source, promoteDialogSourceRule.rule, true); }}
+                          disabled={promoteDialogPromoting}
+                        >
+                          <Icon name={promoteDialogPromoting ? 'progress_activity' : 'add_task'} className={cn('mr-2 text-[16px]', promoteDialogPromoting && 'animate-spin')} />
+                          {promoteDialogPromoting ? 'Saving…' : 'Create failure and promote'}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
+
       {/* Nav row */}
       <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={() => navigate(`/reports/${id}?tab=pages`)}
-          className="inline-flex items-center gap-1.5 text-sm text-on-surface-variant hover:text-on-surface transition-colors"
-        >
-          <Icon name="arrow_back" className="text-[18px]" />
-          Back to report
-        </button>
+        <div aria-hidden="true" />
         <button
           type="button"
           aria-label="Close page detail"
@@ -200,39 +607,20 @@ export function PageWindow() {
           <ExternalLink href={page.url}>{page.url}</ExternalLink>
         </h1>
 
-        <div className="flex flex-wrap gap-6">
+        <div>
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant mb-1">Scanned</p>
             <p className="text-sm text-on-surface">{new Date(page.timestamp).toLocaleString()}</p>
-          </div>
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant mb-1">Results</p>
-            <div className="flex flex-wrap gap-2">
-              <span className={cn(
-                'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide',
-                page.violations.length > 0
-                  ? 'bg-error-container text-on-error-container'
-                  : 'bg-secondary-container text-on-secondary-container'
-              )}>
-                {page.violations.length} violations
-              </span>
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide bg-surface-container-high text-on-surface-variant">
-                {page.passes} passes
-              </span>
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide bg-surface-container-high text-on-surface-variant">
-                {page.incomplete} incomplete
-              </span>
-            </div>
           </div>
         </div>
       </div>
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="bg-surface-container-high rounded-xl p-1 w-full justify-start">
+        <TabsList className="inline-flex h-auto w-auto items-center gap-1 rounded-[20px] border border-surface-container-high bg-surface-container-lowest p-1 shadow-[0px_12px_32px_rgba(24,28,32,0.04)]">
           <TabsTrigger
             value="automated"
-            className="rounded-lg px-5 py-2 text-sm font-semibold data-[state=active]:bg-surface-container-lowest data-[state=active]:text-on-surface data-[state=active]:shadow-sm text-on-surface-variant"
+            className="rounded-[16px] px-5 py-3 text-sm font-bold text-on-surface-variant transition-colors data-[state=active]:bg-cyan-900 data-[state=active]:text-white data-[state=active]:shadow-sm"
           >
             {(() => {
               const active = page.violations.filter(v => !v.overrideStatus).length;
@@ -244,7 +632,7 @@ export function PageWindow() {
           </TabsTrigger>
           <TabsTrigger
             value="manual"
-            className="rounded-lg px-5 py-2 text-sm font-semibold data-[state=active]:bg-surface-container-lowest data-[state=active]:text-on-surface data-[state=active]:shadow-sm text-on-surface-variant"
+            className="rounded-[16px] px-5 py-3 text-sm font-bold text-on-surface-variant transition-colors data-[state=active]:bg-cyan-900 data-[state=active]:text-white data-[state=active]:shadow-sm"
           >
             {manualTabLabel}
           </TabsTrigger>
@@ -261,17 +649,22 @@ export function PageWindow() {
             aria-hidden="true"
           />
 
-          {page.violations.length > 0 ? (() => {
+          {(() => {
             const IMPACT_ORDER = ['critical', 'serious', 'moderate', 'minor'] as const;
             const LEVEL_ORDER = ['A', 'AA', 'AAA', 'best-practice'] as const;
+            const activeRulesForLevelCounts = automatedView === 'violations'
+              ? page.violations
+              : automatedView === 'passes'
+                ? (page.passRules ?? [])
+                : (page.incompleteRules ?? []);
 
             const impactCounts = page.violations.reduce((acc, v) => {
               acc[v.impact] = (acc[v.impact] ?? 0) + 1;
               return acc;
             }, {} as Record<string, number>);
 
-            const levelCounts = page.violations.reduce((acc, v) => {
-              const key = v.level ?? 'best-practice';
+            const levelCounts = activeRulesForLevelCounts.reduce((acc, item) => {
+              const key = item.level ?? 'best-practice';
               acc[key] = (acc[key] ?? 0) + 1;
               return acc;
             }, {} as Record<string, number>);
@@ -291,21 +684,52 @@ export function PageWindow() {
 
             return (
               <div className="space-y-4">
-                {/* Filter controls */}
-                <div className="flex flex-wrap items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-on-surface-variant font-semibold shrink-0">Impact</span>
-                    <div className="inline-flex items-center rounded-xl bg-surface-container-high p-1 gap-0.5" role="group" aria-label="Filter by impact">
-                      <button type="button" onClick={() => setImpactFilter('')} aria-pressed={impactFilter === ''} className={segBtn(impactFilter === '')}>
-                        All ({page.violations.length})
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="inline-flex items-center rounded-xl bg-surface-container-high p-1 gap-0.5" role="group" aria-label="Automated result type">
+                      <button type="button" onClick={() => setAutomatedView('violations')} aria-pressed={automatedView === 'violations'} className={segBtn(automatedView === 'violations')}>
+                      Violations ({page.violations.length})
                       </button>
-                      {IMPACT_ORDER.filter(i => impactCounts[i]).map(i => (
-                        <button key={i} type="button" onClick={() => setImpactFilter(f => f === i ? '' : i)} aria-pressed={impactFilter === i} className={segBtn(impactFilter === i)}>
-                          {i.charAt(0).toUpperCase() + i.slice(1)} ({impactCounts[i]})
-                        </button>
-                      ))}
+                      <button type="button" onClick={() => setAutomatedView('passes')} aria-pressed={automatedView === 'passes'} className={segBtn(automatedView === 'passes')}>
+                      Passed ({page.passes})
+                      </button>
+                      <button type="button" onClick={() => setAutomatedView('incomplete')} aria-pressed={automatedView === 'incomplete'} className={segBtn(automatedView === 'incomplete')}>
+                      Incomplete ({page.incomplete})
+                      </button>
                     </div>
+
+                    <ViewLayoutToggle value={automatedLayout} onChange={setAutomatedLayout} ariaLabel="Automated results layout" />
                   </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9 gap-1.5 rounded-xl border-outline-variant/30"
+                    onClick={() => { void rescanPage(); }}
+                    disabled={rescanning}
+                  >
+                    <Icon name={rescanning ? 'progress_activity' : 'refresh'} className={cn('text-[16px]', rescanning && 'animate-spin')} />
+                    {rescanning ? 'Rescanning…' : 'Rescan page'}
+                  </Button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-4">
+                  {automatedView === 'violations' && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-on-surface-variant font-semibold shrink-0">Impact</span>
+                      <div className="inline-flex items-center rounded-xl bg-surface-container-high p-1 gap-0.5" role="group" aria-label="Filter by impact">
+                        <button type="button" onClick={() => setImpactFilter('')} aria-pressed={impactFilter === ''} className={segBtn(impactFilter === '')}>
+                          All ({page.violations.length})
+                        </button>
+                        {IMPACT_ORDER.filter(i => impactCounts[i]).map(i => (
+                          <button key={i} type="button" onClick={() => setImpactFilter(f => f === i ? '' : i)} aria-pressed={impactFilter === i} className={segBtn(impactFilter === i)}>
+                            {i.charAt(0).toUpperCase() + i.slice(1)} ({impactCounts[i]})
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-on-surface-variant font-semibold shrink-0">Level</span>
@@ -323,15 +747,27 @@ export function PageWindow() {
 
                   {(impactFilter || levelFilter) && (
                     <span className="text-xs text-on-surface-variant">
-                      Showing {filteredViolations.length} of {page.violations.length}
+                      Showing {
+                        automatedView === 'violations'
+                          ? filteredViolations.length
+                          : automatedView === 'passes'
+                            ? visiblePassRules.length
+                            : visibleIncompleteRules.length
+                      } of {
+                        automatedView === 'violations'
+                          ? page.violations.length
+                          : automatedView === 'passes'
+                            ? page.passes
+                            : page.incomplete
+                      }
                     </span>
                   )}
                 </div>
 
-                {/* Violation accordion */}
-                {filteredViolations.length > 0 ? (
-                  <div className="space-y-3">
-                    {filteredViolations.map(v => {
+                {automatedView === 'violations' ? (
+                  filteredViolations.length > 0 ? (
+                  <div className={cn(automatedLayout === 'cards' ? 'space-y-3' : 'overflow-hidden rounded-2xl border border-outline-variant/10 bg-surface-container-lowest')}>
+                    {filteredViolations.map((v, index) => {
                       const criteria = wcagCriteria(v.tags);
                       const isOpen = expandedViolations.has(v.id);
                       const nodeCount = v.nodes.length;
@@ -341,12 +777,15 @@ export function PageWindow() {
                         <div
                           key={v.id}
                           className={cn(
-                            'bg-surface-container-lowest rounded-2xl border border-outline-variant/10 shadow-[0px_4px_12px_rgba(24,28,32,0.04)] overflow-hidden',
+                            automatedLayout === 'cards'
+                              ? 'bg-surface-container-lowest rounded-2xl border border-outline-variant/10 shadow-[0px_4px_12px_rgba(24,28,32,0.04)] overflow-hidden'
+                              : 'bg-surface-container-lowest overflow-hidden',
+                            automatedLayout === 'list' && index > 0 && 'border-t border-surface-container',
                             isOverridden && 'opacity-60'
                           )}
                         >
                           {/* Header row */}
-                          <div className="w-full flex items-start justify-between gap-4 px-6 py-4">
+                          <div className={cn('w-full flex items-start justify-between gap-4', automatedLayout === 'cards' ? 'px-6 py-4' : 'px-5 py-3')}>
                             <div className="flex-1 min-w-0 space-y-2">
                               <p className={cn('font-semibold text-sm text-on-surface leading-snug', isOverridden && 'line-through text-on-surface-variant')}>
                                 {v.help}
@@ -453,7 +892,7 @@ export function PageWindow() {
 
                           {/* Override notes */}
                           {isOverridden && (
-                            <div className="px-6 py-3 border-t border-dashed border-outline-variant/20 bg-surface-container-low/50">
+                            <div className={cn('border-t border-dashed border-outline-variant/20 bg-surface-container-low/50', automatedLayout === 'cards' ? 'px-6 py-3' : 'px-5 py-3')}>
                               <input
                                 type="text"
                                 value={overrideNotesInput[v.id] ?? v.overrideNotes ?? ''}
@@ -471,9 +910,19 @@ export function PageWindow() {
                               {v.nodes.map((n, i) => {
                                 const nodeIsPass = n.overrideStatus === 'pass';
                                 return (
-                                  <div key={i} className={cn('px-6 py-4 space-y-3', nodeIsPass && 'opacity-60')}>
+                                  <div key={i} className={cn(automatedLayout === 'cards' ? 'px-6 py-4' : 'px-5 py-3', 'space-y-3', nodeIsPass && 'opacity-60')}>
                                     <div className="flex items-center gap-2">
                                       <span className="text-xs font-semibold text-on-surface-variant">Instance {i + 1}</span>
+                                      {n.scope && (
+                                        <span className="inline-flex items-center rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-on-surface-variant">
+                                          {n.scope}
+                                        </span>
+                                      )}
+                                      {n.impact && (
+                                        <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', impactBadgeStyle[n.impact] ?? impactBadgeStyle.minor)}>
+                                          {n.impact}
+                                        </span>
+                                      )}
                                       {(['fail', 'pass'] as const).map(status => {
                                         const active = status === 'fail' ? !n.overrideStatus || n.overrideStatus === 'fail' : n.overrideStatus === 'pass';
                                         return (
@@ -496,16 +945,48 @@ export function PageWindow() {
                                         );
                                       })}
                                     </div>
-                                    {n.failureSummary && (
-                                      <p className="text-sm text-on-surface">{n.failureSummary}</p>
+                                    {n.title && (
+                                      <p className="text-sm font-semibold text-on-surface">{n.title}</p>
+                                    )}
+                                    {(n.notes || n.failureSummary) && (
+                                      <p className="text-sm text-on-surface whitespace-pre-wrap">{n.notes || n.failureSummary}</p>
+                                    )}
+                                    {n.relatedCriteria && n.relatedCriteria.length > 0 && (
+                                      <div className="flex flex-wrap gap-2">
+                                        {n.relatedCriteria.map((criterion) => (
+                                          <span key={`${v.id}-${i}-${criterion}`} className="inline-flex items-center rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] font-mono font-bold text-on-surface-variant">
+                                            {criterion}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {n.relatedCriteriaNotes && Object.keys(n.relatedCriteriaNotes).length > 0 && (
+                                      <div className="space-y-2 rounded-xl bg-surface-container-high p-4">
+                                        <p className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">Related issue notes</p>
+                                        {Object.entries(n.relatedCriteriaNotes).map(([criterion, note]) => (
+                                          <div key={`${v.id}-${i}-${criterion}-note`} className="space-y-1">
+                                            <p className="text-xs font-mono text-on-surface-variant">{criterion}</p>
+                                            <p className="text-sm whitespace-pre-wrap text-on-surface">{note}</p>
+                                          </div>
+                                        ))}
+                                      </div>
                                     )}
                                     {n.target.length > 0 && (
                                       <p className="text-xs font-mono text-on-surface-variant break-all">{n.target.join(' > ')}</p>
                                     )}
-                                    {n.html && (
+                                    {(n.codeSnippet || n.html) && (
                                       <pre className="text-xs leading-relaxed font-mono bg-surface-container-high text-on-surface rounded-xl p-4 overflow-x-auto whitespace-pre-wrap break-all">
-                                        {n.html}
+                                        {n.codeSnippet || n.html}
                                       </pre>
+                                    )}
+                                    {n.assignedTo && n.assignedTo.length > 0 && (
+                                      <p className="text-xs text-on-surface-variant">Assigned to {n.assignedTo.join(', ')}</p>
+                                    )}
+                                    {n.remediationRecommendation && (
+                                      <div className="rounded-xl bg-surface-container-high p-4">
+                                        <p className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">Remediation recommendation</p>
+                                        <p className="mt-2 text-sm whitespace-pre-wrap text-on-surface">{n.remediationRecommendation}</p>
+                                      </div>
                                     )}
                                     {/* Screenshot */}
                                     {n.screenshotDataUrl ? (
@@ -554,15 +1035,23 @@ export function PageWindow() {
                   </div>
                 ) : (
                   <p className="text-sm text-on-surface-variant py-8 text-center">No violations match the current filters.</p>
+                  )
+                ) : automatedView === 'passes' ? (
+                  (page.passRules ?? []).length > 0
+                    ? renderAutomatedRules('pass', visiblePassRules, 'No passed rules match the current filters.')
+                    : page.passes > 0
+                      ? <p className="text-sm text-on-surface-variant py-8 text-center">Detailed passed results are available after rescanning this page.</p>
+                      : <p className="text-sm text-on-surface-variant py-8 text-center">No passed rules were recorded for this page.</p>
+                ) : (
+                  (page.incompleteRules ?? []).length > 0
+                    ? renderAutomatedRules('incomplete', visibleIncompleteRules, 'No incomplete rules match the current filters.')
+                    : page.incomplete > 0
+                      ? <p className="text-sm text-on-surface-variant py-8 text-center">Detailed incomplete results are available after rescanning this page.</p>
+                      : <p className="text-sm text-on-surface-variant py-8 text-center">No incomplete rules were recorded for this page.</p>
                 )}
               </div>
             );
-          })() : (
-            <div className="text-center py-16 bg-surface-container-lowest rounded-2xl border border-outline-variant/10">
-              <Icon name="check_circle" filled className="text-5xl text-secondary opacity-60 mb-3" />
-              <p className="text-sm text-on-surface-variant">No violations found on this page.</p>
-            </div>
-          )}
+          })()}
         </TabsContent>
 
         <TabsContent value="manual" className="mt-6">
@@ -590,6 +1079,33 @@ export function PageWindow() {
           />
         </TabsContent>
       </Tabs>
+
+      <div className="flex flex-wrap items-center justify-end gap-3 border-t border-outline-variant/10 pt-4">
+        <Button
+          type="button"
+          variant="outline"
+          className="h-10 gap-1.5 rounded-xl"
+          onClick={() => setExportOpen(true)}
+          disabled={!reportSummary}
+        >
+          <Icon name="download" className="text-[16px]" />
+          Export report
+        </Button>
+        {activeTab === 'automated' && (
+          <Button
+            type="button"
+            variant="outline"
+            className="h-10 gap-1.5 rounded-xl"
+            onClick={() => { void rescanPage(); }}
+            disabled={rescanning}
+          >
+            <Icon name={rescanning ? 'progress_activity' : 'refresh'} className={cn('text-[16px]', rescanning && 'animate-spin')} />
+            {rescanning ? 'Rescanning…' : 'Rescan page'}
+          </Button>
+        )}
+      </div>
+
+      <ExportModal report={exportOpen ? reportSummary : null} onClose={() => setExportOpen(false)} />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ScanReport } from '@accessibility-scanner/shared';
-import { apiFetch } from '@/lib/api';
+import { ManualFailureInstance, ScanReport } from '@accessibility-scanner/shared';
+import { apiFetch, readApiError, toApiErrorMessage } from '@/lib/api';
 
 type ReportPage = ScanReport['results'][number];
 
@@ -8,6 +8,7 @@ export function useReportPage(reportId: string | undefined, pageId: string | und
   const [page, setPage] = useState<ReportPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [rescanning, setRescanning] = useState(false);
 
   useEffect(() => {
     if (!reportId || !pageId) {
@@ -17,12 +18,12 @@ export function useReportPage(reportId: string | undefined, pageId: string | und
 
     setLoading(true);
     apiFetch(`/api/reports/${reportId}/pages/${pageId}`)
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to fetch page');
+      .then(async res => {
+        if (!res.ok) throw await readApiError(res, 'Failed to fetch page');
         return res.json();
       })
       .then(setPage)
-      .catch(err => setError(err instanceof Error ? err.message : 'Failed to fetch page'))
+      .catch(err => setError(toApiErrorMessage(err, 'Failed to fetch page')))
       .finally(() => setLoading(false));
   }, [reportId, pageId]);
 
@@ -63,5 +64,68 @@ export function useReportPage(reportId: string | undefined, pageId: string | und
     setPage(current => current ? { ...current, violations } : current);
   }
 
-  return { page, loading, error, updateViolationOverride, updateViolationNode };
+  async function rescanPage() {
+    if (!reportId || !pageId) return null;
+    setRescanning(true);
+    setError(null);
+
+    try {
+      const res = await apiFetch(`/api/reports/${reportId}/pages/${pageId}/rescan`, {
+        method: 'POST',
+      });
+      if (!res.ok) throw await readApiError(res, 'Failed to rescan page');
+      const { page: rescannedPage } = await res.json();
+      setPage(rescannedPage);
+      return rescannedPage as ReportPage;
+    } catch (err) {
+      setError(toApiErrorMessage(err, 'Failed to rescan page'));
+      return null;
+    } finally {
+      setRescanning(false);
+    }
+  }
+
+  async function promoteRuleToViolation(
+    source: 'pass' | 'incomplete',
+    ruleId: string,
+    options?: {
+      impact?: 'minor' | 'moderate' | 'serious' | 'critical';
+      customNode?: {
+        html?: string;
+        target?: string[];
+        failureSummary?: string;
+        status?: ManualFailureInstance['status'];
+        scope?: ManualFailureInstance['scope'];
+        impact?: ManualFailureInstance['impact'];
+        title?: string;
+        notes?: string;
+        codeSnippet?: string;
+        screenshotDataUrl?: string;
+        remediationRecommendation?: string;
+        assignedTo?: ManualFailureInstance['assignedTo'];
+        relatedCriteria?: string[];
+        relatedCriteriaNotes?: Record<string, string>;
+      };
+    },
+  ) {
+    if (!reportId || !pageId) return null;
+
+    try {
+      const res = await apiFetch(`/api/reports/${reportId}/pages/${pageId}/rules/${ruleId}/promote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source, ...options }),
+      });
+      if (!res.ok) throw await readApiError(res, 'Failed to promote rule');
+      const { page: nextPage } = await res.json();
+      setPage(nextPage);
+      setError(null);
+      return nextPage as ReportPage;
+    } catch (err) {
+      setError(toApiErrorMessage(err, 'Failed to promote rule'));
+      return null;
+    }
+  }
+
+  return { page, loading, error, rescanning, updateViolationOverride, updateViolationNode, rescanPage, promoteRuleToViolation };
 }
