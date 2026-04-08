@@ -311,9 +311,10 @@ const _CHECKS: Omit<PredefinedCheck, 'auditTags'>[] = [
     category: 'Color & Visual',
     priority: 'medium',
     questions: [
-      'At 200% browser zoom, is all text readable and does no content become truncated, overlapping, or hidden?',
-      'Does the page layout adapt gracefully, or does it require horizontal scrolling at 200% zoom?',
-      'Are any text sizes set in px that prevent scaling when the user changes browser font size?',
+      'Increase text to 200% using browser zoom or text-size controls. Does all text remain readable, without clipping, truncation, overlap, or being visually cut off?',
+      'At 200% text size, do buttons, links, navigation items, form labels, helper text, captions, and error messages still show their full text and remain usable?',
+      'Do components with fixed heights, nowrap text, line clamps, or ellipsis still expose the full content when text is enlarged?',
+      'If enlarged text causes horizontal scrolling or layout reflow issues, record those under 1.4.10 Reflow as well. For 1.4.4, focus on whether text itself is lost or functionality breaks when text grows.',
     ],
   },
   {

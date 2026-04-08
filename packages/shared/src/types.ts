@@ -86,7 +86,8 @@ export type DetectedElementType =
   | 'mouse-only'
   | 'no-focus-style'
   | 'keyboard-trap'
-  | 'low-contrast';
+  | 'low-contrast'
+  | 'resize-text-preview';
 
 export interface DetectedElement {
   id: string;
