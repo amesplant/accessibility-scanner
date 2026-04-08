@@ -373,79 +373,84 @@ export function ProjectDetail() {
                     <ReportIntegrityNotice report={report} className="max-w-xl" />
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => handleOpenManualAudit(report)}
-                      disabled={openingManualAuditReportId === report.id || reportCorrupted}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-secondary shadow-lg shadow-secondary/20 hover:opacity-90 transition-opacity disabled:opacity-60"
-                    >
-                      {reportCorrupted ? 'Audit unavailable' : openingManualAuditReportId === report.id ? 'Opening…' : manualAuditActionLabel}
-                    </button>
-                    <Link
-                      to={`/reports/${report.id}`}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-primary to-primary-container shadow-lg shadow-primary/20 hover:opacity-90 transition-opacity"
-                    >
-                      {reportCorrupted ? 'Review issue' : 'View Report'}
-                    </Link>
-                    <button
-                      type="button"
-                      onClick={() => setExportReport(report)}
-                      disabled={reportCorrupted}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-outline-variant/30 text-sm font-medium text-on-surface hover:bg-surface-container transition-colors disabled:opacity-40"
-                    >
-                      <Icon name="download" className="text-[18px]" />
-                      Export
-                    </button>
-                    <button
-                      type="button"
-                      disabled={exportingJsonId === report.id || reportCorrupted}
-                      onClick={async () => {
-                        try {
-                          setExportingJsonId(report.id);
-                          await downloadReportJson(report.id);
-                        } catch (err) {
-                          console.error('JSON export failed:', err);
-                        } finally {
-                          setExportingJsonId(null);
-                        }
-                      }}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-outline-variant/30 text-sm font-medium text-on-surface hover:bg-surface-container transition-colors disabled:opacity-50"
-                    >
-                      <Icon name="data_object" className="text-[18px]" />
-                      {exportingJsonId === report.id ? 'Saving…' : 'JSON'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRemoveConfirmReport(report)}
-                      aria-label={`Remove ${report.pageTitle || report.sitemap} from this project`}
-                      className="p-2 rounded-xl text-on-surface-variant hover:text-error hover:bg-error-container/30 transition-colors"
-                      title="Remove from project"
-                    >
-                      <Icon name="folder_off" className="text-[18px]" />
-                    </button>
-                    {reportCorrupted ? (
+                  <div className="flex shrink-0 flex-col items-start gap-3 lg:min-w-[360px] lg:items-end">
+                    <div className="flex flex-wrap items-center gap-2 justify-start lg:justify-end">
                       <button
                         type="button"
-                        onClick={() => setDeleteConfirmReport(report)}
-                        aria-label={`Cleanup broken report ${report.pageTitle || report.sitemap}`}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-error/30 px-3 py-2 text-sm font-medium text-error hover:bg-error-container/30 transition-colors"
-                        title={getReportIntegrityMessage(report)}
+                        onClick={() => handleOpenManualAudit(report)}
+                        disabled={openingManualAuditReportId === report.id || reportCorrupted}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-secondary shadow-lg shadow-secondary/20 hover:opacity-90 transition-opacity disabled:opacity-60"
                       >
-                        <Icon name="cleaning_services" className="text-[18px]" />
-                        Cleanup
+                        {reportCorrupted ? 'Audit unavailable' : openingManualAuditReportId === report.id ? 'Opening…' : manualAuditActionLabel}
                       </button>
-                    ) : (
+                      <Link
+                        to={`/reports/${report.id}`}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-primary to-primary-container shadow-lg shadow-primary/20 hover:opacity-90 transition-opacity"
+                      >
+                        {reportCorrupted ? 'Review issue' : 'View Report'}
+                      </Link>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 justify-start lg:justify-end">
                       <button
                         type="button"
-                        onClick={() => setDeleteConfirmReport(report)}
-                        aria-label={`Delete report ${report.pageTitle || report.sitemap}`}
+                        onClick={() => setExportReport(report)}
+                        disabled={reportCorrupted}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-outline-variant/30 text-sm font-medium text-on-surface hover:bg-surface-container transition-colors disabled:opacity-40"
+                      >
+                        <Icon name="download" className="text-[18px]" />
+                        Export
+                      </button>
+                      <button
+                        type="button"
+                        disabled={exportingJsonId === report.id || reportCorrupted}
+                        onClick={async () => {
+                          try {
+                            setExportingJsonId(report.id);
+                            await downloadReportJson(report.id);
+                          } catch (err) {
+                            console.error('JSON export failed:', err);
+                          } finally {
+                            setExportingJsonId(null);
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-outline-variant/30 text-sm font-medium text-on-surface hover:bg-surface-container transition-colors disabled:opacity-50"
+                      >
+                        <Icon name="data_object" className="text-[18px]" />
+                        {exportingJsonId === report.id ? 'Saving…' : 'JSON'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRemoveConfirmReport(report)}
+                        aria-label={`Remove ${report.pageTitle || report.sitemap} from this project`}
                         className="p-2 rounded-xl text-on-surface-variant hover:text-error hover:bg-error-container/30 transition-colors"
-                        title="Delete report"
+                        title="Remove from project"
                       >
-                        <Icon name="delete" className="text-[18px]" />
+                        <Icon name="folder_off" className="text-[18px]" />
                       </button>
-                    )}
+                      {reportCorrupted ? (
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirmReport(report)}
+                          aria-label={`Cleanup broken report ${report.pageTitle || report.sitemap}`}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-error/30 px-3 py-2 text-sm font-medium text-error hover:bg-error-container/30 transition-colors"
+                          title={getReportIntegrityMessage(report)}
+                        >
+                          <Icon name="cleaning_services" className="text-[18px]" />
+                          Cleanup
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirmReport(report)}
+                          aria-label={`Delete report ${report.pageTitle || report.sitemap}`}
+                          className="p-2 rounded-xl text-on-surface-variant hover:text-error hover:bg-error-container/30 transition-colors"
+                          title="Delete report"
+                        >
+                          <Icon name="delete" className="text-[18px]" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

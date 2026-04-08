@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useReportPage } from '@/hooks/useReportPage';
 import { useReport } from '@/hooks/useReport';
@@ -19,6 +19,7 @@ import { ExternalLink } from '@/components/ExternalLink';
 import { ExportModal } from '@/components/ExportModal';
 import type { AxeRuleResult, ManualFailureInstance } from '@accessibility-scanner/shared';
 import { ViewLayoutToggle, type ViewLayout } from '@/components/ViewLayoutToggle';
+import { useProjects } from '@/hooks/useProjects';
 
 type AutomatedRuleSource = 'pass' | 'incomplete';
 
@@ -58,11 +59,22 @@ function createPromoteDraft(source: AutomatedRuleSource, rule: AxeRuleResult): P
   };
 }
 
+function getPageDisplayTitle(title: string | undefined, url: string): string {
+  if (title?.trim()) return title.trim();
+
+  try {
+    const pathname = new URL(url).pathname;
+    return pathname || url;
+  } catch {
+    return url;
+  }
+}
+
 export function PageWindow() {
   const { id, pageId } = useParams<{ id: string; pageId: string }>();
   const { page, loading, error, rescanning, updateViolationOverride, updateViolationNode, rescanPage, promoteRuleToViolation } = useReportPage(id, pageId);
   const { report: reportSummary } = useReport(id);
-  const navigate = useNavigate();
+  const { projects } = useProjects();
   const location = useLocation();
   const initialTab = (location.state as { tab?: string } | null)?.tab ?? 'automated';
 
@@ -359,12 +371,18 @@ export function PageWindow() {
     return () => { document.title = 'Seymour'; };
   }, [page]);
 
+  const reportProject = reportSummary?.projectId
+    ? projects.find((project) => project.id === reportSummary.projectId) ?? null
+    : null;
+
   const breadcrumbs = useMemo(() => ([
     { label: 'Dashboard', to: '/' },
-    { label: 'Reports', to: '/' },
+    ...(reportProject
+      ? [{ label: 'Projects', to: '/projects' }, { label: reportProject.name, to: `/projects/${reportProject.id}` }]
+      : [{ label: 'Reports' }]),
     { label: reportSummary?.pageTitle || reportSummary?.sitemap || 'Report', to: `/reports/${id}?tab=pages` },
     { label: page?.title || page?.url || 'Page detail' },
-  ]), [id, page?.title, page?.url, reportSummary?.pageTitle, reportSummary?.sitemap]);
+  ]), [id, page?.title, page?.url, reportProject, reportSummary?.pageTitle, reportSummary?.sitemap]);
 
   useLayoutBreadcrumbs(breadcrumbs);
 
@@ -421,6 +439,7 @@ export function PageWindow() {
         level: promoteDialogSourceRule.rule.level === 'best-practice' ? undefined : promoteDialogSourceRule.rule.level,
       }
     : undefined;
+  const pageDisplayTitle = getPageDisplayTitle(page.title, page.url);
 
   return (
     <div className="p-8 space-y-6 text-base">
@@ -588,24 +607,15 @@ export function PageWindow() {
         )}
       </Dialog>
 
-      {/* Nav row */}
-      <div className="flex items-center justify-between">
-        <div aria-hidden="true" />
-        <button
-          type="button"
-          aria-label="Close page detail"
-          onClick={() => navigate('/')}
-          className="p-2 rounded-xl text-on-surface-variant hover:bg-surface-container transition-colors"
-        >
-          <Icon name="close" />
-        </button>
-      </div>
-
       {/* Page header */}
       <div className="space-y-3">
-        <h1 className="text-xl font-extrabold text-on-surface break-all tracking-tight">
-          <ExternalLink href={page.url}>{page.url}</ExternalLink>
+        <h1 className="text-2xl font-extrabold text-on-surface tracking-tight">
+          {pageDisplayTitle}
         </h1>
+
+        <ExternalLink href={page.url} className="block text-sm text-on-surface-variant break-all">
+          {page.url}
+        </ExternalLink>
 
         <div>
           <div>
@@ -617,24 +627,26 @@ export function PageWindow() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="inline-flex h-auto w-auto items-center gap-1 rounded-[20px] border border-surface-container-high bg-surface-container-lowest p-1 shadow-[0px_12px_32px_rgba(24,28,32,0.04)]">
+        <TabsList className="grid w-full max-w-[560px] grid-cols-2 items-center gap-1 rounded-[24px] border border-surface-container-high bg-surface-container-lowest p-1.5 shadow-[0px_12px_32px_rgba(24,28,32,0.04)]">
           <TabsTrigger
             value="automated"
-            className="rounded-[16px] px-5 py-3 text-sm font-bold text-on-surface-variant transition-colors data-[state=active]:bg-cyan-900 data-[state=active]:text-white data-[state=active]:shadow-sm"
+            className="min-w-0 rounded-[18px] px-5 py-4 text-sm font-extrabold text-on-surface-variant transition-all data-[state=active]:bg-cyan-900 data-[state=active]:text-white data-[state=active]:shadow-[0px_8px_18px_rgba(8,84,110,0.24)]"
           >
-            {(() => {
-              const active = page.violations.filter(v => !v.overrideStatus).length;
-              const total = page.violations.length;
-              const overridden = total - active;
-              if (overridden > 0) return `Automated Issues (${active} active / ${total} total)`;
-              return `Automated Issues (${total})`;
-            })()}
+            <span className="truncate">
+              {(() => {
+                const active = page.violations.filter(v => !v.overrideStatus).length;
+                const total = page.violations.length;
+                const overridden = total - active;
+                if (overridden > 0) return `Automated Issues (${active} active / ${total} total)`;
+                return `Automated Issues (${total})`;
+              })()}
+            </span>
           </TabsTrigger>
           <TabsTrigger
             value="manual"
-            className="rounded-[16px] px-5 py-3 text-sm font-bold text-on-surface-variant transition-colors data-[state=active]:bg-cyan-900 data-[state=active]:text-white data-[state=active]:shadow-sm"
+            className="min-w-0 rounded-[18px] px-5 py-4 text-sm font-extrabold text-on-surface-variant transition-all data-[state=active]:bg-cyan-900 data-[state=active]:text-white data-[state=active]:shadow-[0px_8px_18px_rgba(8,84,110,0.24)]"
           >
-            {manualTabLabel}
+            <span className="truncate">{manualTabLabel}</span>
           </TabsTrigger>
         </TabsList>
 

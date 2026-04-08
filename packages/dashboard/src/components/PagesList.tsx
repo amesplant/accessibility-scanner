@@ -296,6 +296,19 @@ export function PagesList({ reportId }: PagesListProps) {
         <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
       </div>
 
+      <div className="max-w-xl space-y-1.5">
+        <label htmlFor="report-pages-search" className="text-xs font-bold uppercase tracking-[0.16em] text-on-surface-variant">
+          Search Pages
+        </label>
+        <input
+          id="report-pages-search"
+          type="search"
+          value={searchValue}
+          onChange={(event) => updateBoardQuery({ search: event.target.value })}
+          className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
+        />
+      </div>
+
       <div className="hidden lg:block space-y-4">
         <div className="flex items-center justify-between gap-4 px-1">
           <div>
@@ -306,42 +319,26 @@ export function PagesList({ reportId }: PagesListProps) {
         </div>
 
         <div className="rounded-[24px] border border-slate-200/80 bg-white px-5 py-4 shadow-[0_12px_32px_rgba(15,23,42,0.05)]">
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="min-w-[280px] flex-1 space-y-1.5">
-                <label htmlFor="page-board-search" className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-                  Search Pages
-                </label>
-                <input
-                  id="page-board-search"
-                  type="search"
-                  value={searchValue}
-                  onChange={(event) => updateBoardQuery({ search: event.target.value })}
-                  className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
-                />
-              </div>
-              <div className="flex flex-wrap gap-2" role="group" aria-label="Filter page board">
-                {PAGE_FILTER_OPTIONS.map((option) => {
-                  const active = option.value === boardFilter;
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => updateBoardQuery({ filter: option.value })}
-                      aria-pressed={active}
-                      className={cn(
-                        'rounded-full px-4 py-2 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500',
-                        active
-                          ? 'bg-cyan-900 text-white'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
-                      )}
-                    >
-                      {option.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter page board">
+            {PAGE_FILTER_OPTIONS.map((option) => {
+              const active = option.value === boardFilter;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => updateBoardQuery({ filter: option.value })}
+                  aria-pressed={active}
+                  className={cn(
+                    'rounded-full px-4 py-2 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500',
+                    active
+                      ? 'bg-cyan-900 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                  )}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 

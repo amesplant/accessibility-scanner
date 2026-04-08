@@ -20,6 +20,7 @@ import { ExportModal } from '@/components/ExportModal';
 import { useLayoutBreadcrumbs } from '@/context/LayoutBreadcrumbContext';
 import { ReportIntegrityNotice, isCorruptedReport } from '@/components/ReportIntegrityNotice';
 import { apiFetch, readApiError } from '@/lib/api';
+import { useProjects } from '@/hooks/useProjects';
 
 function Icon({ name, className = '', filled = false }: { name: string; className?: string; filled?: boolean }) {
   return (
@@ -59,6 +60,7 @@ export function ReportDetail() {
   const { report, loading, error, renameReport } = useReport(id);
   const { pages: shortcutPages } = useReportPages(id, 250);
   const { setCurrentReport } = useCurrentReport();
+  const { projects } = useProjects();
 
   useEffect(() => {
     if (report) {
@@ -70,11 +72,17 @@ export function ReportDetail() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report]);
 
+  const reportProject = report?.projectId
+    ? projects.find((project) => project.id === report.projectId) ?? null
+    : null;
+
   const breadcrumbs = useMemo(() => ([
     { label: 'Dashboard', to: '/' },
-    { label: 'Reports', to: '/' },
+    ...(reportProject
+      ? [{ label: 'Projects', to: '/projects' }, { label: reportProject.name, to: `/projects/${reportProject.id}` }]
+      : [{ label: 'Reports' }]),
     { label: report?.pageTitle || report?.sitemap || 'Report' },
-  ]), [report?.pageTitle, report?.sitemap]);
+  ]), [report?.pageTitle, report?.sitemap, reportProject]);
 
   useLayoutBreadcrumbs(breadcrumbs);
 
@@ -580,7 +588,7 @@ export function ReportDetail() {
           <div className="space-y-6">
             <div className="rounded-[28px] border border-outline-variant/15 bg-surface-container-lowest p-6 shadow-[0px_12px_32px_rgba(24,28,32,0.06)]">
               <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-                <div className="max-w-2xl">
+                <div className="max-w-2xl flex-1">
                   <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-secondary">Manual Audit Flow</p>
                   <h3 className="mt-2 text-2xl font-extrabold tracking-tight text-on-surface">Page Audit Board</h3>
                 </div>

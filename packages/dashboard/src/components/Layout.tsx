@@ -310,13 +310,9 @@ function LayoutShell({ children }: Props) {
         {/* ── Sticky top header ── */}
         <header className="sticky top-0 z-20 flex items-center justify-between px-8 h-16 bg-white/80 backdrop-blur-md shadow-sm shrink-0">
           <div className="min-w-0 flex items-center gap-2 text-on-surface-variant">
-            {breadcrumbItems.length > 0 ? (
-              <Breadcrumbs items={breadcrumbItems} className="min-w-0" />
-            ) : (
-              <span className="text-sm font-semibold text-primary">
-                {onDashboard ? 'Audit Dashboard' : onProjects ? 'Projects' : 'Reports'}
-              </span>
-            )}
+            <span className="text-sm font-semibold text-primary">
+              {onDashboard ? 'Audit Dashboard' : onProjects ? 'Projects' : 'Reports'}
+            </span>
           </div>
 
           <div className="flex items-center gap-3">
@@ -346,6 +342,12 @@ function LayoutShell({ children }: Props) {
             )}
           </div>
         </header>
+
+        {breadcrumbItems.length > 0 && (
+          <div className="px-8 pt-4">
+            <Breadcrumbs items={breadcrumbItems} className="min-w-0" />
+          </div>
+        )}
 
         {/* ── Floating scan progress pill ── */}
         {scanning && (
@@ -427,7 +429,7 @@ function LayoutShell({ children }: Props) {
         )}
 
         <main id="main-content" className="flex-1" tabIndex={-1}>
-          <div className="p-8">
+          <div className={breadcrumbItems.length > 0 ? 'px-8 pb-8 pt-4' : 'p-8'}>
             {children}
           </div>
         </main>

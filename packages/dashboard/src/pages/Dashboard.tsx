@@ -1088,26 +1088,28 @@ export function Dashboard() {
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center justify-end gap-2 flex-wrap">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenManualAudit(report)}
-                            disabled={openingManualAuditReportId === report.id || reportCorrupted}
-                            aria-label={reportCorrupted
-                              ? `Manual audit unavailable for ${reportLabel}: ${getReportIntegrityMessage(report)}`
-                              : `${openingManualAuditReportId === report.id ? 'Opening manual audit for' : `${manualAuditActionLabel} for`} ${reportLabel}`}
-                            className="h-10 rounded-xl bg-secondary px-4 text-xs font-semibold text-white whitespace-nowrap hover:opacity-90 transition-opacity disabled:opacity-60 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
-                          >
-                            {reportCorrupted ? 'Audit unavailable' : openingManualAuditReportId === report.id ? 'Opening…' : manualAuditActionLabel}
-                          </button>
-                          <Link
-                            to={`/reports/${report.id}`}
-                            aria-label={`View report details for ${reportLabel}`}
-                            className="inline-flex h-10 items-center rounded-xl bg-primary px-4 text-xs font-semibold text-white whitespace-nowrap hover:opacity-90 transition-opacity focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
-                          >
-                            {reportCorrupted ? 'Review' : 'View'}
-                          </Link>
-                          <div className="flex items-center gap-1">
+                        <div className="flex flex-col items-end gap-3">
+                          <div className="flex items-center justify-end gap-2 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenManualAudit(report)}
+                              disabled={openingManualAuditReportId === report.id || reportCorrupted}
+                              aria-label={reportCorrupted
+                                ? `Manual audit unavailable for ${reportLabel}: ${getReportIntegrityMessage(report)}`
+                                : `${openingManualAuditReportId === report.id ? 'Opening manual audit for' : `${manualAuditActionLabel} for`} ${reportLabel}`}
+                              className="h-10 rounded-xl bg-secondary px-4 text-xs font-semibold text-white whitespace-nowrap hover:opacity-90 transition-opacity disabled:opacity-60 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                            >
+                              {reportCorrupted ? 'Audit unavailable' : openingManualAuditReportId === report.id ? 'Opening…' : manualAuditActionLabel}
+                            </button>
+                            <Link
+                              to={`/reports/${report.id}`}
+                              aria-label={`View report details for ${reportLabel}`}
+                              className="inline-flex h-10 items-center rounded-xl bg-primary px-4 text-xs font-semibold text-white whitespace-nowrap hover:opacity-90 transition-opacity focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                            >
+                              {reportCorrupted ? 'Review' : 'View'}
+                            </Link>
+                          </div>
+                          <div className="flex items-center justify-end gap-1 flex-wrap">
                             <button
                               type="button"
                               onClick={() => { setAssignReport(report); setAssignProjectId(report.projectId ?? ''); }}
