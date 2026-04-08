@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink } from '@/components/ExternalLink';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { ScanReport } from '@accessibility-scanner/shared';
 import { useCurrentReport } from '@/context/CurrentReportContext';
 import { useReport } from '@/hooks/useReport';
+import { useReportPages } from '@/hooks/useReportPages';
 import { downloadReportJson } from '@/lib/reportTransfer';
 import {
   Tabs,
@@ -13,8 +15,12 @@ import {
 import { ViolationsTable } from '@/components/ViolationsTable';
 import { ImpactChart } from '@/components/ImpactChart';
 import { LevelChart } from '@/components/LevelChart';
-import { PagesList } from '@/components/PagesList';
+import { PagesList } from '../components/PagesList';
 import { ExportModal } from '@/components/ExportModal';
+import { useLayoutBreadcrumbs } from '@/context/LayoutBreadcrumbContext';
+import { ReportIntegrityNotice, isCorruptedReport } from '@/components/ReportIntegrityNotice';
+import { apiFetch, readApiError } from '@/lib/api';
+import { useProjects } from '@/hooks/useProjects';
 
 function Icon({ name, className = '', filled = false }: { name: string; className?: string; filled?: boolean }) {
   return (
@@ -30,11 +36,14 @@ function Icon({ name, className = '', filled = false }: { name: string; classNam
 
 export function ReportDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [exportOpen, setExportOpen] = useState(false);
   const [exportingJson, setExportingJson] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
+  const [cleanupError, setCleanupError] = useState<string | null>(null);
+  const [cleaningUp, setCleaningUp] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
 
   const activeTab = searchParams.get('tab') || 'overview';
@@ -49,7 +58,9 @@ export function ReportDetail() {
   }
 
   const { report, loading, error, renameReport } = useReport(id);
+  const { pages: shortcutPages } = useReportPages(id, 250);
   const { setCurrentReport } = useCurrentReport();
+  const { projects } = useProjects();
 
   useEffect(() => {
     if (report) {
@@ -61,6 +72,20 @@ export function ReportDetail() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report]);
 
+  const reportProject = report?.projectId
+    ? projects.find((project) => project.id === report.projectId) ?? null
+    : null;
+
+  const breadcrumbs = useMemo(() => ([
+    { label: 'Dashboard', to: '/' },
+    ...(reportProject
+      ? [{ label: 'Projects', to: '/projects' }, { label: reportProject.name, to: `/projects/${reportProject.id}` }]
+      : [{ label: 'Reports' }]),
+    { label: report?.pageTitle || report?.sitemap || 'Report' },
+  ]), [report?.pageTitle, report?.sitemap, reportProject]);
+
+  useLayoutBreadcrumbs(breadcrumbs);
+
   if (loading) return (
     <div role="status" aria-live="polite" className="flex items-center justify-center h-64 text-on-surface-variant">
       <Icon name="hourglass_empty" className="animate-spin mr-2" />
@@ -69,6 +94,85 @@ export function ReportDetail() {
   );
   if (error) return <div role="alert" className="p-8 text-error">{error}</div>;
   if (!report) return <div role="status" className="p-8 text-on-surface-variant">Report not found</div>;
+
+  async function handleCleanupCorruptedReport() {
+    if (!report) return;
+
+    try {
+      setCleanupError(null);
+      setCleaningUp(true);
+      const res = await apiFetch(`/api/reports/${report.id}`, { method: 'DELETE' });
+      if (!res.ok) throw await readApiError(res, 'Failed to cleanup report');
+      navigate('/');
+    } catch (err) {
+      setCleanupError(err instanceof Error ? err.message : 'Failed to cleanup report');
+    } finally {
+      setCleaningUp(false);
+    }
+  }
+
+  if (isCorruptedReport(report)) {
+    return (
+      <div className="p-8">
+        <div className="mx-auto max-w-3xl rounded-[2rem] border border-error/20 bg-surface-container-lowest p-8 shadow-[0px_18px_48px_rgba(24,28,32,0.08)]">
+          <div className="flex items-start gap-4">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-error-container/60 text-error">
+              <Icon name="warning" className="text-3xl" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-error">Storage integrity issue</p>
+              <h1 className="mt-2 text-2xl font-extrabold tracking-tight text-on-surface">
+                {report.pageTitle || report.sitemap}
+              </h1>
+              <p className="mt-3 text-sm text-on-surface-variant">
+                Seymour can still read the summary metadata for this scan, but the stored report payload is corrupted, incomplete, or missing.
+              </p>
+            </div>
+          </div>
+
+          <ReportIntegrityNotice report={report} className="mt-6" />
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl bg-surface-container-low p-4">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Pages</p>
+              <p className="mt-1 text-lg font-bold text-on-surface">{report.summary.totalPages}</p>
+            </div>
+            <div className="rounded-2xl bg-surface-container-low p-4">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Violations</p>
+              <p className="mt-1 text-lg font-bold text-error">{report.summary.totalViolations}</p>
+            </div>
+            <div className="rounded-2xl bg-surface-container-low p-4">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Scanned</p>
+              <p className="mt-1 text-sm font-semibold text-on-surface">{new Date(report.startTime).toLocaleString()}</p>
+            </div>
+          </div>
+
+          {cleanupError && (
+            <p role="alert" className="mt-4 text-sm text-error">{cleanupError}</p>
+          )}
+
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={handleCleanupCorruptedReport}
+              disabled={cleaningUp}
+              className="inline-flex items-center gap-2 rounded-xl bg-error px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+            >
+              <Icon name="cleaning_services" className="text-[18px]" />
+              {cleaningUp ? 'Cleaning up…' : 'Cleanup broken report'}
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              className="inline-flex items-center gap-2 rounded-xl border border-outline-variant/30 px-4 py-2 text-sm font-semibold text-on-surface transition-colors hover:bg-surface-container"
+            >
+              Back to dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const manualFailCount = report.summary.manualFailCount ?? 0;
   const auditedCount = report.summary.auditedPages ?? 0;
@@ -80,6 +184,45 @@ export function ReportDetail() {
   );
   const levelACount = report.summary.violationsByLevel?.['A'] ?? 0;
   const levelAACount = report.summary.violationsByLevel?.['AA'] ?? 0;
+
+  function getPagePathLabel(url: string) {
+    try {
+      return new URL(url).pathname || url;
+    } catch {
+      return url;
+    }
+  }
+
+  function getManualAuditState(pageResult: ScanReport['results'][number]) {
+    const checks = pageResult.manualAudit?.checks ?? [];
+    const failCount = checks.filter((check) => check.status === 'fail').length;
+    const checkedCount = checks.filter((check) => check.status !== 'not-tested').length;
+    const completed = pageResult.manualAudit?.completed === true;
+
+    return {
+      failCount,
+      checkedCount,
+      completed,
+    };
+  }
+
+  const nextManualAuditTarget =
+    shortcutPages.find((pageResult) => getManualAuditState(pageResult).failCount > 0) ??
+    shortcutPages.find((pageResult) => {
+      const state = getManualAuditState(pageResult);
+      return !state.completed && state.checkedCount > 0;
+    }) ??
+    shortcutPages.find((pageResult) => !getManualAuditState(pageResult).completed) ??
+    null;
+
+  const nextManualAuditState = nextManualAuditTarget ? getManualAuditState(nextManualAuditTarget) : null;
+  const nextManualAuditLabel = nextManualAuditTarget
+    ? nextManualAuditState?.failCount
+      ? 'Resume failing audit'
+      : nextManualAuditState && nextManualAuditState.checkedCount > 0
+      ? 'Continue manual audit'
+      : 'Start next audit'
+    : 'Open audit board';
 
   const auditTypeLabel =
     report.auditType === 'rapid' ? 'Rapid Audit'
@@ -153,6 +296,8 @@ export function ReportDetail() {
               {report.sitemap}
             </ExternalLink>
           )}
+
+          <ReportIntegrityNotice report={report} className="max-w-2xl" />
         </div>
       </div>
 
@@ -167,6 +312,36 @@ export function ReportDetail() {
             <h2 className="text-xl font-extrabold tracking-tight text-on-surface mb-4">
               Manual Audit Coverage
             </h2>
+            <div className="mb-5">
+              {nextManualAuditTarget ? (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/reports/${report.id}/page/${nextManualAuditTarget.id}`, { state: { tab: 'manual' } })}
+                  className="w-full rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left text-amber-950 shadow-[0px_10px_24px_rgba(245,158,11,0.14)] transition-colors hover:bg-amber-100 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-800">
+                        <Icon name="local_fire_department" className="text-[14px] text-amber-700" />
+                        Next Best Page
+                      </div>
+                      <div className="mt-2 text-sm font-bold text-amber-950">{nextManualAuditLabel}</div>
+                      <div className="mt-1 truncate text-xs font-medium text-amber-900/80">{getPagePathLabel(nextManualAuditTarget.url)}</div>
+                    </div>
+                    <Icon name="arrow_forward" className="text-xl text-amber-700 shrink-0" />
+                  </div>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleTabChange('pages')}
+                  className="inline-flex items-center gap-2 rounded-full border border-outline-variant/20 bg-surface-container-low px-4 py-2 text-sm font-semibold text-on-surface transition-colors hover:bg-surface-container focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-ring"
+                >
+                  <Icon name="edit_document" className="text-[18px] text-secondary" />
+                  Open audit board
+                </button>
+              )}
+            </div>
           </div>
           <div>
             <div className="flex justify-between items-end mb-3">
@@ -263,8 +438,8 @@ export function ReportDetail() {
         >
           <div className="text-left">
             <Icon name="edit_document" filled className="text-2xl mb-2 block" />
-            <p className="font-bold text-base leading-tight">Manual Audit</p>
-            <p className="text-xs opacity-70">Start human review</p>
+            <p className="font-bold text-base leading-tight">Manual Audit Board</p>
+            <p className="text-xs opacity-70">Pick the next page to review</p>
           </div>
           <Icon name="chevron_right" className="group-hover:translate-x-1 transition-transform" />
         </button>
@@ -321,22 +496,22 @@ export function ReportDetail() {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
         <div className="flex items-center gap-4">
-          <TabsList className="bg-surface-container-high rounded-xl p-1">
+          <TabsList className="inline-flex h-auto w-auto items-center gap-1 rounded-[20px] border border-surface-container-high bg-surface-container-lowest p-1 shadow-[0px_12px_32px_rgba(24,28,32,0.04)]">
             <TabsTrigger
               value="overview"
-              className="rounded-lg px-5 py-2 text-sm font-semibold data-[state=active]:bg-surface-container-lowest data-[state=active]:text-on-surface data-[state=active]:shadow-sm text-on-surface-variant"
+              className="rounded-[16px] px-5 py-3 text-sm font-bold text-on-surface-variant transition-colors data-[state=active]:bg-cyan-900 data-[state=active]:text-white data-[state=active]:shadow-sm"
             >
               Overview
             </TabsTrigger>
             <TabsTrigger
               value="violations"
-              className="rounded-lg px-5 py-2 text-sm font-semibold data-[state=active]:bg-surface-container-lowest data-[state=active]:text-on-surface data-[state=active]:shadow-sm text-on-surface-variant"
+              className="rounded-[16px] px-5 py-3 text-sm font-bold text-on-surface-variant transition-colors data-[state=active]:bg-cyan-900 data-[state=active]:text-white data-[state=active]:shadow-sm"
             >
               Violations
             </TabsTrigger>
             <TabsTrigger
               value="pages"
-              className="rounded-lg px-5 py-2 text-sm font-semibold data-[state=active]:bg-surface-container-lowest data-[state=active]:text-on-surface data-[state=active]:shadow-sm text-on-surface-variant"
+              className="rounded-[16px] px-5 py-3 text-sm font-bold text-on-surface-variant transition-colors data-[state=active]:bg-cyan-900 data-[state=active]:text-white data-[state=active]:shadow-sm"
             >
               Pages
             </TabsTrigger>
@@ -410,12 +585,35 @@ export function ReportDetail() {
         </TabsContent>
 
         <TabsContent value="pages">
-          <div className="bg-surface-container-lowest rounded-2xl shadow-[0px_12px_32px_rgba(24,28,32,0.06)] overflow-hidden">
-            <div className="p-6 border-b border-surface-container flex justify-between items-center">
-              <h3 className="text-base font-bold tracking-tight text-on-surface">Scanned Pages Inventory</h3>
+          <div className="space-y-6">
+            <div className="rounded-[28px] border border-outline-variant/15 bg-surface-container-lowest p-6 shadow-[0px_12px_32px_rgba(24,28,32,0.06)]">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+                <div className="max-w-2xl flex-1">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-secondary">Manual Audit Flow</p>
+                  <h3 className="mt-2 text-2xl font-extrabold tracking-tight text-on-surface">Page Audit Board</h3>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3 lg:min-w-[360px]">
+                  <div className="rounded-2xl bg-surface-container-low px-4 py-3">
+                    <div className="text-2xl font-black text-on-surface">{report.summary.totalPages}</div>
+                    <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-on-surface-variant">Pages</div>
+                  </div>
+                  <div className="rounded-2xl bg-secondary-container/60 px-4 py-3">
+                    <div className="text-2xl font-black text-secondary">{auditedCount}</div>
+                    <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-on-surface-variant">Audited</div>
+                  </div>
+                  <div className="rounded-2xl bg-primary/10 px-4 py-3">
+                    <div className="text-2xl font-black text-primary">{report.summary.totalPages - auditedCount}</div>
+                    <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-on-surface-variant">Remaining</div>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="p-6">
-              <PagesList reportId={report.id} />
+
+            <div className="bg-surface-container-lowest rounded-2xl shadow-[0px_12px_32px_rgba(24,28,32,0.06)] overflow-hidden">
+              <div className="p-6">
+                <PagesList reportId={report.id} />
+              </div>
             </div>
           </div>
         </TabsContent>

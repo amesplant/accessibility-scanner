@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/button';
 import { FeatureRequestModal } from '@/components/FeatureRequestModal';
 import { useRestoreFocus } from '@/hooks/useRestoreFocus';
 import { SeymourLogo } from '@/components/SeymourLogo';
+import { Breadcrumbs } from '@/components/Breadcrumbs';
+import { LayoutBreadcrumbProvider, useCurrentLayoutBreadcrumbs } from '@/context/LayoutBreadcrumbContext';
 
 type Props = { children: ReactNode };
 
@@ -77,7 +79,7 @@ function getFocusable(el: HTMLElement): HTMLElement[] {
 
 // ── Layout ────────────────────────────────────────────────────────────────────
 
-export function Layout({ children }: Props) {
+function LayoutShell({ children }: Props) {
   const { scanning, aborting, scanState, elapsed, abortScan, completedReportId, clearCompletedReport } = useScanContext();
 
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -166,6 +168,7 @@ export function Layout({ children }: Props) {
   const onProjects = location.pathname.startsWith('/projects');
   const projectPageMatch = location.pathname.match(/^\/projects\/([^/]+)$/);
   const currentProjectId = projectPageMatch?.[1] ?? null;
+  const breadcrumbItems = useCurrentLayoutBreadcrumbs();
 
   const progressPercent = scanState.total > 0
     ? Math.round((scanState.scanned / scanState.total) * 100)
@@ -306,7 +309,7 @@ export function Layout({ children }: Props) {
       >
         {/* ── Sticky top header ── */}
         <header className="sticky top-0 z-20 flex items-center justify-between px-8 h-16 bg-white/80 backdrop-blur-md shadow-sm shrink-0">
-          <div className="flex items-center gap-2 text-on-surface-variant">
+          <div className="min-w-0 flex items-center gap-2 text-on-surface-variant">
             <span className="text-sm font-semibold text-primary">
               {onDashboard ? 'Audit Dashboard' : onProjects ? 'Projects' : 'Reports'}
             </span>
@@ -339,6 +342,12 @@ export function Layout({ children }: Props) {
             )}
           </div>
         </header>
+
+        {breadcrumbItems.length > 0 && (
+          <div className="px-8 pt-4">
+            <Breadcrumbs items={breadcrumbItems} className="min-w-0" />
+          </div>
+        )}
 
         {/* ── Floating scan progress pill ── */}
         {scanning && (
@@ -420,7 +429,7 @@ export function Layout({ children }: Props) {
         )}
 
         <main id="main-content" className="flex-1" tabIndex={-1}>
-          <div className="p-8">
+          <div className={breadcrumbItems.length > 0 ? 'px-8 pb-8 pt-4' : 'p-8'}>
             {children}
           </div>
         </main>
@@ -455,5 +464,13 @@ export function Layout({ children }: Props) {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export function Layout({ children }: Props) {
+  return (
+    <LayoutBreadcrumbProvider>
+      <LayoutShell>{children}</LayoutShell>
+    </LayoutBreadcrumbProvider>
   );
 }

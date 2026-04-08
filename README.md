@@ -21,6 +21,7 @@ All findings live in a persistent dashboard organized by project and client enga
 - **Smart element detection** — on-demand per page for 9 WCAG criteria, plus automatic scan-time detection for media elements (1.2.1, 1.2.2); each detected element shows its HTML, computed text alternative, and cropped screenshot
 - **Element screenshots** — each detected element gets a cropped screenshot and an annotated full-page context screenshot (element highlighted, surroundings dimmed)
 - **Manual audit checklists** scoped per audit type — 13 criteria for Rapid, 20 for Mid-Level, all 52 for All-Inclusive
+- **Shared page review workspace** — automated and manual page review now use a consistent workspace shell with breadcrumbs, mode switching, cards/list layout toggles, and per-page issue documentation flows
 - **Failure instances** with scope tagging (Global / Common / Page Specific), code snippets, and screenshot capture
 - **AI-assisted remediation suggestions** — generate fix recommendations inline from Claude (Anthropic), GPT-4o mini (OpenAI), Gemini Flash (Google), or Llama 3.1 (Groq); any combination of providers can be active simultaneously
 - **Custom issues** — add findings that fall outside predefined WCAG criteria
@@ -156,6 +157,24 @@ Crawl defaults: max **200 pages** (~5–10 min). Cap: **500 pages**. The crawler
 ## Manual Audit
 
 Each scanned page has a manual audit tab covering WCAG criteria that automated tools cannot fully verify.
+
+## Page Review Workspace
+
+Each scanned page now opens in a shared review workspace with two coordinated modes:
+
+- **Automated Issues** — review scanner output by `Violations`, `Passed`, or `Incomplete`, switch between `Cards` and `List` layouts, and create issues from individual detected instances instead of promoting an entire rule at once.
+- **Manual Audit** — review WCAG criteria in the desktop workspace or list view, document failure instances, and track completion for the current page.
+
+The page header uses breadcrumbs for navigation, keeps the page title separate from the raw URL, and keeps global scan actions in the main application header instead of duplicating them inside each page.
+
+### Automated Review
+
+The automated review workspace is designed to mirror the manual audit flow where it makes sense:
+
+- Individual detected automated instances can be turned into issues with the same detailed issue editor used by manual audit failure instances.
+- `Add failure instance` remains available at the rule level for issues the scanner did not detect directly.
+- `Cards` mode uses larger surfaced cards for scanning and triage, while `List` mode stays denser for faster review across many rules.
+- Expanded violation instances support screenshots, remediation notes, related WCAG criteria, assignees, and pass/fail overrides.
 
 ### Smart Element Detection
 

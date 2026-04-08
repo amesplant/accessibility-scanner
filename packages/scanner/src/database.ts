@@ -26,6 +26,11 @@ export type ReportSummary = Omit<ScanReport, 'results'> & {
   summary: SummaryStats;
 };
 
+type JsonReadResult<T> = {
+  value: T;
+  recovered: boolean;
+};
+
 export interface ReportShardRef {
   id: string;
   file: string;
@@ -110,6 +115,126 @@ export class DatabaseService {
     return fs.access(filePath).then(() => true).catch(() => false);
   }
 
+  private async writeJsonFileAtomic(filePath: string, value: unknown): Promise<void> {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    const tempFilePath = `${filePath}.${randomUUID()}.tmp`;
+    await fs.writeFile(tempFilePath, JSON.stringify(value));
+    await fs.rename(tempFilePath, filePath);
+  }
+
+  private buildCorruptedIntegrity(message: string): NonNullable<ScanReport['integrity']> {
+    return {
+      status: 'corrupted',
+      message,
+    };
+  }
+
+  private buildRecoveredIntegrity(message: string): NonNullable<ScanReport['integrity']> {
+    return {
+      status: 'recovered',
+      message,
+      recoveredAt: new Date().toISOString(),
+    };
+  }
+
+  private sameIntegrity(
+    left: ScanReport['integrity'] | undefined,
+    right: ScanReport['integrity'] | undefined,
+  ): boolean {
+    return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+  }
+
+  private formatStoredDataError(filePath: string, error: unknown): string {
+    const base = `Stored data is unreadable for ${path.basename(filePath)}`;
+    if (error instanceof Error && error.message.trim()) {
+      return `${base}: ${error.message}`;
+    }
+    return base;
+  }
+
+  private extractRecoverableJsonDocument(raw: string): string | undefined {
+    const trimmed = raw.trimStart();
+    const start = raw.length - trimmed.length;
+    if (!trimmed || (trimmed[0] !== '{' && trimmed[0] !== '[')) {
+      return undefined;
+    }
+
+    const stack: string[] = [];
+    let inString = false;
+    let escaping = false;
+
+    for (let index = start; index < raw.length; index += 1) {
+      const char = raw[index];
+
+      if (inString) {
+        if (escaping) {
+          escaping = false;
+        } else if (char === '\\') {
+          escaping = true;
+        } else if (char === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char === '"') {
+        inString = true;
+        continue;
+      }
+
+      if (char === '{' || char === '[') {
+        stack.push(char);
+        continue;
+      }
+
+      if (char === '}' || char === ']') {
+        const last = stack.pop();
+        if (!last) return undefined;
+        if ((char === '}' && last !== '{') || (char === ']' && last !== '[')) {
+          return undefined;
+        }
+
+        if (stack.length === 0) {
+          const candidate = raw.slice(start, index + 1);
+          return raw.slice(index + 1).trim().length > 0 ? candidate : undefined;
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  private async readJsonFileWithRecovery<T>(filePath: string): Promise<JsonReadResult<T> | undefined> {
+    try {
+      const raw = await fs.readFile(filePath, 'utf-8');
+      if (!raw.trim()) {
+        throw new Error(`Stored data is empty for ${path.basename(filePath)}`);
+      }
+
+      try {
+        return { value: JSON.parse(raw) as T, recovered: false };
+      } catch (parseError) {
+        const candidate = this.extractRecoverableJsonDocument(raw);
+        if (!candidate) {
+          throw new Error(this.formatStoredDataError(filePath, parseError));
+        }
+
+        try {
+          const value = JSON.parse(candidate) as T;
+          await this.writeJsonFileAtomic(filePath, value);
+          return { value, recovered: true };
+        } catch {
+          throw new Error(this.formatStoredDataError(filePath, parseError));
+        }
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
   async reportIsBundle(id: string): Promise<boolean> {
     return this.pathExists(this.bundleManifestFile(id));
   }
@@ -146,9 +271,7 @@ export class DatabaseService {
       const reports: ScanReport[] = legacy.reports ?? [];
       const projects: Project[] = legacy.projects ?? [];
 
-      await Promise.all(reports.map(r =>
-        fs.writeFile(this.reportFile(r.id), JSON.stringify(r))
-      ));
+      await Promise.all(reports.map((report) => this.writeJsonFileAtomic(this.reportFile(report.id), report)));
 
       const summaries: ReportSummary[] = reports.map(({ results: _r, ...s }) => s);
       await this.writeMeta({ projects, summaries });
@@ -176,7 +299,7 @@ export class DatabaseService {
 
   private async writeMeta(meta: Meta): Promise<void> {
     await this.ensureDirs();
-    await fs.writeFile(this.metaFile, JSON.stringify(meta));
+    await this.writeJsonFileAtomic(this.metaFile, meta);
   }
 
   private async upsertSummary(summary: ReportSummary): Promise<void> {
@@ -202,6 +325,141 @@ export class DatabaseService {
   private summaryOf(report: ScanReport): ReportSummary {
     const { results: _r, ...summary } = report;
     return summary;
+  }
+
+  private async updateStoredSummaryIntegrity(reportId: string, integrity: ScanReport['integrity'] | undefined): Promise<void> {
+    const meta = await this.readMeta();
+    const index = meta.summaries.findIndex((summary) => summary.id === reportId);
+    if (index === -1) return;
+
+    const nextSummary = { ...meta.summaries[index] };
+    if (integrity) {
+      nextSummary.integrity = integrity;
+    } else {
+      delete nextSummary.integrity;
+    }
+
+    meta.summaries[index] = nextSummary;
+    await this.writeMeta(meta);
+  }
+
+  private async inspectReportIntegrity(
+    reportId: string,
+    existingIntegrity?: ScanReport['integrity'],
+  ): Promise<ScanReport['integrity'] | undefined> {
+    const singlePath = this.reportFile(reportId);
+    const bundleManifestPath = this.bundleManifestFile(reportId);
+    const singleExists = await this.pathExists(singlePath);
+    const bundleExists = await this.pathExists(bundleManifestPath);
+
+    if (!singleExists && !bundleExists) {
+      return this.buildCorruptedIntegrity('Report payload is missing from storage.');
+    }
+
+    try {
+      let recoveredFile: string | null = null;
+
+      if (singleExists) {
+        const parsed = await this.readJsonFileWithRecovery<ScanReport>(singlePath);
+        if (!parsed) {
+          return this.buildCorruptedIntegrity('Report payload is missing from storage.');
+        }
+        if (parsed.recovered) {
+          recoveredFile = path.basename(singlePath);
+        }
+      } else {
+        const manifest = await this.readJsonFileWithRecovery<ReportBundleManifest>(bundleManifestPath);
+        if (!manifest) {
+          return this.buildCorruptedIntegrity('Bundled report manifest is missing from storage.');
+        }
+        if (manifest.recovered) {
+          recoveredFile = path.basename(bundleManifestPath);
+        }
+
+        for (const shard of manifest.value.shards) {
+          const shardPath = path.join(this.bundleDir(reportId), shard.file);
+          const shardReport = await this.readJsonFileWithRecovery<ScanReport>(shardPath);
+          if (!shardReport) {
+            return this.buildCorruptedIntegrity(`Bundled report shard is missing: ${shard.file}`);
+          }
+          if (shardReport.recovered && !recoveredFile) {
+            recoveredFile = shard.file;
+          }
+        }
+      }
+
+      if (recoveredFile) {
+        return this.buildRecoveredIntegrity(`Recovered malformed report data from ${recoveredFile}.`);
+      }
+
+      if (existingIntegrity?.status === 'corrupted') {
+        return this.buildRecoveredIntegrity('Report data is readable again.');
+      }
+
+      return existingIntegrity?.status === 'recovered' ? existingIntegrity : undefined;
+    } catch (error) {
+      return this.buildCorruptedIntegrity(
+        error instanceof Error ? error.message : 'Report payload could not be read.',
+      );
+    }
+  }
+
+  private async syncSummaryIntegrity(summaries: ReportSummary[]): Promise<ReportSummary[]> {
+    if (summaries.length === 0) return summaries;
+
+    const nextSummaries = await Promise.all(summaries.map(async (summary) => {
+      const integrity = await this.inspectReportIntegrity(summary.id, summary.integrity);
+      if (this.sameIntegrity(summary.integrity, integrity)) {
+        return summary;
+      }
+
+      const nextSummary = { ...summary };
+      if (integrity) {
+        nextSummary.integrity = integrity;
+      } else {
+        delete nextSummary.integrity;
+      }
+      return nextSummary;
+    }));
+
+    const changed = nextSummaries.some((summary, index) => !this.sameIntegrity(summary.integrity, summaries[index]?.integrity));
+    if (!changed) {
+      return nextSummaries;
+    }
+
+    const byId = new Map(nextSummaries.map((summary) => [summary.id, summary]));
+    const meta = await this.readMeta();
+    meta.summaries = meta.summaries.map((summary) => byId.get(summary.id) ?? summary);
+    await this.writeMeta(meta);
+
+    return nextSummaries;
+  }
+
+  private recomputeSingleReportSummary(report: ScanReport): void {
+    const summary: SummaryAccum = {
+      totalPages: report.results.length,
+      totalViolations: 0,
+      violationsByImpact: {},
+      violationsByType: {},
+      violationsByLevel: {},
+      manualFailCount: 0,
+      auditedPages: 0,
+    };
+
+    for (const page of report.results) {
+      if (page.manualAudit?.completed) summary.auditedPages += 1;
+      summary.manualFailCount += page.manualAudit?.checks.filter((check) => check.status === 'fail').length ?? 0;
+
+      for (const violation of page.violations ?? []) {
+        summary.totalViolations += 1;
+        summary.violationsByImpact[violation.impact] = (summary.violationsByImpact[violation.impact] ?? 0) + 1;
+        summary.violationsByType[violation.id] = (summary.violationsByType[violation.id] ?? 0) + 1;
+        const level = violation.level ?? 'best-practice';
+        summary.violationsByLevel[level] = (summary.violationsByLevel[level] ?? 0) + 1;
+      }
+    }
+
+    report.summary = summary;
   }
 
   private aggregateSummaryFromReports(
@@ -288,7 +546,7 @@ export class DatabaseService {
   }
 
   private async writeViolationGroups(id: string, groups: ViolationGroupSummary[]): Promise<void> {
-    await fs.writeFile(this.violationGroupsFile(id), JSON.stringify(groups));
+    await this.writeJsonFileAtomic(this.violationGroupsFile(id), groups);
   }
 
   private violationPageIndexFile(id: string): string {
@@ -300,7 +558,7 @@ export class DatabaseService {
   }
 
   private async writeViolationPageIndex(id: string, index: Record<string, ViolationPageSlice['items']>): Promise<void> {
-    await fs.writeFile(this.violationPageIndexFile(id), JSON.stringify(index));
+    await this.writeJsonFileAtomic(this.violationPageIndexFile(id), index);
   }
 
   private buildViolationPagesFromReports(reports: ScanReport[]): Record<string, ViolationPageSlice['items']> {
@@ -397,12 +655,8 @@ export class DatabaseService {
   }
 
   private async readJsonFile<T>(filePath: string): Promise<T | undefined> {
-    try {
-      const raw = await fs.readFile(filePath, 'utf-8');
-      return JSON.parse(raw) as T;
-    } catch {
-      return undefined;
-    }
+    const result = await this.readJsonFileWithRecovery<T>(filePath);
+    return result?.value;
   }
 
   private async readBundleManifest(id: string): Promise<ReportBundleManifest | undefined> {
@@ -442,7 +696,7 @@ export class DatabaseService {
     if (totalSize !== report.results.length) {
       // If the report shape changed unexpectedly, fall back to a single-file report.
       await fs.rm(this.bundleDir(report.id), { recursive: true, force: true });
-      await fs.writeFile(this.reportFile(report.id), JSON.stringify(report));
+      await this.writeJsonFileAtomic(this.reportFile(report.id), report);
       return;
     }
 
@@ -478,7 +732,7 @@ export class DatabaseService {
         }
       }
 
-      await fs.writeFile(path.join(this.bundleDir(report.id), shard.file), JSON.stringify(shardReport));
+      await this.writeJsonFileAtomic(path.join(this.bundleDir(report.id), shard.file), shardReport);
     }
 
     await this.writeBundleManifest(report.id, manifest);
@@ -487,7 +741,7 @@ export class DatabaseService {
   private async writeBundleManifest(id: string, manifest: ReportBundleManifest): Promise<void> {
     await fs.mkdir(this.bundleDir(id), { recursive: true });
     await fs.mkdir(this.bundleShardsDir(id), { recursive: true });
-    await fs.writeFile(this.bundleManifestFile(id), JSON.stringify(manifest));
+    await this.writeJsonFileAtomic(this.bundleManifestFile(id), manifest);
   }
 
   async saveReportBundleShard(bundleId: string, report: ScanReport): Promise<ReportShardRef> {
@@ -500,7 +754,7 @@ export class DatabaseService {
       count: report.results.length,
     };
 
-    await fs.writeFile(path.join(this.bundleShardsDir(bundleId), `${report.id}.json`), JSON.stringify(report));
+    await this.writeJsonFileAtomic(path.join(this.bundleShardsDir(bundleId), `${report.id}.json`), report);
     return shard;
   }
 
@@ -514,7 +768,7 @@ export class DatabaseService {
 
   async saveReport(report: ScanReport): Promise<void> {
     await this.ensureDirs();
-    await fs.writeFile(this.reportFile(report.id), JSON.stringify(report));
+    await this.writeJsonFileAtomic(this.reportFile(report.id), report);
     await this.upsertSummary(this.summaryOf(report));
     await this.writeViolationGroups(report.id, this.buildViolationGroupsFromReports([report]));
     await this.writeViolationPageIndex(report.id, this.buildViolationPagesFromReports([report]));
@@ -546,7 +800,7 @@ export class DatabaseService {
   /** Returns lightweight summaries (no results array) — use for list views. */
   async getReportSummaries(): Promise<ReportSummary[]> {
     const meta = await this.readMeta();
-    return meta.summaries;
+    return this.syncSummaryIntegrity(meta.summaries);
   }
 
   /** Assignments only — small payload for project list report counts. */
@@ -561,7 +815,7 @@ export class DatabaseService {
 
   async getReportSummariesForProject(projectId: string): Promise<ReportSummary[]> {
     const meta = await this.readMeta();
-    return meta.summaries.filter(s => s.projectId === projectId);
+    return this.syncSummaryIntegrity(meta.summaries.filter(s => s.projectId === projectId));
   }
 
   async getReport(id: string): Promise<ScanReport | undefined> {
@@ -572,7 +826,10 @@ export class DatabaseService {
 
   async getReportSummary(id: string): Promise<ReportSummary | undefined> {
     const meta = await this.readMeta();
-    return meta.summaries.find((summary) => summary.id === id);
+    const summary = meta.summaries.find((item) => item.id === id);
+    if (!summary) return undefined;
+    const [synced] = await this.syncSummaryIntegrity([summary]);
+    return synced;
   }
 
   private async readReportPageByIndex(reportId: string, offset: number, limit: number): Promise<ReportPageSlice> {
@@ -613,13 +870,6 @@ export class DatabaseService {
     return this.readReportPageByIndex(reportId, offset, limit);
   }
 
-  private pageManualStats(page: ScanReport['results'][number]): { manualFailCount: number; auditedPages: number } {
-    return {
-      manualFailCount: page.manualAudit?.checks.filter((check) => check.status === 'fail').length ?? 0,
-      auditedPages: page.manualAudit?.completed ? 1 : 0,
-    };
-  }
-
   private summaryFromManifest(manifest: ReportBundleManifest): ReportSummary {
     const { kind: _kind, shards: _shards, ...summary } = manifest;
     return summary;
@@ -654,13 +904,10 @@ export class DatabaseService {
     if (single) {
       const page = single.results.find((p) => p.id === pageId);
       if (!page) return undefined;
-      const oldStats = this.pageManualStats(page);
       const result = await patch(page);
-      await fs.writeFile(this.reportFile(reportId), JSON.stringify(single));
-      const newStats = this.pageManualStats(page);
-      if (oldStats.manualFailCount !== newStats.manualFailCount || oldStats.auditedPages !== newStats.auditedPages) {
-        await this.upsertSummary(this.summaryOf(single));
-      }
+      this.recomputeSingleReportSummary(single);
+      await this.writeJsonFileAtomic(this.reportFile(reportId), single);
+      await this.upsertSummary(this.summaryOf(single));
       await this.writeViolationGroups(reportId, await this.buildViolationGroups(reportId));
       await this.writeViolationPageIndex(reportId, await this.buildViolationPageIndex(reportId));
       return result;
@@ -677,17 +924,34 @@ export class DatabaseService {
       const page = shardReport.results.find((p) => p.id === pageId);
       if (!page) continue;
 
-      const oldStats = this.pageManualStats(page);
       const result = await patch(page);
-      await fs.writeFile(shardPath, JSON.stringify(shardReport));
+      await this.writeJsonFileAtomic(shardPath, shardReport);
 
-      const newStats = this.pageManualStats(page);
-      if (oldStats.manualFailCount !== newStats.manualFailCount || oldStats.auditedPages !== newStats.auditedPages) {
-        manifest.summary.manualFailCount = (manifest.summary.manualFailCount ?? 0) - oldStats.manualFailCount + newStats.manualFailCount;
-        manifest.summary.auditedPages = (manifest.summary.auditedPages ?? 0) - oldStats.auditedPages + newStats.auditedPages;
-        await fs.writeFile(this.bundleManifestFile(reportId), JSON.stringify(manifest));
-        await this.upsertSummary(this.summaryFromManifest(manifest));
+      const reports: ScanReport[] = [];
+      for (const manifestShard of manifest.shards) {
+        const manifestShardPath = path.join(this.bundleDir(reportId), manifestShard.file);
+        const report = manifestShard.file === shard.file
+          ? shardReport
+          : await this.readJsonFile<ScanReport>(manifestShardPath);
+        if (report) reports.push(report);
       }
+
+      if (reports.length > 0) {
+        const summary = this.aggregateSummaryFromReports(reportId, reports, {
+          sitemap: manifest.sitemap,
+          pageTitle: manifest.pageTitle,
+          projectId: manifest.projectId,
+        });
+        manifest.startTime = summary.startTime;
+        manifest.endTime = summary.endTime;
+        manifest.auditType = summary.auditType;
+        manifest.wcagLevel = summary.wcagLevel;
+        manifest.includeBestPractices = summary.includeBestPractices;
+        manifest.summary = summary.summary;
+        await this.writeJsonFileAtomic(this.bundleManifestFile(reportId), manifest);
+        await this.upsertSummary(summary);
+      }
+
       await this.writeViolationGroups(reportId, await this.buildViolationGroups(reportId));
       await this.writeViolationPageIndex(reportId, await this.buildViolationPageIndex(reportId));
 
@@ -777,34 +1041,40 @@ export class DatabaseService {
 
     const singleExists = await this.pathExists(this.reportFile(id));
     const bundleExists = await this.pathExists(this.bundleManifestFile(id));
-
-    if (!singleExists && !bundleExists) {
-      return false;
-    }
+    let removedPayload = false;
 
     if (singleExists) {
       await fs.unlink(this.reportFile(id));
+      removedPayload = true;
     }
 
     if (bundleExists) {
       await fs.rm(this.bundleDir(id), { recursive: true, force: true });
+      removedPayload = true;
     }
 
     if (await this.pathExists(this.violationGroupsFile(id))) {
       await fs.unlink(this.violationGroupsFile(id));
+      removedPayload = true;
     }
     if (await this.pathExists(this.violationPageIndexFile(id))) {
       await fs.unlink(this.violationPageIndexFile(id));
+      removedPayload = true;
     }
 
-    return this.removeSummary(id);
+    const removedSummary = await this.removeSummary(id);
+    return removedPayload || removedSummary;
+  }
+
+  async markReportCorrupted(reportId: string, message: string): Promise<void> {
+    await this.updateStoredSummaryIntegrity(reportId, this.buildCorruptedIntegrity(message));
   }
 
   async updateReport(report: ScanReport): Promise<boolean> {
     await this.ensureDirs();
 
     if (await this.pathExists(this.reportFile(report.id))) {
-      await fs.writeFile(this.reportFile(report.id), JSON.stringify(report));
+      await this.writeJsonFileAtomic(this.reportFile(report.id), report);
       await this.upsertSummary(this.summaryOf(report));
       await this.writeViolationGroups(report.id, this.buildViolationGroupsFromReports([report]));
       await this.writeViolationPageIndex(report.id, this.buildViolationPagesFromReports([report]));
@@ -829,7 +1099,7 @@ export class DatabaseService {
     if (single) {
       if (metadata.projectId !== undefined) single.projectId = metadata.projectId;
       if (metadata.pageTitle !== undefined) single.pageTitle = metadata.pageTitle;
-      await fs.writeFile(this.reportFile(reportId), JSON.stringify(single));
+      await this.writeJsonFileAtomic(this.reportFile(reportId), single);
       const summary = this.summaryOf(single);
       await this.upsertSummary(summary);
       return summary;
@@ -840,7 +1110,7 @@ export class DatabaseService {
 
     if (metadata.projectId !== undefined) manifest.projectId = metadata.projectId;
     if (metadata.pageTitle !== undefined) manifest.pageTitle = metadata.pageTitle;
-    await fs.writeFile(this.bundleManifestFile(reportId), JSON.stringify(manifest));
+    await this.writeJsonFileAtomic(this.bundleManifestFile(reportId), manifest);
     const summary = this.summaryFromManifest(manifest);
     await this.upsertSummary(summary);
     return summary;

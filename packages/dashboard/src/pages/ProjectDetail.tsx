@@ -1,10 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { ScanReport } from '@accessibility-scanner/shared';
 import { ExportModal } from '@/components/ExportModal';
+import { ViewLayoutToggle, type ViewLayout } from '@/components/ViewLayoutToggle';
+import {
+  ReportIntegrityNotice,
+  getReportIntegrityMessage,
+  isCorruptedReport,
+} from '@/components/ReportIntegrityNotice';
 import { downloadReportJson } from '@/lib/reportTransfer';
 import { Input } from '@/components/ui/input';
 import { ExternalLink } from '@/components/ExternalLink';
+import { useLayoutBreadcrumbs } from '@/context/LayoutBreadcrumbContext';
 import {
   Dialog,
   DialogContent,
@@ -15,6 +22,9 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useRestoreFocus } from '@/hooks/useRestoreFocus';
+import { readApiError } from '@/lib/api';
+
+type ProjectReportSummary = Omit<ScanReport, 'results'>;
 
 function Icon({ name, className = '', filled = false }: { name: string; className?: string; filled?: boolean }) {
   return (
@@ -33,7 +43,7 @@ interface ProjectWithReports {
   name: string;
   description?: string;
   createdAt: string;
-  reports: ScanReport[];
+  reports: ProjectReportSummary[];
 }
 
 const AUDIT_TYPE_LABELS: Record<string, string> = {
@@ -48,11 +58,14 @@ export function ProjectDetail() {
   const [project, setProject] = useState<ProjectWithReports | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [exportReport, setExportReport] = useState<ScanReport | null>(null);
+  const [exportReport, setExportReport] = useState<ProjectReportSummary | null>(null);
   const [exportingJsonId, setExportingJsonId] = useState<string | null>(null);
-  const [removeConfirmReport, setRemoveConfirmReport] = useState<ScanReport | null>(null);
-  const [deleteConfirmReport, setDeleteConfirmReport] = useState<ScanReport | null>(null);
+  const [openingManualAuditReportId, setOpeningManualAuditReportId] = useState<string | null>(null);
+  const [removeConfirmReport, setRemoveConfirmReport] = useState<ProjectReportSummary | null>(null);
+  const [deleteConfirmReport, setDeleteConfirmReport] = useState<ProjectReportSummary | null>(null);
   const [deleteProjectConfirm, setDeleteProjectConfirm] = useState(false);
+  const [reportsLayout, setReportsLayout] = useState<ViewLayout>('list');
+  const [actionError, setActionError] = useState<string | null>(null);
   const { handleCloseAutoFocus: handleDeleteProjectCloseAutoFocus } = useRestoreFocus(deleteProjectConfirm);
   const { handleCloseAutoFocus: handleDeleteReportCloseAutoFocus } = useRestoreFocus(!!deleteConfirmReport);
   const { handleCloseAutoFocus: handleRemoveReportCloseAutoFocus } = useRestoreFocus(!!removeConfirmReport);
@@ -68,9 +81,18 @@ export function ProjectDetail() {
     return () => { document.title = 'Seymour'; };
   }, [project]);
 
+  const breadcrumbs = useMemo(() => ([
+    { label: 'Dashboard', to: '/' },
+    { label: 'Projects', to: '/projects' },
+    { label: project?.name || 'Project' },
+  ]), [project?.name]);
+
+  useLayoutBreadcrumbs(breadcrumbs);
+
   async function load() {
     try {
       setLoading(true);
+      setActionError(null);
       const res = await fetch(`/api/projects/${id}`);
       if (!res.ok) throw new Error('Project not found');
       setProject(await res.json());
@@ -107,19 +129,73 @@ export function ProjectDetail() {
   }
 
   async function removeFromProject(reportId: string) {
-    await fetch(`/api/reports/${reportId}/project`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId: null }),
-    });
-    setRemoveConfirmReport(null);
-    await load();
+    try {
+      setActionError(null);
+      await fetch(`/api/reports/${reportId}/project`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: null }),
+      });
+      setRemoveConfirmReport(null);
+      await load();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to remove report from project');
+    }
   }
 
   async function deleteReport(reportId: string) {
-    await fetch(`/api/reports/${reportId}`, { method: 'DELETE' });
-    setDeleteConfirmReport(null);
-    await load();
+    try {
+      setActionError(null);
+      await fetch(`/api/reports/${reportId}`, { method: 'DELETE' });
+      setDeleteConfirmReport(null);
+      await load();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to remove report');
+    }
+  }
+
+  function getManualAuditState(pageResult: ScanReport['results'][number]) {
+    const checks = pageResult.manualAudit?.checks ?? [];
+    const failCount = checks.filter((check) => check.status === 'fail').length;
+    const checkedCount = checks.filter((check) => check.status !== 'not-tested').length;
+    const completed = pageResult.manualAudit?.completed === true;
+
+    return {
+      failCount,
+      checkedCount,
+      completed,
+    };
+  }
+
+  async function handleOpenManualAudit(report: ProjectReportSummary) {
+    try {
+      setActionError(null);
+      setOpeningManualAuditReportId(report.id);
+      const res = await fetch(`/api/reports/${report.id}/pages?offset=0&limit=250`);
+      if (!res.ok) throw await readApiError(res, 'Failed to fetch report pages');
+      const data = await res.json() as { items?: ScanReport['results'] };
+      const pages = data.items ?? [];
+
+      const targetPage =
+        pages.find((pageResult) => getManualAuditState(pageResult).failCount > 0) ??
+        pages.find((pageResult) => {
+          const state = getManualAuditState(pageResult);
+          return !state.completed && state.checkedCount > 0;
+        }) ??
+        pages.find((pageResult) => !getManualAuditState(pageResult).completed) ??
+        null;
+
+      if (targetPage) {
+        navigate(`/reports/${report.id}/page/${targetPage.id}`, { state: { tab: 'manual' } });
+        return;
+      }
+
+      navigate(`/reports/${report.id}?tab=pages`);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to open manual audit');
+    } finally {
+      setOpeningManualAuditReportId(null);
+    }
   }
 
   async function deleteProject() {
@@ -138,15 +214,6 @@ export function ProjectDetail() {
 
   return (
     <div className="p-8 space-y-8">
-      {/* Back link */}
-      <Link
-        to="/projects"
-        className="inline-flex items-center gap-1.5 text-sm text-on-surface-variant hover:text-on-surface transition-colors"
-      >
-        <Icon name="arrow_back" className="text-[18px]" />
-        All Projects
-      </Link>
-
       {/* Project header */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
@@ -231,6 +298,12 @@ export function ProjectDetail() {
         </button>
       </div>
 
+      {actionError && (
+        <div role="alert" className="rounded-2xl border border-error/25 bg-error-container/40 px-4 py-3 text-sm text-error">
+          {actionError}
+        </div>
+      )}
+
       {/* Reports list */}
       {project.reports.length === 0 ? (
         <div className="text-center py-20 bg-surface-container-lowest rounded-2xl shadow-[0px_12px_32px_rgba(24,28,32,0.06)]">
@@ -247,11 +320,21 @@ export function ProjectDetail() {
         </div>
       ) : (
         <div className="bg-surface-container-lowest rounded-2xl shadow-[0px_12px_32px_rgba(24,28,32,0.06)] overflow-hidden">
-          <div className="p-6 border-b border-surface-container">
+          <div className="flex items-center justify-between gap-4 border-b border-surface-container p-6">
             <h2 className="text-base font-bold text-on-surface">Reports</h2>
           </div>
+          <div className="px-6 pt-4">
+            <ViewLayoutToggle value={reportsLayout} onChange={setReportsLayout} ariaLabel="Project reports layout" />
+          </div>
+          {reportsLayout === 'list' ? (
           <div className="divide-y divide-surface-container">
-            {project.reports.map(report => (
+            {project.reports.map(report => {
+              const reportCorrupted = isCorruptedReport(report);
+              const manualAuditActionLabel = (report.summary.manualFailCount ?? 0) > 0 || (report.summary.auditedPages ?? 0) > 0
+                ? 'Continue Audit'
+                : 'Start Audit';
+
+              return (
               <div key={report.id} className="p-6 hover:bg-surface/30 transition-colors">
                 <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
                   <div className="min-w-0 flex-1">
@@ -287,64 +370,218 @@ export function ProjectDetail() {
                         <span className="text-on-surface-variant">critical</span>
                       </span>
                     </div>
+                    <ReportIntegrityNotice report={report} className="max-w-xl" />
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                    <Link
-                      to={`/reports/${report.id}`}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-primary to-primary-container shadow-lg shadow-primary/20 hover:opacity-90 transition-opacity"
-                    >
-                      View Report
-                    </Link>
-                    <button
-                      type="button"
-                      onClick={() => setExportReport(report)}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-outline-variant/30 text-sm font-medium text-on-surface hover:bg-surface-container transition-colors"
-                    >
-                      <Icon name="download" className="text-[18px]" />
-                      Export
-                    </button>
-                    <button
-                      type="button"
-                      disabled={exportingJsonId === report.id}
-                      onClick={async () => {
-                        try {
-                          setExportingJsonId(report.id);
-                          await downloadReportJson(report.id);
-                        } catch (err) {
-                          console.error('JSON export failed:', err);
-                        } finally {
-                          setExportingJsonId(null);
-                        }
-                      }}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-outline-variant/30 text-sm font-medium text-on-surface hover:bg-surface-container transition-colors disabled:opacity-50"
-                    >
-                      <Icon name="data_object" className="text-[18px]" />
-                      {exportingJsonId === report.id ? 'Saving…' : 'JSON'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRemoveConfirmReport(report)}
-                      aria-label={`Remove ${report.pageTitle || report.sitemap} from this project`}
-                      className="p-2 rounded-xl text-on-surface-variant hover:text-error hover:bg-error-container/30 transition-colors"
-                      title="Remove from project"
-                    >
-                      <Icon name="folder_off" className="text-[18px]" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDeleteConfirmReport(report)}
-                      aria-label={`Delete report ${report.pageTitle || report.sitemap}`}
-                      className="p-2 rounded-xl text-on-surface-variant hover:text-error hover:bg-error-container/30 transition-colors"
-                      title="Delete report"
-                    >
-                      <Icon name="delete" className="text-[18px]" />
-                    </button>
+                  <div className="flex shrink-0 flex-col items-start gap-3 lg:min-w-[360px] lg:items-end">
+                    <div className="flex flex-wrap items-center gap-2 justify-start lg:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenManualAudit(report)}
+                        disabled={openingManualAuditReportId === report.id || reportCorrupted}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-secondary shadow-lg shadow-secondary/20 hover:opacity-90 transition-opacity disabled:opacity-60"
+                      >
+                        {reportCorrupted ? 'Audit unavailable' : openingManualAuditReportId === report.id ? 'Opening…' : manualAuditActionLabel}
+                      </button>
+                      <Link
+                        to={`/reports/${report.id}`}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-primary to-primary-container shadow-lg shadow-primary/20 hover:opacity-90 transition-opacity"
+                      >
+                        {reportCorrupted ? 'Review issue' : 'View Report'}
+                      </Link>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 justify-start lg:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setExportReport(report)}
+                        disabled={reportCorrupted}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-outline-variant/30 text-sm font-medium text-on-surface hover:bg-surface-container transition-colors disabled:opacity-40"
+                      >
+                        <Icon name="download" className="text-[18px]" />
+                        Export
+                      </button>
+                      <button
+                        type="button"
+                        disabled={exportingJsonId === report.id || reportCorrupted}
+                        onClick={async () => {
+                          try {
+                            setExportingJsonId(report.id);
+                            await downloadReportJson(report.id);
+                          } catch (err) {
+                            console.error('JSON export failed:', err);
+                          } finally {
+                            setExportingJsonId(null);
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-outline-variant/30 text-sm font-medium text-on-surface hover:bg-surface-container transition-colors disabled:opacity-50"
+                      >
+                        <Icon name="data_object" className="text-[18px]" />
+                        {exportingJsonId === report.id ? 'Saving…' : 'JSON'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRemoveConfirmReport(report)}
+                        aria-label={`Remove ${report.pageTitle || report.sitemap} from this project`}
+                        className="p-2 rounded-xl text-on-surface-variant hover:text-error hover:bg-error-container/30 transition-colors"
+                        title="Remove from project"
+                      >
+                        <Icon name="folder_off" className="text-[18px]" />
+                      </button>
+                      {reportCorrupted ? (
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirmReport(report)}
+                          aria-label={`Cleanup broken report ${report.pageTitle || report.sitemap}`}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-error/30 px-3 py-2 text-sm font-medium text-error hover:bg-error-container/30 transition-colors"
+                          title={getReportIntegrityMessage(report)}
+                        >
+                          <Icon name="cleaning_services" className="text-[18px]" />
+                          Cleanup
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirmReport(report)}
+                          aria-label={`Delete report ${report.pageTitle || report.sitemap}`}
+                          className="p-2 rounded-xl text-on-surface-variant hover:text-error hover:bg-error-container/30 transition-colors"
+                          title="Delete report"
+                        >
+                          <Icon name="delete" className="text-[18px]" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-            ))}
+            );})}
           </div>
+          ) : (
+            <div className="grid gap-5 p-6 lg:grid-cols-2">
+              {project.reports.map(report => {
+                const reportLabel = report.pageTitle || report.sitemap;
+                const reportCorrupted = isCorruptedReport(report);
+                const manualAuditActionLabel = (report.summary.manualFailCount ?? 0) > 0 || (report.summary.auditedPages ?? 0) > 0
+                  ? 'Continue Audit'
+                  : 'Start Audit';
+
+                return (
+                  <div key={report.id} className="rounded-2xl border border-surface-container bg-white p-5 shadow-[0px_12px_32px_rgba(24,28,32,0.04)]">
+                    <div className="min-w-0">
+                      <div className="mb-2 flex flex-wrap items-center gap-2">
+                        {report.auditType && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-primary-fixed text-primary">
+                            {AUDIT_TYPE_LABELS[report.auditType] ?? report.auditType}
+                          </span>
+                        )}
+                        <span className="text-xs text-on-surface-variant">{new Date(report.startTime).toLocaleString()}</span>
+                      </div>
+                      <p className="font-semibold text-on-surface break-words">{reportLabel}</p>
+                      {report.pageTitle && report.sitemap.startsWith('http') && (
+                        <ExternalLink href={report.sitemap} className="mt-1 block text-xs text-on-surface-variant break-all">
+                          {report.sitemap}
+                        </ExternalLink>
+                      )}
+                      <ReportIntegrityNotice report={report} />
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-3 gap-3 rounded-xl bg-surface-container-low p-4 text-sm">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Pages</p>
+                        <p className="mt-1 font-semibold text-on-surface">{report.summary.totalPages}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Violations</p>
+                        <p className="mt-1 font-semibold text-error">{report.summary.totalViolations}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Critical</p>
+                        <p className="mt-1 font-semibold text-on-surface">{report.summary.violationsByImpact?.critical ?? 0}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenManualAudit(report)}
+                        disabled={openingManualAuditReportId === report.id || reportCorrupted}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-secondary shadow-lg shadow-secondary/20 hover:opacity-90 transition-opacity disabled:opacity-60"
+                      >
+                        {reportCorrupted ? 'Audit unavailable' : openingManualAuditReportId === report.id ? 'Opening…' : manualAuditActionLabel}
+                      </button>
+                      <Link
+                        to={`/reports/${report.id}`}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-primary to-primary-container shadow-lg shadow-primary/20 hover:opacity-90 transition-opacity"
+                      >
+                        {reportCorrupted ? 'Review issue' : 'View Report'}
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => setExportReport(report)}
+                        disabled={reportCorrupted}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-outline-variant/30 text-sm font-medium text-on-surface hover:bg-surface-container transition-colors disabled:opacity-40"
+                      >
+                        <Icon name="download" className="text-[18px]" />
+                        Export
+                      </button>
+                    </div>
+
+                    <div className="mt-4 flex items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={exportingJsonId === report.id || reportCorrupted}
+                        onClick={async () => {
+                          try {
+                            setExportingJsonId(report.id);
+                            await downloadReportJson(report.id);
+                          } catch (err) {
+                            console.error('JSON export failed:', err);
+                          } finally {
+                            setExportingJsonId(null);
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-outline-variant/30 text-sm font-medium text-on-surface hover:bg-surface-container transition-colors disabled:opacity-50"
+                      >
+                        <Icon name="data_object" className="text-[18px]" />
+                        {exportingJsonId === report.id ? 'Saving…' : 'JSON'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRemoveConfirmReport(report)}
+                        aria-label={`Remove ${reportLabel} from this project`}
+                        className="p-2 rounded-xl text-on-surface-variant hover:text-error hover:bg-error-container/30 transition-colors"
+                        title="Remove from project"
+                      >
+                        <Icon name="folder_off" className="text-[18px]" />
+                      </button>
+                      {reportCorrupted ? (
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirmReport(report)}
+                          aria-label={`Cleanup broken report ${reportLabel}`}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-error/30 px-3 py-2 text-sm font-medium text-error hover:bg-error-container/30 transition-colors"
+                          title={getReportIntegrityMessage(report)}
+                        >
+                          <Icon name="cleaning_services" className="text-[18px]" />
+                          Cleanup
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirmReport(report)}
+                          aria-label={`Delete report ${reportLabel}`}
+                          className="p-2 rounded-xl text-on-surface-variant hover:text-error hover:bg-error-container/30 transition-colors"
+                          title="Delete report"
+                        >
+                          <Icon name="delete" className="text-[18px]" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -368,15 +605,17 @@ export function ProjectDetail() {
       <Dialog open={!!deleteConfirmReport} onOpenChange={open => { if (!open) setDeleteConfirmReport(null); }}>
         <DialogContent onCloseAutoFocus={handleDeleteReportCloseAutoFocus}>
           <DialogHeader>
-            <DialogTitle>Delete report</DialogTitle>
+            <DialogTitle>{isCorruptedReport(deleteConfirmReport) ? 'Cleanup broken report' : 'Delete report'}</DialogTitle>
             <DialogDescription>
-              This will permanently delete <strong>{deleteConfirmReport?.pageTitle || deleteConfirmReport?.sitemap}</strong> and all its data. This cannot be undone.
+              {isCorruptedReport(deleteConfirmReport)
+                ? <>This will permanently remove <strong>{deleteConfirmReport?.pageTitle || deleteConfirmReport?.sitemap}</strong> and its unreadable stored payload. This cannot be undone.</>
+                : <>This will permanently delete <strong>{deleteConfirmReport?.pageTitle || deleteConfirmReport?.sitemap}</strong> and all its data. This cannot be undone.</>}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirmReport(null)}>Cancel</Button>
             <Button variant="destructive" onClick={() => deleteConfirmReport && deleteReport(deleteConfirmReport.id)}>
-              Delete report
+              {isCorruptedReport(deleteConfirmReport) ? 'Cleanup report' : 'Delete report'}
             </Button>
           </DialogFooter>
         </DialogContent>

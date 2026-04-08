@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ScanResult } from '@accessibility-scanner/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ExternalLink } from '@/components/ExternalLink';
+import { ViewLayoutToggle, type ViewLayout } from '@/components/ViewLayoutToggle';
 
 interface LocationState {
   page: ScanResult;
@@ -13,6 +15,7 @@ export function PageDetail() {
   const location = useLocation();
   const navigate = useNavigate();
   const state = location.state as LocationState | null;
+  const [layout, setLayout] = useState<ViewLayout>('list');
 
   if (!state || !state.page) {
     navigate(-1);
@@ -69,7 +72,12 @@ export function PageDetail() {
           <Badge variant="default">{page.inapplicable} inapplicable</Badge>
         </div>
 
-        <div>
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <ViewLayoutToggle value={layout} onChange={setLayout} ariaLabel="Page violations layout" />
+          </div>
+
+          {layout === 'list' ? (
           <Table>
             <TableHeader>
               <TableRow>
@@ -138,6 +146,50 @@ export function PageDetail() {
               })}
             </TableBody>
           </Table>
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-2">
+              {page.violations.map((violation, idx) => (
+                <div key={`${violation.id}-${idx}`} className="rounded-2xl border border-outline-variant/20 bg-background p-5 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-on-surface">
+                        <ExternalLink href={violation.helpUrl}>
+                          {[...wcagCriteria(violation.tags), violation.help].filter(Boolean).join(' — ')}
+                        </ExternalLink>
+                      </p>
+                    </div>
+                    <Badge variant={impactColors[violation.impact]}>{violation.impact}</Badge>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {violation.level
+                      ? <Badge variant="outline">{violation.level === 'best-practice' ? 'Best Practice' : `WCAG ${violation.level}`}</Badge>
+                      : <span className="text-muted-foreground">—</span>}
+                    {wcagCriteria(violation.tags).length > 0
+                      ? wcagCriteria(violation.tags).map(criteria => (
+                          <Badge key={criteria} variant="outline" className="font-mono text-xs">{criteria}</Badge>
+                        ))
+                      : <span className="text-muted-foreground">No WCAG criterion</span>}
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    {(violation.nodes.length ? violation.nodes : [{ html: '', target: [], failureSummary: '' }]).map((node, nodeIndex) => (
+                      <div key={`${violation.id}-${nodeIndex}`} className="rounded-xl bg-muted/40 p-4">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Location</p>
+                        <p className="mt-1 text-xs break-words">{node.target.join(' ') || '—'}</p>
+
+                        <p className="mt-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Failure Summary</p>
+                        <p className="mt-1 text-xs break-words">{node.failureSummary || '—'}</p>
+
+                        <p className="mt-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">HTML</p>
+                        <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words text-xs">{node.html || '—'}</pre>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
