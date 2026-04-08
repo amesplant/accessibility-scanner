@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
   ManualAudit,
   ManualAuditStatus,
@@ -78,6 +78,7 @@ const Moon = _msIcon('dark_mode');
 const Flag = _msIcon('flag');
 const Layers = _msIcon('layers');
 const AlertCircle = _msIcon('error');
+const FilterAltOff = _msIcon('filter_alt_off');
 
 // ---------------------------------------------------------------------------
 // Lookup map: check id → predefined metadata (category, priority, level)
@@ -340,11 +341,80 @@ function LevelFilterSelector({
 
 type TierFilter = 'all' | 'rapid' | 'mid-level';
 
+type PriorityFilter = 'all' | 'high' | 'medium' | 'low';
+
+type StatusFilter = 'all' | ManualAuditStatus;
+
 const TIER_FILTER_OPTIONS: { value: TierFilter; label: string }[] = [
   { value: 'all',       label: 'All' },
   { value: 'rapid',     label: 'Rapid' },
   { value: 'mid-level', label: 'Mid-level' },
 ];
+
+const PRIORITY_FILTER_OPTIONS: { value: PriorityFilter; label: string }[] = [
+  { value: 'all', label: 'All priorities' },
+  { value: 'high', label: 'High impact' },
+  { value: 'medium', label: 'Medium impact' },
+  { value: 'low', label: 'Low / situational' },
+];
+
+const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'pass', label: 'Pass' },
+  { value: 'fail', label: 'Fail' },
+  { value: 'na', label: 'N/A' },
+  { value: 'not-tested', label: 'Not tested' },
+];
+
+function DesktopFilterSelect<TValue extends string>({
+  label,
+  selectedLabel,
+  value,
+  options,
+  onChange,
+  className,
+}: {
+  label: string;
+  selectedLabel?: string;
+  value: TValue;
+  options: { value: TValue; label: string }[];
+  onChange: (value: TValue) => void;
+  className?: string;
+}) {
+  return (
+    <Select value={value} onValueChange={(nextValue) => onChange(nextValue as TValue)}>
+      <SelectTrigger className={cn('h-14 min-w-[168px] rounded-[20px] border-slate-200 bg-slate-50 px-5 text-left text-base font-bold text-slate-700 shadow-none', className)}>
+        <span className="truncate">
+          <span className="text-slate-500">{label}</span>
+          {selectedLabel && selectedLabel !== label && (
+            <span className="text-slate-400">: </span>
+          )}
+          {selectedLabel && selectedLabel !== label && (
+            <span className="text-slate-800">{selectedLabel}</span>
+          )}
+        </span>
+      </SelectTrigger>
+      <SelectContent className="rounded-[20px] border-slate-200 bg-white p-2 shadow-[0_20px_40px_rgba(15,23,42,0.08)]">
+        <div className="px-3 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">Select {label.toLowerCase()}</div>
+        {options.map((option) => {
+          const active = option.value === value;
+          return (
+            <SelectItem
+              key={option.value}
+              value={option.value}
+              className={cn(
+                'mt-1 rounded-2xl px-4 py-3 text-base font-semibold text-slate-700',
+                active && 'bg-slate-100 text-cyan-900',
+              )}
+            >
+              {option.label}
+            </SelectItem>
+          );
+        })}
+      </SelectContent>
+    </Select>
+  );
+}
 
 function TierFilterSelector({
   value,
@@ -2885,6 +2955,451 @@ interface ManualAuditTabProps {
   onGenerateElementScreenshot?: (criterionId: string, elementId: string) => Promise<void>;
 }
 
+const DETAIL_STATUS_OPTIONS: ManualAuditStatus[] = ['pass', 'fail', 'na', 'not-tested'];
+
+const DETAIL_STATUS_TEXT: Record<ManualAuditStatus, string> = {
+  pass: 'Pass',
+  fail: 'Fail',
+  na: 'N/A',
+  'not-tested': 'Pending',
+};
+
+const DETAIL_STATUS_BADGES: Record<ManualAuditStatus, string> = {
+  pass: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  fail: 'bg-red-100 text-red-800 border-red-200',
+  na: 'bg-slate-100 text-slate-600 border-slate-200',
+  'not-tested': 'bg-slate-100 text-slate-600 border-slate-200',
+};
+
+const DETAIL_STATUS_BUTTONS: Record<ManualAuditStatus, string> = {
+  pass: 'data-[state=active]:bg-emerald-700 data-[state=active]:text-white data-[state=active]:border-emerald-700 text-slate-500 hover:text-emerald-800',
+  fail: 'data-[state=active]:bg-red-700 data-[state=active]:text-white data-[state=active]:border-red-700 text-slate-500 hover:text-red-800',
+  na: 'data-[state=active]:bg-slate-700 data-[state=active]:text-white data-[state=active]:border-slate-700 text-slate-500 hover:text-slate-800',
+  'not-tested': 'data-[state=active]:bg-slate-500 data-[state=active]:text-white data-[state=active]:border-slate-500 text-slate-500 hover:text-slate-800',
+};
+
+function MasterDetailStatusPill({ status }: { status: ManualAuditStatus }) {
+  return (
+    <span className={cn('inline-flex items-center whitespace-nowrap rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em]', DETAIL_STATUS_BADGES[status])}>
+      {DETAIL_STATUS_TEXT[status]}
+    </span>
+  );
+}
+
+function DesktopCriterionSidebarSection({
+  title,
+  checks,
+  selectedCheckId,
+  onSelect,
+  registerButtonRef,
+}: {
+  title: string;
+  checks: ManualCheckResult[];
+  selectedCheckId: string | null;
+  onSelect: (checkId: string, focusDetail?: boolean) => void;
+  registerButtonRef: (checkId: string, element: HTMLButtonElement | null) => void;
+}) {
+  if (checks.length === 0) return null;
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between px-1">
+        <h3 className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-500">{title}</h3>
+        <span className="text-xs font-medium text-slate-400">{checks.length}</span>
+      </div>
+      <div className="space-y-3">
+        {checks.map((check) => {
+          const meta = check.wcagCriterion ? PREDEFINED_MAP[check.wcagCriterion] : undefined;
+          const selected = check.id === selectedCheckId;
+
+          return (
+            <button
+              key={check.id}
+              ref={(element) => registerButtonRef(check.id, element)}
+              type="button"
+              onClick={() => onSelect(check.id, false)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onSelect(check.id, true);
+                }
+              }}
+              aria-pressed={selected}
+              aria-controls={selected ? `criterion-workspace-${check.id}` : undefined}
+              className={cn(
+                'w-full rounded-[22px] border px-5 py-4 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-inset',
+                selected
+                  ? 'border-cyan-200 bg-white shadow-[0_20px_40px_rgba(15,23,42,0.08)] ring-1 ring-cyan-100'
+                  : 'border-slate-200/80 bg-slate-50/75 hover:border-slate-300 hover:bg-white',
+              )}
+            >
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className={cn('mb-1 text-[11px] font-black tracking-tight', selected ? 'text-cyan-700' : 'text-slate-400')}>
+                    {check.wcagCriterion}
+                  </div>
+                  <div className="text-sm font-bold leading-snug text-slate-900">{check.title}</div>
+                </div>
+                <MasterDetailStatusPill status={check.status} />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {check.level && (
+                  <span className={cn('rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight', LEVEL_COLORS[check.level])}>
+                    {check.level}
+                  </span>
+                )}
+                {meta?.category && (
+                  <span className="rounded-md bg-slate-200/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight text-slate-600">
+                    {meta.category}
+                  </span>
+                )}
+                {meta?.auditTags?.map((tag) => (
+                  <span key={tag} className="rounded-md bg-slate-200/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight text-slate-600">
+                    {tag === 'rapid' ? 'Rapid' : 'Standard'}
+                  </span>
+                ))}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function DesktopCriterionWorkspace({
+  check,
+  smartElements,
+  detailRegionRef,
+  onEscapeToSidebar,
+  onStatusChange,
+  onUpdateQuestionStatuses,
+  onNotesChange,
+  onAddFailure,
+  onUpdateFailure,
+  onDeleteFailure,
+  onUpdateSmartElement,
+  onAddElementFailure,
+  onUpdateElementFailure,
+  onDeleteElementFailure,
+  onGenerateFocusOrderScreenshot,
+  onDetectElements,
+  onGenerateElementScreenshot,
+}: {
+  check: ManualCheckResult;
+  smartElements?: DetectedElement[];
+  detailRegionRef?: React.RefObject<HTMLDivElement | null>;
+  onEscapeToSidebar?: () => void;
+  onStatusChange: (status: ManualAuditStatus) => void;
+  onUpdateQuestionStatuses?: (statuses: ManualAuditStatus[]) => void;
+  onNotesChange: (notes: string) => void;
+  onAddFailure: () => void;
+  onUpdateFailure: (failureId: string, data: FailureUpdateData) => void;
+  onDeleteFailure: (failureId: string) => void;
+  onUpdateSmartElement?: (elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => void;
+  onAddElementFailure?: (elementId: string, data?: FailureSeedData) => void;
+  onUpdateElementFailure?: (elementId: string, failureId: string, data: FailureUpdateData) => void;
+  onDeleteElementFailure?: (elementId: string, failureId: string) => void;
+  onGenerateFocusOrderScreenshot?: (elementId: string, colorScheme: 'light' | 'dark') => Promise<void>;
+  onDetectElements?: (criterionId: string, onProgress?: DetectionProgressHandler) => Promise<void>;
+  onGenerateElementScreenshot?: (criterionId: string, elementId: string) => Promise<void>;
+}) {
+  const pageUrl = useContext(PageUrlContext);
+  const [criterionNotes, setCriterionNotes] = useState(check.notes ?? '');
+  const [exportOpen, setExportOpen] = useState(false);
+  const meta = check.wcagCriterion ? PREDEFINED_MAP[check.wcagCriterion] : undefined;
+  const questions = meta?.questions ?? [];
+  const [questionStatuses, setQuestionStatuses] = useState<ManualAuditStatus[]>(
+    () => check.questionStatuses ?? questions.map(() => 'not-tested'),
+  );
+
+  useEffect(() => {
+    setCriterionNotes(check.notes ?? '');
+  }, [check.id, check.notes]);
+
+  useEffect(() => {
+    setQuestionStatuses(check.questionStatuses ?? questions.map(() => 'not-tested'));
+  }, [check.id, check.questionStatuses, questions]);
+
+  const handleSmartElementUpdate = useCallback(
+    (elementId: string, status: 'pass' | 'fail' | 'not-reviewed', comment?: string) => {
+      onUpdateSmartElement?.(elementId, status, comment);
+      if (smartElements && smartElements.length > 0) {
+        const projected = smartElements.map((element) => element.id === elementId ? { ...element, auditStatus: status } : element);
+        const allReviewed = projected.every((element) => element.auditStatus !== 'not-reviewed');
+        if (allReviewed) {
+          const anyFailed = projected.some((element) => element.auditStatus === 'fail' || (element.failures ?? []).length > 0);
+          onStatusChange(anyFailed ? 'fail' : 'pass');
+        }
+      }
+    },
+    [onStatusChange, onUpdateSmartElement, smartElements],
+  );
+
+  return (
+    <div
+      id={`criterion-workspace-${check.id}`}
+      ref={detailRegionRef}
+      tabIndex={-1}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          onEscapeToSidebar?.();
+        }
+      }}
+      className="flex h-full flex-col overflow-hidden rounded-[28px] border border-slate-200/80 bg-white shadow-[0_24px_48px_rgba(15,23,42,0.08)] focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-inset"
+    >
+      <div className="border-b border-slate-200/70 px-7 py-7 lg:px-8">
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <div>
+            <span className="inline-flex items-center rounded-full bg-cyan-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-700">
+              Selected Criterion
+            </span>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-9 gap-1.5 rounded-full px-3 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+            onClick={() => setExportOpen(true)}
+          >
+            <Download className="h-3.5 w-3.5" aria-hidden="true" />
+            Export
+          </Button>
+          {exportOpen && (
+            <ExportModal
+              report={null}
+              singleIssue={{ kind: 'check', check, pageUrl }}
+              onClose={() => setExportOpen(false)}
+            />
+          )}
+        </div>
+
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-2xl font-extrabold tracking-tight text-slate-950">
+              {check.wcagCriterion} {check.title}
+            </h3>
+            {check.description && (
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">{check.description}</p>
+            )}
+          </div>
+          <MasterDetailStatusPill status={check.status} />
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {check.level && (
+            <Badge variant="outline" className={cn('rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em]', LEVEL_COLORS[check.level])}>
+              {check.level}
+            </Badge>
+          )}
+          {meta?.category && (
+            <Badge variant="outline" className={cn('rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em]', CATEGORY_COLORS[meta.category])}>
+              {meta.category}
+            </Badge>
+          )}
+          {meta?.auditTags?.map((tag) => (
+            <Badge key={tag} variant="outline" className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-600">
+              {tag === 'rapid' ? 'Rapid' : 'Mid-level'}
+            </Badge>
+          ))}
+        </div>
+
+        <div className="mt-6 rounded-[20px] bg-slate-100 p-1.5">
+          <div className="grid grid-cols-2 gap-1 xl:grid-cols-4">
+            {DETAIL_STATUS_OPTIONS.map((status) => {
+              const active = check.status === status;
+              return (
+                <button
+                  key={status}
+                  type="button"
+                  data-state={active ? 'active' : 'inactive'}
+                  onClick={() => onStatusChange(status)}
+                  className={cn(
+                    'rounded-2xl border border-transparent px-3 py-2.5 text-xs font-bold transition-colors',
+                    DETAIL_STATUS_BUTTONS[status],
+                  )}
+                >
+                  {DETAIL_STATUS_TEXT[status]}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 space-y-6 overflow-y-auto px-7 py-7 lg:px-8">
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor={`criterion-notes-${check.id}`} className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
+              Criterion Notes
+            </Label>
+            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-violet-700">Workspace notes</span>
+          </div>
+          <Textarea
+            id={`criterion-notes-${check.id}`}
+            value={criterionNotes}
+            onChange={(event) => setCriterionNotes(event.target.value)}
+            onBlur={() => {
+              if (criterionNotes !== (check.notes ?? '')) {
+                onNotesChange(criterionNotes);
+              }
+            }}
+            placeholder="Describe the issue, expected behavior, and any repro steps for this criterion..."
+            rows={5}
+            className="rounded-[20px] border-slate-200 bg-slate-50 px-4 py-3 text-sm shadow-none"
+          />
+        </section>
+
+        {questions.length > 0 && (
+          <section className="space-y-3 rounded-[24px] border border-slate-200/80 bg-slate-50/80 p-5">
+            <div>
+              <h4 className="text-sm font-black uppercase tracking-[0.16em] text-slate-700">How To Test</h4>
+              <p className="mt-1 text-sm text-slate-500">Work through each testing prompt and mark the outcome as you go.</p>
+            </div>
+            <ol className="space-y-4">
+              {questions.map((question, index) => (
+                <li key={`${check.id}-question-${index}`} className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-sm">
+                  <p className="mb-3 text-sm font-medium leading-6 text-slate-800">{question}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {DETAIL_STATUS_OPTIONS.map((status) => {
+                      const selected = questionStatuses[index] === status;
+                      return (
+                        <button
+                          key={status}
+                          type="button"
+                          data-state={selected ? 'active' : 'inactive'}
+                          onClick={() => {
+                            const next = questionStatuses.map((existing, questionIndex) => questionIndex === index ? status : existing);
+                            setQuestionStatuses(next);
+                            onUpdateQuestionStatuses?.(next);
+                          }}
+                          className={cn(
+                            'rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
+                            selected
+                              ? DETAIL_STATUS_BADGES[status]
+                              : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-800',
+                          )}
+                        >
+                          {DETAIL_STATUS_TEXT[status]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+
+        {smartElements !== undefined ? (
+          <NonTextElementsPanel
+            elements={smartElements}
+            criterionId={check.wcagCriterion}
+            onUpdate={handleSmartElementUpdate}
+            onAddElementFailure={onAddElementFailure}
+            onUpdateElementFailure={onUpdateElementFailure}
+            onDeleteElementFailure={onDeleteElementFailure}
+            onAutoPass={smartElements.length === 0 ? () => onStatusChange('pass') : undefined}
+            onAddCriterionFailure={() => { onAddFailure(); if (check.status !== 'fail') onStatusChange('fail'); }}
+            onGenerateFocusOrderScreenshot={onGenerateFocusOrderScreenshot}
+            onGenerateElementScreenshot={onGenerateElementScreenshot && check.wcagCriterion
+              ? (elementId) => onGenerateElementScreenshot(check.wcagCriterion!, elementId)
+              : undefined}
+            onDetect={onDetectElements && check.wcagCriterion && (
+              check.wcagCriterion === '3.2.1' ||
+              check.wcagCriterion === '2.4.3' ||
+              check.wcagCriterion === '2.1.1' ||
+              check.wcagCriterion === '2.4.7' ||
+              check.wcagCriterion === '2.1.2' ||
+              check.wcagCriterion === '2.4.4' ||
+              check.wcagCriterion === '1.1.1' ||
+              check.wcagCriterion === '1.3.1' ||
+              check.wcagCriterion === '1.4.3' ||
+              check.wcagCriterion === '1.4.4'
+            ) ? () => onDetectElements(check.wcagCriterion!) : undefined}
+            emptyLabel={
+              check.wcagCriterion === '1.2.1'
+                ? 'No audio or video-only elements detected on this page — nothing to audit for 1.2.1.'
+                : check.wcagCriterion === '1.2.2'
+                ? 'No video elements with audio detected on this page — nothing to audit for 1.2.2.'
+                : check.wcagCriterion === '2.4.4'
+                ? 'No ambiguous links detected on this page — nothing to audit for 2.4.4.'
+                : check.wcagCriterion === '1.3.1'
+                ? 'No form fields, tables, or headings detected on this page — nothing to audit for 1.3.1.'
+                : check.wcagCriterion === '2.4.3'
+                ? 'No focus order data found — click "Re-detect elements on page" below to scan this page.'
+                : check.wcagCriterion === '3.2.1'
+                ? 'No focus-triggered elements detected on this page — manually tab through all interactive elements to verify none cause a context change.'
+                : check.wcagCriterion === '2.1.1'
+                ? 'No mouse-only interactions detected — manually tab through all functionality to verify keyboard accessibility.'
+                : check.wcagCriterion === '2.4.7'
+                ? 'No focus-style issues detected — tab through the page to visually confirm every element has a visible focus indicator.'
+                : check.wcagCriterion === '2.1.2'
+                ? 'No keyboard trap risks detected — tab through all interactive elements and verify focus is never permanently stuck.'
+                : check.wcagCriterion === '1.1.1'
+                ? 'No non-text elements detected — manually review the page for images, icons, and controls that may lack a text alternative.'
+                : check.wcagCriterion === '1.4.3'
+                ? 'No contrast failures detected — manually verify text against gradient or image backgrounds where computed colors may not reflect the true contrast.'
+                : check.wcagCriterion === '1.4.4'
+                ? 'No 200% preview captured yet — click "Re-capture 200% preview" below to generate a full-page resize preview, then review it for clipping, overlap, truncation, or lost functionality.'
+                : undefined
+            }
+          />
+        ) : onDetectElements && check.wcagCriterion && (
+          check.wcagCriterion === '3.2.1' ||
+          check.wcagCriterion === '2.4.3' ||
+          check.wcagCriterion === '2.1.1' ||
+          check.wcagCriterion === '2.4.7' ||
+          check.wcagCriterion === '2.1.2' ||
+          check.wcagCriterion === '2.4.4' ||
+          check.wcagCriterion === '1.1.1' ||
+          check.wcagCriterion === '1.3.1' ||
+          check.wcagCriterion === '1.4.3' ||
+          check.wcagCriterion === '1.4.4'
+        ) ? (
+          <OnDemandDetectionPanel
+            criterionId={check.wcagCriterion}
+            onDetect={(onProgress) => onDetectElements(check.wcagCriterion!, onProgress)}
+          />
+        ) : null}
+
+        <section className="space-y-3 rounded-[24px] border border-slate-200/80 bg-slate-50/80 p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h4 className="text-sm font-black uppercase tracking-[0.16em] text-slate-700">Failure Tracking</h4>
+              <p className="mt-1 text-sm text-slate-500">Capture screenshots, notes, remediation, and related WCAG impacts here.</p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => { onAddFailure(); if (check.status !== 'fail') onStatusChange('fail'); }}
+              className="rounded-full border-dashed px-4"
+            >
+              <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+              Add failure instance
+            </Button>
+          </div>
+          {(check.status === 'fail' || (check.failures ?? []).length > 0) ? (
+            <FailureInstancesSection
+              failures={check.failures}
+              checkContext={{ id: check.id, title: check.title, criterion: check.wcagCriterion, description: check.description, level: check.level }}
+              onAdd={() => { onAddFailure(); if (check.status !== 'fail') onStatusChange('fail'); }}
+              onUpdate={(failureId, data) => onUpdateFailure(failureId, data)}
+              onDelete={onDeleteFailure}
+            />
+          ) : (
+            <div className="rounded-[20px] border border-dashed border-slate-300 bg-white px-4 py-5 text-sm text-slate-500">
+              No failure instances yet. Add one when you need to capture screenshots, code snippets, or remediation notes for this criterion.
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
 export function ManualAuditTab({
   audit,
   detectedElements,
@@ -2912,23 +3427,70 @@ export function ManualAuditTab({
   const [viewMode, setViewMode] = useState<ViewMode>('wcag');
   const [levelFilter, setLevelFilter] = useState<LevelFilter>('all');
   const [tierFilter, setTierFilter] = useState<TierFilter>('all');
+  const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [auditorNotes, setAuditorNotes] = useState(audit.auditorNotes ?? '');
   const markCompleteRef = useRef<HTMLButtonElement>(null);
   const reopenRef = useRef<HTMLButtonElement>(null);
+  const detailRegionRef = useRef<HTMLDivElement>(null);
+  const sidebarButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [returnFocusCheckId, setReturnFocusCheckId] = useState<string | null>(null);
 
   // Apply level, tier, and category filters — custom checks always visible
   const visibleChecks = audit.checks.filter(c => {
-    if (c.type === 'custom') return true;
+    if (c.type === 'custom') {
+      if (statusFilter !== 'all' && c.status !== statusFilter) return false;
+      return true;
+    }
     if (levelFilter !== 'all' && c.level !== levelFilter) return false;
     if (tierFilter !== 'all' && !PREDEFINED_MAP[c.id]?.auditTags.includes(tierFilter)) return false;
     if (categoryFilter && PREDEFINED_MAP[c.id]?.category !== categoryFilter) return false;
+    if (priorityFilter !== 'all' && PREDEFINED_MAP[c.id]?.priority !== priorityFilter) return false;
+    if (statusFilter !== 'all' && c.status !== statusFilter) return false;
     return true;
   });
   const filteredAudit = { ...audit, checks: visibleChecks };
 
   const customChecks = visibleChecks.filter(c => c.type === 'custom');
+  const wcagChecks = visibleChecks.filter((check) => check.type === 'wcag');
   const groups = buildGroups(filteredAudit, viewMode);
+  const [selectedCheckId, setSelectedCheckId] = useState<string | null>(wcagChecks[0]?.id ?? null);
+
+  useEffect(() => {
+    if (wcagChecks.length === 0) {
+      setSelectedCheckId(null);
+      return;
+    }
+
+    setSelectedCheckId((current) => {
+      if (current && wcagChecks.some((check) => check.id === current)) {
+        return current;
+      }
+      return wcagChecks[0].id;
+    });
+  }, [wcagChecks]);
+
+  useEffect(() => {
+    if (!returnFocusCheckId) return;
+    detailRegionRef.current?.focus();
+    setReturnFocusCheckId(null);
+  }, [returnFocusCheckId, selectedCheckId]);
+
+  const selectedCheck = wcagChecks.find((check) => check.id === selectedCheckId) ?? wcagChecks[0];
+  const hasActiveDesktopFilters = levelFilter !== 'all' || categoryFilter !== null || priorityFilter !== 'all' || statusFilter !== 'all';
+  const desktopSortedChecks = [...wcagChecks].sort((left, right) => {
+    const leftCriterion = left.wcagCriterion ?? '';
+    const rightCriterion = right.wcagCriterion ?? '';
+    return leftCriterion.localeCompare(rightCriterion, undefined, { numeric: true });
+  });
+  const desktopGroups = levelFilter === 'all'
+    ? [{ id: 'desktop-all-levels', label: 'All Criteria', checks: desktopSortedChecks }]
+    : [{
+        id: `desktop-level-${levelFilter.toLowerCase()}`,
+        label: `WCAG ${levelFilter}`,
+        checks: wcagChecks,
+      }];
 
   // Progress stats scoped to the current level filter
   const total = visibleChecks.length;
@@ -2986,58 +3548,216 @@ export function ManualAuditTab({
         </div>
       )}
 
-      {/* Progress panel */}
-      <div className="border rounded p-4 space-y-3">
-        <div className="flex items-center justify-between text-base">
-          <span className="font-medium text-muted-foreground uppercase tracking-wide text-xs">
-            Audit Progress
-          </span>
-          <span className="text-base text-muted-foreground">
-            {checked}/{total} checked
-          </span>
-        </div>
-        <Progress value={progressPct} aria-label={`${progressPct}% of checks completed`} />
-        <div className="flex flex-wrap gap-3 text-xs" aria-label="Audit progress breakdown">
-          <span className="text-emerald-900 ">● {counts.pass} Pass</span>
-          <span className="text-red-700">● {counts.fail} Fail</span>
-          <span className="text-muted-foreground">● {counts.na} N/A</span>
-          <span className="text-muted-foreground">● {counts['not-tested']} Not Tested</span>
-        </div>
-        {onToggleComplete && !isCompleted && (
-          <div className="pt-1">
-            <Button
-              ref={markCompleteRef}
-              size="sm"
-              variant="outline"
-              onClick={() => { onToggleComplete(true); setTimeout(() => reopenRef.current?.focus(), 0); }}
-              className="border-emerald-900 bg-emerald-900 text-white hover:bg-emerald-950 hover:border-emerald-950"
-            >
-              <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" aria-hidden="true" />
-              Mark Audit Complete
-            </Button>
+      <div className="hidden lg:block sticky top-0 z-10 rounded-[28px] border border-slate-200/80 bg-white/95 p-6 shadow-[0_18px_40px_rgba(15,23,42,0.06)] backdrop-blur">
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+            <div className="space-y-2">
+              <div className="text-[11px] font-black uppercase tracking-[0.24em] text-cyan-700/70">Manual Audit Workspace</div>
+              <h2 className="text-3xl font-extrabold tracking-tight text-slate-950">Manual WCAG 2.1 Audit</h2>
+              <p className="max-w-3xl text-sm leading-6 text-slate-500">
+                Review criteria from the sidebar, update status in place, and keep evidence and notes in a dedicated detail pane without losing your place.
+              </p>
+            </div>
+            <div className="w-full max-w-[360px] space-y-1">
+              <label htmlFor="auditor-notes-desktop" className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
+                Page Notes
+              </label>
+              <Textarea
+                id="auditor-notes-desktop"
+                placeholder="Overall notes for this page…"
+                value={auditorNotes}
+                onChange={e => setAuditorNotes(e.target.value)}
+                onBlur={() => {
+                  if (auditorNotes !== (audit.auditorNotes ?? '')) {
+                    onAuditorNotesChange(auditorNotes);
+                  }
+                }}
+                className="min-h-[112px] rounded-[20px] border-slate-200 bg-slate-50 px-4 py-3 text-sm shadow-none"
+              />
+            </div>
           </div>
-        )}
-        <div className="space-y-1">
-          <label htmlFor="auditor-notes" className="text-xs font-medium text-muted-foreground">
-            Auditor Notes
-          </label>
-          <Textarea
-            id="auditor-notes"
-            placeholder="Overall notes for this page…"
-            value={auditorNotes}
-            onChange={e => setAuditorNotes(e.target.value)}
-            onBlur={() => {
-              if (auditorNotes !== (audit.auditorNotes ?? '')) {
-                onAuditorNotesChange(auditorNotes);
-              }
-            }}
-            className="min-h-[60px] text-base"
-          />
+
+          <div className="rounded-[24px] border border-slate-200/70 bg-slate-50/70 px-5 py-4">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="space-y-2 xl:max-w-md">
+                <div className="flex items-center justify-between text-sm font-bold text-slate-600">
+                  <span>Audit Progress</span>
+                  <span className="text-cyan-800">{checked} / {total} criteria checked</span>
+                </div>
+                <div className="overflow-hidden rounded-full bg-slate-200/80">
+                  <Progress value={progressPct} aria-label={`${progressPct}% of checks completed`} className="h-2 bg-transparent" />
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-3 text-xs xl:justify-end" aria-label="Audit progress breakdown">
+                <span className="font-semibold text-emerald-800">● {counts.pass} Pass</span>
+                <span className="font-semibold text-red-700">● {counts.fail} Fail</span>
+                <span className="text-slate-500">● {counts.na} N/A</span>
+                <span className="text-slate-500">● {counts['not-tested']} Not Tested</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Audit Filters</div>
+            <div className="flex flex-wrap items-center gap-4">
+              <DesktopFilterSelect
+                label="Level"
+                selectedLabel={levelFilter === 'all' ? undefined : LEVEL_FILTER_OPTIONS.find((option) => option.value === levelFilter)?.label}
+                value={levelFilter}
+                options={LEVEL_FILTER_OPTIONS}
+                onChange={setLevelFilter}
+                className="min-w-[176px]"
+              />
+              <DesktopFilterSelect
+                label="Category"
+                selectedLabel={categoryFilter ?? undefined}
+                value={(categoryFilter ?? 'all') as string}
+                options={[{ value: 'all', label: 'All categories' }, ...CATEGORY_ORDER.map((category) => ({ value: category, label: category }))]}
+                onChange={(value) => setCategoryFilter(value === 'all' ? null : value)}
+                className="min-w-[224px]"
+              />
+              <DesktopFilterSelect
+                label="Priority"
+                selectedLabel={priorityFilter === 'all' ? undefined : PRIORITY_FILTER_OPTIONS.find((option) => option.value === priorityFilter)?.label}
+                value={priorityFilter}
+                options={PRIORITY_FILTER_OPTIONS}
+                onChange={setPriorityFilter}
+                className="min-w-[176px]"
+              />
+              <DesktopFilterSelect
+                label="Status"
+                selectedLabel={statusFilter === 'all' ? undefined : STATUS_FILTER_OPTIONS.find((option) => option.value === statusFilter)?.label}
+                value={statusFilter}
+                options={STATUS_FILTER_OPTIONS}
+                onChange={setStatusFilter}
+                className="min-w-[176px]"
+              />
+              <div className="mx-1 hidden h-10 w-px bg-slate-300 2xl:block" />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setLevelFilter('all');
+                  setCategoryFilter(null);
+                  setPriorityFilter('all');
+                  setStatusFilter('all');
+                }}
+                disabled={!hasActiveDesktopFilters}
+                className="h-14 rounded-[20px] px-4 text-base font-bold text-cyan-900 hover:bg-cyan-50 disabled:text-slate-400 disabled:hover:bg-transparent"
+              >
+                <FilterAltOff className="mr-2 h-4 w-4" aria-hidden="true" />
+                Clear All
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="hidden lg:grid lg:grid-cols-[minmax(340px,0.95fr)_minmax(0,1.25fr)] lg:gap-6 lg:items-start">
+        <div className="rounded-[28px] border border-slate-200/80 bg-slate-50/80 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.05)]">
+          <div className="max-h-[calc(100vh-17rem)] space-y-6 overflow-y-auto pr-2">
+            {desktopGroups.map((group) => (
+              <DesktopCriterionSidebarSection
+                key={group.id}
+                title={group.label}
+                checks={group.checks}
+                selectedCheckId={selectedCheckId}
+                onSelect={(checkId, focusDetail) => {
+                  setSelectedCheckId(checkId);
+                  if (focusDetail) {
+                    setReturnFocusCheckId(checkId);
+                  }
+                }}
+                registerButtonRef={(checkId, element) => {
+                  sidebarButtonRefs.current[checkId] = element;
+                }}
+              />
+            ))}
+            {desktopGroups.length === 0 && (
+              <div className="rounded-[22px] border border-dashed border-slate-300 bg-white px-5 py-6 text-sm text-slate-500">
+                No WCAG criteria match the current filters.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="min-h-[720px]">
+          {selectedCheck ? (
+            <div className="grid h-full grid-rows-[minmax(0,1fr)_auto] gap-4">
+              <DesktopCriterionWorkspace
+                check={selectedCheck}
+                smartElements={selectedCheck.wcagCriterion ? detectedElements?.[selectedCheck.wcagCriterion] : undefined}
+                detailRegionRef={detailRegionRef}
+                onEscapeToSidebar={() => {
+                  const button = sidebarButtonRefs.current[selectedCheck.id];
+                  button?.focus();
+                }}
+                onStatusChange={(status) => onStatusChange(selectedCheck.id, status)}
+                onUpdateQuestionStatuses={onUpdateQuestionStatuses
+                  ? (statuses) => onUpdateQuestionStatuses(selectedCheck.id, statuses)
+                  : undefined}
+                onNotesChange={(notes) => onNotesChange(selectedCheck.id, notes)}
+                onAddFailure={() => onAddFailure(selectedCheck.id)}
+                onUpdateFailure={(failureId, data) => onUpdateFailure(selectedCheck.id, failureId, data)}
+                onDeleteFailure={(failureId) => onDeleteFailure(selectedCheck.id, failureId)}
+                onUpdateSmartElement={selectedCheck.wcagCriterion && onUpdateDetectedElement
+                  ? (elementId, status, comment) => onUpdateDetectedElement(selectedCheck.wcagCriterion!, elementId, status, comment)
+                  : undefined}
+                onAddElementFailure={selectedCheck.wcagCriterion && onAddElementFailure
+                  ? (elementId, data) => onAddElementFailure(selectedCheck.wcagCriterion!, elementId, data)
+                  : undefined}
+                onUpdateElementFailure={selectedCheck.wcagCriterion && onUpdateElementFailure
+                  ? (elementId, failureId, data) => onUpdateElementFailure(selectedCheck.wcagCriterion!, elementId, failureId, data)
+                  : undefined}
+                onDeleteElementFailure={selectedCheck.wcagCriterion && onDeleteElementFailure
+                  ? (elementId, failureId) => onDeleteElementFailure(selectedCheck.wcagCriterion!, elementId, failureId)
+                  : undefined}
+                onGenerateFocusOrderScreenshot={onGenerateFocusOrderScreenshot}
+                onDetectElements={onDetectElements}
+                onGenerateElementScreenshot={onGenerateElementScreenshot}
+              />
+
+              <div className="flex items-center gap-3 rounded-[24px] border border-slate-200/80 bg-white px-6 py-4 shadow-[0_12px_32px_rgba(15,23,42,0.06)]">
+                {onToggleComplete && !isCompleted && (
+                  <Button
+                    ref={markCompleteRef}
+                    size="sm"
+                    onClick={() => { onToggleComplete(true); setTimeout(() => reopenRef.current?.focus(), 0); }}
+                    className="h-11 flex-1 rounded-2xl bg-cyan-900 text-white hover:bg-cyan-950"
+                  >
+                    <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                    Mark Audit Complete
+                  </Button>
+                )}
+                {onToggleComplete && isCompleted && (
+                  <Button
+                    ref={reopenRef}
+                    size="sm"
+                    variant="outline"
+                    onClick={() => { onToggleComplete(false); setTimeout(() => markCompleteRef.current?.focus(), 0); }}
+                    className="h-11 rounded-2xl px-5"
+                  >
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                    Re-open Audit
+                  </Button>
+                )}
+                <Button size="sm" variant="outline" className="h-11 rounded-2xl px-5" onClick={() => setDialogOpen(true)}>
+                  <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                  Add Custom Issue
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex min-h-[720px] items-center justify-center rounded-[28px] border border-dashed border-slate-300 bg-white px-8 text-center text-sm text-slate-500">
+              Choose a criterion from the sidebar to begin auditing.
+            </div>
+          )}
         </div>
       </div>
 
       {/* Controls row */}
-      <div className="space-y-2">
+      <div className="space-y-2 lg:hidden">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <ViewModeSelector value={viewMode} onChange={setViewMode} />
           <div className="flex items-center gap-3 flex-wrap">
@@ -3071,6 +3791,7 @@ export function ManualAuditTab({
       </div>
 
       {/* Check groups */}
+      <div className="lg:hidden space-y-6">
       {groups.map(group => (
         <CheckGroupSection
           key={group.id}
@@ -3092,10 +3813,11 @@ export function ManualAuditTab({
           onGenerateElementScreenshot={onGenerateElementScreenshot}
         />
       ))}
+      </div>
 
       {/* Custom Issues — shown separately for all modes except status (which already includes them) */}
       {viewMode !== 'status' && (
-        <section aria-labelledby="custom-issues-heading">
+        <section aria-labelledby="custom-issues-heading" className="lg:rounded-[28px] lg:border lg:border-slate-200/80 lg:bg-white lg:p-6 lg:shadow-[0_18px_40px_rgba(15,23,42,0.05)]">
           <div className="flex items-center justify-between mb-2">
             <h2
               id="custom-issues-heading"
